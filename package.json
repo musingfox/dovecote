@@ -5,7 +5,11 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "deploy:secrets": "./scripts/setup-worker-vars.sh",
+    "deploy:verify": "./scripts/verify-deployment.sh",
+    "test": "bun test",
+    "test:e2e": "bun test test/e2e/"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260410.1",
