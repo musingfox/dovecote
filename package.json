@@ -1,0 +1,23 @@
+{
+  "name": "dovecote",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260410.1",
+    "@types/bun": "latest",
+    "wrangler": "^4.81.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "hono": "^4.12.12",
+    "zod": "^3.24.1"
+  }
+}
