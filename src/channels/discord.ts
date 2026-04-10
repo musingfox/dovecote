@@ -6,7 +6,10 @@ export class DiscordProvider implements ChannelProvider {
 
   async send(message: string): Promise<SendResult> {
     try {
-      const response = await fetch(this.webhookUrl, {
+      const url = new URL(this.webhookUrl);
+      url.searchParams.set("wait", "true");
+
+      const response = await fetch(url.toString(), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -17,10 +20,16 @@ export class DiscordProvider implements ChannelProvider {
         }),
       });
 
-      if (response.status === 204) {
+      if (response.ok) {
+        const data = (await response.json()) as any;
         return {
           success: true,
           channel: "discord",
+          messageId: data.id,
+          detail: {
+            text: data.content,
+            chatId: data.channel_id,
+          },
         };
       }
 

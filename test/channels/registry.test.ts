@@ -57,7 +57,7 @@ describe("sendToChannel", () => {
         new Response(
           JSON.stringify({
             ok: true,
-            result: { message_id: 123 },
+            result: { message_id: 123, text: "test message", chat: { id: "chat456" } },
           }),
           { status: 200 }
         )

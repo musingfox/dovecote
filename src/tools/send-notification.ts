@@ -15,14 +15,18 @@ export function registerSendNotificationTool(server: McpServer, env: Env): void 
     async ({ channel, message }) => {
       const result = await sendToChannel(channel, message, env);
       if (result.success) {
-        const text = result.messageId
-          ? `Sent to ${channel}: ${result.messageId}`
-          : `Sent to ${channel}`;
+        const response: Record<string, unknown> = {
+          channel,
+          messageId: result.messageId,
+        };
+        if (result.detail) {
+          response.detail = result.detail;
+        }
         return {
           content: [
             {
               type: "text",
-              text,
+              text: JSON.stringify(response),
             },
           ],
         };

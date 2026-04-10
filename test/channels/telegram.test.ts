@@ -13,7 +13,7 @@ describe("TelegramProvider", () => {
         new Response(
           JSON.stringify({
             ok: true,
-            result: { message_id: 456 },
+            result: { message_id: 456, text: "Hello", chat: { id: "chat456" } },
           }),
           { status: 200 }
         )
@@ -28,6 +28,7 @@ describe("TelegramProvider", () => {
       success: true,
       channel: "telegram",
       messageId: "456",
+      detail: { text: "Hello", chatId: "chat456" },
     });
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toBe(

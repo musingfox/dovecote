@@ -36,6 +36,10 @@ export class TelegramProvider implements ChannelProvider {
           success: true,
           channel: "telegram",
           messageId: String(data.result.message_id),
+          detail: {
+            text: data.result.text,
+            chatId: String(data.result.chat?.id),
+          },
         };
       }
 

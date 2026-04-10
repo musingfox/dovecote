@@ -15,5 +15,9 @@ export interface SendResult {
   success: boolean;
   channel: string;
   messageId?: string;
+  detail?: {
+    text?: string;
+    chatId?: string;
+  };
   error?: string;
 }

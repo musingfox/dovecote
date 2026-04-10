@@ -7,9 +7,18 @@ describe("DiscordProvider", () => {
     mock.restore();
   });
 
-  it("send returns success on 204", async () => {
+  it("send returns success with detail on 200", async () => {
     const mockFetch = mock((url: string, options?: any) => {
-      return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "msg-001",
+            content: "Hello",
+            channel_id: "ch-123",
+          }),
+          { status: 200 }
+        )
+      );
     });
     globalThis.fetch = mockFetch as any;
 
@@ -18,10 +27,15 @@ describe("DiscordProvider", () => {
     );
     const result = await provider.send("Hello");
 
-    expect(result).toEqual({ success: true, channel: "discord" });
+    expect(result).toEqual({
+      success: true,
+      channel: "discord",
+      messageId: "msg-001",
+      detail: { text: "Hello", chatId: "ch-123" },
+    });
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toBe(
-      "https://discord.com/api/webhooks/123/abc"
+      "https://discord.com/api/webhooks/123/abc?wait=true"
     );
     const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
     expect(body).toEqual({ content: "Hello", username: "Dovecote" });
