@@ -38,6 +38,9 @@ function loadConfig(): E2EConfig {
       authToken: testAuthToken,
       env: {
         MCP_AUTH_TOKEN: testAuthToken,
+        TELEGRAM_BOT_TOKEN: process.env.TEST_TELEGRAM_BOT_TOKEN,
+        TELEGRAM_CHAT_ID: process.env.TEST_TELEGRAM_CHAT_ID,
+        DISCORD_WEBHOOK_URL: process.env.TEST_DISCORD_WEBHOOK_URL,
       },
     };
   }

@@ -25,8 +25,8 @@ echo ""
 # Test 1: Health check
 echo "Test 1: GET /health"
 HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" "$WORKER_URL/health")
-HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | head -n -1)
-HEALTH_STATUS=$(echo "$HEALTH_RESPONSE" | tail -n 1)
+HEALTH_STATUS=$(echo "$HEALTH_RESPONSE" | tail -1)
+HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | sed '$d')
 
 if [[ "$HEALTH_STATUS" != "200" ]]; then
   echo "FAILED: Expected status 200, got $HEALTH_STATUS"
