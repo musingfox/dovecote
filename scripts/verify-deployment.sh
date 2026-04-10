@@ -43,10 +43,11 @@ fi
 echo "PASSED: Health check returned 200 OK"
 echo ""
 
-# Test 2: Auth rejection
-echo "Test 2: POST /mcp without auth"
+# Test 2: Wrong token rejected
+echo "Test 2: POST /mcp with wrong token"
 AUTH_FAIL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer wrong-token" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}' \
   "$WORKER_URL/mcp")
 AUTH_FAIL_STATUS=$(echo "$AUTH_FAIL_RESPONSE" | tail -n 1)
@@ -56,7 +57,7 @@ if [[ "$AUTH_FAIL_STATUS" != "401" ]]; then
   exit 1
 fi
 
-echo "PASSED: Auth rejection returned 401"
+echo "PASSED: Wrong token rejected with 401"
 echo ""
 
 # Test 3: MCP initialize with auth

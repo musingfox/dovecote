@@ -98,19 +98,26 @@ describe("Bearer Auth", () => {
     expect(res.status).toBe(200);
   });
 
-  it("POST /mcp without auth returns 401", async () => {
+  it("POST /mcp without auth is allowed (authless mode)", async () => {
     const req = new Request("http://localhost/mcp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "initialize",
-        params: {},
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test", version: "1.0.0" },
+        },
         id: 1,
       }),
     });
     const res = await app.fetch(req, mockEnv);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
   });
 
   it("POST /mcp with wrong token returns 401", async () => {

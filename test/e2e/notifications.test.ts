@@ -68,19 +68,26 @@ describe("E2E: Health", () => {
 });
 
 describe("E2E: Auth", () => {
-  it("rejects request without token", async () => {
+  it("allows request without token (authless mode)", async () => {
     const req = new Request("http://localhost/mcp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "initialize",
-        params: {},
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test", version: "1.0.0" },
+        },
         id: 1,
       }),
     });
     const res = await doFetch(req);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
   });
 
   it("rejects request with wrong token", async () => {

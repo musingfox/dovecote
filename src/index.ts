@@ -19,8 +19,14 @@ app.use(
 );
 
 // Bearer auth middleware for MCP endpoints (skip OPTIONS)
+// If a token is provided, validate it. If no token is provided, allow access
+// (enables authless mode for clients like Claude web that don't support Bearer auth).
 app.use("/mcp", async (c, next) => {
   if (c.req.method === "OPTIONS") {
+    return next();
+  }
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader) {
     return next();
   }
   const auth = bearerAuth({
