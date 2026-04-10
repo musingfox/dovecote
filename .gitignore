@@ -37,3 +37,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Claude Code local settings
 .claude/*.local.md
 .claude/settings.local.json
+.obsidian-pm.yaml
