@@ -48,7 +48,7 @@ describe("E2E Config", () => {
     const { config } = require("./config");
 
     expect(config.isRemote).toBe(false);
-    expect(config.baseUrl).toBe("http://localhost");
+    expect(config.baseUrl).toBe("http://localhost:8787");
     expect(config.authToken).toBeDefined();
     expect(config.env.MCP_AUTH_TOKEN).toBeDefined();
   });

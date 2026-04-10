@@ -79,16 +79,7 @@ Dovecote (Cloudflare Worker)
    wrangler login
    ```
 
-2. **Deploy the worker**
-   ```bash
-   ./scripts/deploy.sh
-   # or
-   bun run deploy
-   ```
-
-   Note the worker URL from the output (e.g., `https://dovecote.your-subdomain.workers.dev`)
-
-3. **Set secrets**
+2. **Set secrets**
    ```bash
    ./scripts/setup-worker-vars.sh
    # or
@@ -105,6 +96,15 @@ Dovecote (Cloudflare Worker)
    - `TELEGRAM_CHAT_ID` - Telegram chat ID to send messages to
    - `DISCORD_WEBHOOK_URL` - Discord webhook URL
 
+3. **Deploy the worker**
+   ```bash
+   ./scripts/deploy.sh
+   # or
+   bun run deploy
+   ```
+
+   The script will output the worker URL (e.g., `https://dovecote.your-subdomain.workers.dev`)
+
 4. **Verify deployment**
    ```bash
    MCP_AUTH_TOKEN=your-token ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
@@ -113,11 +113,26 @@ Dovecote (Cloudflare Worker)
    bun run deploy:verify https://dovecote.your-subdomain.workers.dev
    ```
 
+   This runs three tests:
+   - Health check (GET /health → 200 OK)
+   - Wrong token rejected (POST /mcp with invalid Bearer token → 401)
+   - Authorized MCP initialize (POST /mcp with Bearer token → 200 OK with serverInfo)
+
 5. **Run E2E tests against production** (optional)
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
    TEST_AUTH_TOKEN=your-token \
-   bun test test/e2e/
+   bun test:e2e:remote
+   ```
+
+   For testing notification channels on production:
+   ```bash
+   TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
+   TEST_AUTH_TOKEN=your-token \
+   TEST_TELEGRAM_BOT_TOKEN=your-telegram-token \
+   TEST_TELEGRAM_CHAT_ID=your-chat-id \
+   TEST_DISCORD_WEBHOOK_URL=your-discord-webhook \
+   bun test:e2e:remote
    ```
 
 ## Testing

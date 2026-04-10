@@ -54,7 +54,7 @@ function loadConfig(): E2EConfig {
   }
 
   return {
-    baseUrl: "http://localhost",
+    baseUrl: "http://localhost:8787",
     isRemote: false,
     authToken: vars.MCP_AUTH_TOKEN,
     env: {

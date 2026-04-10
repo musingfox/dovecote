@@ -45,15 +45,15 @@ echo ""
 
 # Test 2: Wrong token rejected
 echo "Test 2: POST /mcp with wrong token"
-AUTH_FAIL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+WRONG_TOKEN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer wrong-token" \
+  -H "Authorization: Bearer wrong-token-12345" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}' \
   "$WORKER_URL/mcp")
-AUTH_FAIL_STATUS=$(echo "$AUTH_FAIL_RESPONSE" | tail -n 1)
+WRONG_TOKEN_STATUS=$(echo "$WRONG_TOKEN_RESPONSE" | tail -n 1)
 
-if [[ "$AUTH_FAIL_STATUS" != "401" ]]; then
-  echo "FAILED: Expected status 401, got $AUTH_FAIL_STATUS"
+if [[ "$WRONG_TOKEN_STATUS" != "401" ]]; then
+  echo "FAILED: Expected status 401, got $WRONG_TOKEN_STATUS"
   exit 1
 fi
 

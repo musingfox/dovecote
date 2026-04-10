@@ -61,7 +61,7 @@ check_secrets() {
     done
   done
 
-  [ $found -eq 0 ] && pass "No secrets detected (regex)"
+  [ $found -eq 0 ] && pass "No secrets detected (regex)" || true
 }
 
 check_private_keys() {
@@ -75,7 +75,7 @@ check_private_keys() {
         ;;
     esac
   done
-  [ $found -eq 0 ] && pass "No private key files"
+  [ $found -eq 0 ] && pass "No private key files" || true
 }
 
 check_sensitive_paths() {
@@ -93,7 +93,7 @@ check_sensitive_paths() {
         ;;
     esac
   done
-  [ $found -eq 0 ] && pass "No sensitive files"
+  [ $found -eq 0 ] && pass "No sensitive files" || true
 }
 
 # ========================================
@@ -112,7 +112,7 @@ check_large_files() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "No large files"
+  [ $found -eq 0 ] && pass "No large files" || true
 }
 
 check_merge_conflicts() {
@@ -125,7 +125,7 @@ check_merge_conflicts() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "No merge conflict markers"
+  [ $found -eq 0 ] && pass "No merge conflict markers" || true
 }
 
 check_line_endings() {
@@ -139,7 +139,7 @@ check_line_endings() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "Consistent line endings"
+  [ $found -eq 0 ] && pass "Consistent line endings" || true
 }
 
 check_trailing_whitespace() {
@@ -153,7 +153,7 @@ check_trailing_whitespace() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "No trailing whitespace"
+  [ $found -eq 0 ] && pass "No trailing whitespace" || true
 }
 
 check_eof_newline() {
@@ -167,7 +167,7 @@ check_eof_newline() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "All files end with newline"
+  [ $found -eq 0 ] && pass "All files end with newline" || true
 }
 
 check_broken_symlinks() {
@@ -179,7 +179,7 @@ check_broken_symlinks() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "No broken symlinks"
+  [ $found -eq 0 ] && pass "No broken symlinks" || true
 }
 
 # ========================================
@@ -204,7 +204,7 @@ check_no_commit_markers() {
       found=1
     fi
   done
-  [ $found -eq 0 ] && pass "No commit markers found"
+  [ $found -eq 0 ] && pass "No commit markers found" || true
 }
 
 check_syntax_validation() {
@@ -248,7 +248,7 @@ check_syntax_validation() {
         ;;
     esac
   done
-  [ $found -eq 0 ] && pass "File syntax valid"
+  [ $found -eq 0 ] && pass "File syntax valid" || true
 }
 
 check_lock_sync() {
@@ -264,7 +264,7 @@ check_lock_sync() {
     fi
   fi
 
-  [ $found -eq 0 ] && pass "Lock files consistent"
+  [ $found -eq 0 ] && pass "Lock files consistent" || true
 }
 
 # ========================================
