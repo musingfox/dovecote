@@ -1,5 +1,5 @@
 import type { Env, SendResult } from "../types.js";
-import type { ChannelProvider, ChannelFactory } from "./types.js";
+import type { ChannelProvider, ChannelFactory, MessageContent } from "./types.js";
 
 export class TelegramProvider implements ChannelProvider {
   constructor(
@@ -7,7 +7,15 @@ export class TelegramProvider implements ChannelProvider {
     private chatId: string
   ) {}
 
-  async send(message: string): Promise<SendResult> {
+  async send(content: MessageContent): Promise<SendResult> {
+    if (content.text === undefined) {
+      return {
+        success: false,
+        channel: "telegram",
+        error: "Telegram requires text content",
+      };
+    }
+
     try {
       const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
       const response = await fetch(url, {
@@ -17,7 +25,7 @@ export class TelegramProvider implements ChannelProvider {
         },
         body: JSON.stringify({
           chat_id: this.chatId,
-          text: message,
+          text: content.text,
         }),
       });
 

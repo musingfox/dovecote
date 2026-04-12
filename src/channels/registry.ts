@@ -1,5 +1,5 @@
 import type { Env, ChannelConfig, SendResult } from "../types.js";
-import type { ChannelFactory } from "./types.js";
+import type { ChannelFactory, MessageContent } from "./types.js";
 import { telegramFactory } from "./telegram.js";
 import { discordFactory } from "./discord.js";
 
@@ -11,7 +11,7 @@ export function getChannelConfigs(env: Env): ChannelConfig[] {
 
 export async function sendToChannel(
   channelId: string,
-  message: string,
+  content: MessageContent,
   env: Env
 ): Promise<SendResult> {
   const factory = factories.find((f) => f.id === channelId);
@@ -33,5 +33,5 @@ export async function sendToChannel(
     };
   }
 
-  return provider.send(message);
+  return provider.send(content);
 }

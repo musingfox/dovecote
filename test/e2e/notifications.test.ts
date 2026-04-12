@@ -168,7 +168,7 @@ describe("E2E: send_notification → Telegram", () => {
       "tools/call",
       {
         name: "send_notification",
-        arguments: { channel: "telegram", message: sentMessage },
+        arguments: { channel: "telegram", content: { text: sentMessage } },
       },
       3
     );
@@ -198,7 +198,7 @@ describe("E2E: send_notification → Discord", () => {
       "tools/call",
       {
         name: "send_notification",
-        arguments: { channel: "discord", message: sentMessage },
+        arguments: { channel: "discord", content: { text: sentMessage } },
       },
       4
     );
@@ -222,7 +222,7 @@ describe("E2E: send_notification → unknown channel", () => {
       "tools/call",
       {
         name: "send_notification",
-        arguments: { channel: "slack", message: "should fail" },
+        arguments: { channel: "slack", content: { text: "should fail" } },
       },
       5
     );
@@ -270,7 +270,7 @@ describe("E2E: no Telegram config", () => {
 
     const req = mcpRequest(
       "tools/call",
-      { name: "send_notification", arguments: { channel: "telegram", message: "test" } },
+      { name: "send_notification", arguments: { channel: "telegram", content: { text: "test" } } },
       11
     );
     const res = await app.fetch(req, envNoTelegram);
@@ -313,7 +313,7 @@ describe("E2E: no Discord config", () => {
 
     const req = mcpRequest(
       "tools/call",
-      { name: "send_notification", arguments: { channel: "discord", message: "test" } },
+      { name: "send_notification", arguments: { channel: "discord", content: { text: "test" } } },
       21
     );
     const res = await app.fetch(req, envNoDiscord);
@@ -354,7 +354,7 @@ describe("E2E: no channel config at all", () => {
     for (const channel of ["telegram", "discord"]) {
       const req = mcpRequest(
         "tools/call",
-        { name: "send_notification", arguments: { channel, message: "test" } },
+        { name: "send_notification", arguments: { channel, content: { text: "test" } } },
         31
       );
       const res = await app.fetch(req, envEmpty);

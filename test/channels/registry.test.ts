@@ -26,14 +26,14 @@ describe("getChannelConfigs", () => {
   });
 });
 
-describe("sendToChannel", () => {
+describe("sendToChannel (BC5)", () => {
   beforeEach(() => {
     mock.restore();
   });
 
   it("returns error for unknown channel", async () => {
     const env: Env = { MCP_AUTH_TOKEN: "x" };
-    const result = await sendToChannel("slack", "msg", env);
+    const result = await sendToChannel("slack", { text: "Hello" }, env);
     expect(result).toEqual({
       success: false,
       channel: "slack",
@@ -43,7 +43,7 @@ describe("sendToChannel", () => {
 
   it("returns error for unconfigured channel", async () => {
     const env: Env = { MCP_AUTH_TOKEN: "x" };
-    const result = await sendToChannel("telegram", "msg", env);
+    const result = await sendToChannel("telegram", { text: "msg" }, env);
     expect(result).toEqual({
       success: false,
       channel: "telegram",
@@ -51,13 +51,42 @@ describe("sendToChannel", () => {
     });
   });
 
-  it("calls provider send when channel is configured", async () => {
+  it("routes to Discord provider with embed", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "discord-123",
+            embeds: [{ title: "Test" }],
+            channel_id: "ch-123",
+          }),
+          { status: 200 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const env: Env = {
+      MCP_AUTH_TOKEN: "x",
+      DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/123/abc",
+    };
+    const result = await sendToChannel(
+      "discord",
+      { embed: { title: "Test" } },
+      env
+    );
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("discord");
+    expect(result.messageId).toBe("discord-123");
+  });
+
+  it("routes to Telegram provider with text", async () => {
     const mockFetch = mock(() => {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             ok: true,
-            result: { message_id: 123, text: "test message", chat: { id: "chat456" } },
+            result: { message_id: 123, text: "Hello", chat: { id: "chat456" } },
           }),
           { status: 200 }
         )
@@ -70,7 +99,7 @@ describe("sendToChannel", () => {
       TELEGRAM_BOT_TOKEN: "bot123",
       TELEGRAM_CHAT_ID: "chat456",
     };
-    const result = await sendToChannel("telegram", "test message", env);
+    const result = await sendToChannel("telegram", { text: "Hello" }, env);
     expect(result.success).toBe(true);
     expect(result.channel).toBe("telegram");
     expect(result.messageId).toBe("123");

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env } from "../types.js";
 import { sendToChannel } from "../channels/registry.js";
+import { messageContentSchema } from "../channels/schemas.js";
 
 export function registerSendNotificationTool(server: McpServer, env: Env): void {
   // @ts-expect-error - zod peer dependency type conflict with MCP SDK
@@ -10,10 +11,10 @@ export function registerSendNotificationTool(server: McpServer, env: Env): void 
     "Send a message to a notification channel",
     {
       channel: z.string().describe("Channel ID"),
-      message: z.string().describe("Message text"),
+      content: messageContentSchema.describe("Message content with optional text and embed"),
     },
-    async ({ channel, message }) => {
-      const result = await sendToChannel(channel, message, env);
+    async ({ channel, content }) => {
+      const result = await sendToChannel(channel, content, env);
       if (result.success) {
         const response: Record<string, unknown> = {
           channel,

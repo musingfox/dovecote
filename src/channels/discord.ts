@@ -1,23 +1,32 @@
 import type { Env, SendResult } from "../types.js";
-import type { ChannelProvider, ChannelFactory } from "./types.js";
+import type { ChannelProvider, ChannelFactory, MessageContent } from "./types.js";
 
 export class DiscordProvider implements ChannelProvider {
   constructor(private webhookUrl: string) {}
 
-  async send(message: string): Promise<SendResult> {
+  async send(content: MessageContent): Promise<SendResult> {
     try {
       const url = new URL(this.webhookUrl);
       url.searchParams.set("wait", "true");
+
+      const payload: Record<string, unknown> = {
+        username: "Dovecote",
+      };
+
+      if (content.text !== undefined) {
+        payload.content = content.text;
+      }
+
+      if (content.embed !== undefined) {
+        payload.embeds = [content.embed];
+      }
 
       const response = await fetch(url.toString(), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          content: message,
-          username: "Dovecote",
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {

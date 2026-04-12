@@ -1,13 +1,13 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { TelegramProvider, telegramFactory } from "../../src/channels/telegram";
 
-describe("TelegramProvider", () => {
+describe("TelegramProvider (BC4)", () => {
   beforeEach(() => {
     // Reset fetch mock before each test
     mock.restore();
   });
 
-  it("send returns success with messageId on 200", async () => {
+  it("send text only → sends { chat_id, text }", async () => {
     const mockFetch = mock((url: string, options?: any) => {
       return Promise.resolve(
         new Response(
@@ -22,7 +22,7 @@ describe("TelegramProvider", () => {
     globalThis.fetch = mockFetch as any;
 
     const provider = new TelegramProvider("123:ABC", "chat456");
-    const result = await provider.send("Hello");
+    const result = await provider.send({ text: "Hello" });
 
     expect(result).toEqual({
       success: true,
@@ -38,6 +38,45 @@ describe("TelegramProvider", () => {
     expect(body).toEqual({ chat_id: "chat456", text: "Hello" });
   });
 
+  it("send with embed ignored → sends only text, embed not in payload", async () => {
+    const mockFetch = mock((url: string, options?: any) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: { message_id: 457, text: "Notification", chat: { id: "chat456" } },
+          }),
+          { status: 200 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("123:ABC", "chat456");
+    const result = await provider.send({
+      text: "Notification",
+      embed: { title: "Ignored" },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("telegram");
+    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
+    expect(body.text).toBe("Notification");
+    expect(body).not.toHaveProperty("embed");
+    expect(body).not.toHaveProperty("embeds");
+  });
+
+  it("send embed-only → returns error (Telegram requires text)", async () => {
+    const provider = new TelegramProvider("123:ABC", "chat456");
+    const result = await provider.send({
+      embed: { title: "No text" },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("telegram");
+    expect(result.error).toBe("Telegram requires text content");
+  });
+
   it("send returns failure on non-ok response", async () => {
     const mockFetch = mock(() => {
       return Promise.resolve(new Response("Unauthorized", { status: 401 }));
@@ -45,7 +84,7 @@ describe("TelegramProvider", () => {
     globalThis.fetch = mockFetch as any;
 
     const provider = new TelegramProvider("bad:token", "chat456");
-    const result = await provider.send("Hello");
+    const result = await provider.send({ text: "Hello" });
 
     expect(result.success).toBe(false);
     expect(result.channel).toBe("telegram");
@@ -60,7 +99,7 @@ describe("TelegramProvider", () => {
     globalThis.fetch = mockFetch as any;
 
     const provider = new TelegramProvider("123:ABC", "chat456");
-    const result = await provider.send("Hello");
+    const result = await provider.send({ text: "Hello" });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("Network error");
