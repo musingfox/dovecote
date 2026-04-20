@@ -5,17 +5,20 @@ Agent notification infrastructure — an MCP server deployed on Cloudflare Worke
 ## Features
 
 - **MCP over Streamable HTTP** — compatible with Claude Code, Claude web connector, and any MCP client
-- **Multi-channel notifications** — Telegram Bot API, Discord Webhook, Slack Webhook
-- **Bearer token auth** — only authorized agents can send notifications
-- **Encrypted channel config** — webhook credentials stored in Cloudflare KV with AES-256-GCM encryption
+- **OAuth 2.1 + PKCE** — Claude.ai web connector登入流程，支援 Dynamic Client Registration (RFC 7591) 與 Protected Resource Metadata (RFC 9728)
+- **Legacy bearer token** — 舊客戶端可繼續使用 `MCP_AUTH_TOKEN` 直連
+- **Multi-instance channels** — Telegram / Discord 可設定多個 instance (`TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON 陣列)
+- **CSRF protection** — HMAC-SHA256 + HttpOnly/Secure cookie
 
 ## Architecture
 
 ```
 Agent (Claude Code / claude.ai / any MCP client)
   │
-  ▼  MCP over SSE (Bearer token)
-Dovecote (Cloudflare Worker)
+  ▼  MCP over Streamable HTTP
+  │   ├─ OAuth 2.1 + PKCE (Claude.ai web connector)
+  │   └─ Bearer token (legacy MCP_AUTH_TOKEN)
+Dovecote (Cloudflare Worker + OAUTH_KV)
   │
   ├──▶ Telegram Bot API
   ├──▶ Discord Webhook
@@ -31,10 +34,10 @@ Dovecote (Cloudflare Worker)
 
 ## Tech Stack
 
-- **Runtime**: Cloudflare Workers (TypeScript)
+- **Runtime**: Cloudflare Workers (TypeScript, Hono)
 - **Transport**: Streamable HTTP (SSE)
-- **Storage**: Cloudflare KV (encrypted)
-- **Auth**: Bearer token via Worker Secrets
+- **Storage**: Cloudflare KV (`OAUTH_KV` — OAuth clients/grants/tokens + encrypted channel config)
+- **Auth**: `@cloudflare/workers-oauth-provider` (OAuth 2.1) + legacy bearer fallback
 
 ## Development
 
@@ -43,12 +46,13 @@ Dovecote (Cloudflare Worker)
    bun install
    ```
 
-2. Create `.dev.vars` file with your credentials:
+2. Create `.dev.vars` file (參考 `.dev.vars.example`)：
    ```env
-   MCP_AUTH_TOKEN=your-secret-token
-   TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-   TELEGRAM_CHAT_ID=your-telegram-chat-id
-   DISCORD_WEBHOOK_URL=your-discord-webhook-url
+   MCP_AUTH_TOKEN=your-legacy-bearer-token
+   OAUTH_PASSWORD=your-authorize-page-password
+   COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+   TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
+   DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
    ```
 
 3. Run locally:
@@ -89,12 +93,17 @@ Dovecote (Cloudflare Worker)
    This will prompt you to enter secrets. If `.dev.vars` exists, it will use values from there as defaults.
 
    Required:
-   - `MCP_AUTH_TOKEN` - Bearer token for MCP authentication
+   - `MCP_AUTH_TOKEN` — legacy bearer token for MCP clients that don't do OAuth
+   - `OAUTH_PASSWORD` — password shown on `/authorize` page (Claude.ai OAuth flow)
+   - `COOKIE_ENCRYPTION_KEY` — HMAC key for CSRF cookie (base64, 32 bytes)
 
-   Optional (for notification channels):
-   - `TELEGRAM_BOT_TOKEN` - Telegram bot token
-   - `TELEGRAM_CHAT_ID` - Telegram chat ID to send messages to
-   - `DISCORD_WEBHOOK_URL` - Discord webhook URL
+   Optional (notification channels, JSON arrays):
+   - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
+   - `DISCORD_INSTANCES` — `[{"id":"default","webhookUrl":"..."}]`
+
+   Staging 環境：設 `WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`。
+
+   同時在 Cloudflare dashboard 建立 KV namespace 並把 id 寫入 `wrangler.toml` 的 `[[kv_namespaces]]`（binding `OAUTH_KV`）。
 
 3. **Deploy the worker**
    ```bash
@@ -118,6 +127,10 @@ Dovecote (Cloudflare Worker)
    - Wrong token rejected (POST /mcp with invalid Bearer token → 401)
    - Authorized MCP initialize (POST /mcp with Bearer token → 200 OK with serverInfo)
 
+### Claude.ai Web Connector (OAuth)
+
+在 Claude.ai 新增 connector 時填入 worker URL（如 `https://dovecote.<sub>.workers.dev`）。Claude 會跳轉到 `/authorize` 要求輸入 `OAUTH_PASSWORD`，通過後透過 OAuth 2.1 + PKCE 拿到 access token，後續 MCP 呼叫自動帶 Bearer。
+
 5. **Run E2E tests against production** (optional)
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
@@ -129,9 +142,8 @@ Dovecote (Cloudflare Worker)
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
    TEST_AUTH_TOKEN=your-token \
-   TEST_TELEGRAM_BOT_TOKEN=your-telegram-token \
-   TEST_TELEGRAM_CHAT_ID=your-chat-id \
-   TEST_DISCORD_WEBHOOK_URL=your-discord-webhook \
+   TEST_TELEGRAM_INSTANCES='[{"id":"default","botToken":"...","chatId":"..."}]' \
+   TEST_DISCORD_INSTANCES='[{"id":"default","webhookUrl":"..."}]' \
    bun test:e2e:remote
    ```
 
