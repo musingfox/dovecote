@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import type { Env } from "../../src/types";
+import { MockKV } from "../helpers/mock-kv";
 
 export interface E2EConfig {
   baseUrl: string;
@@ -93,6 +94,9 @@ function loadConfig(): E2EConfig {
       MCP_AUTH_TOKEN: testAuthToken,
       TELEGRAM_INSTANCES: telegramInstances,
       DISCORD_INSTANCES: discordInstances,
+      OAUTH_KV: {} as any,
+      OAUTH_PASSWORD: process.env.TEST_OAUTH_PASSWORD || "test-password",
+      COOKIE_ENCRYPTION_KEY: process.env.TEST_COOKIE_ENCRYPTION_KEY || "test-key-32-bytes-minimum-length-required",
     };
 
     return {
@@ -116,6 +120,10 @@ function loadConfig(): E2EConfig {
     MCP_AUTH_TOKEN: vars.MCP_AUTH_TOKEN,
     TELEGRAM_INSTANCES: vars.TELEGRAM_INSTANCES,
     DISCORD_INSTANCES: vars.DISCORD_INSTANCES,
+    OAUTH_KV: new MockKV() as any,
+    OAUTH_PASSWORD: vars.OAUTH_PASSWORD || "test-password",
+    COOKIE_ENCRYPTION_KEY:
+      vars.COOKIE_ENCRYPTION_KEY || "test-key-32-bytes-minimum-length-required",
   };
 
   return {

@@ -1,7 +1,12 @@
+import type { KVNamespace } from "@cloudflare/workers-types";
+
 export interface Env {
   MCP_AUTH_TOKEN: string;
   TELEGRAM_INSTANCES?: string;
   DISCORD_INSTANCES?: string;
+  OAUTH_KV: KVNamespace;
+  OAUTH_PASSWORD: string;
+  COOKIE_ENCRYPTION_KEY: string;
 }
 
 export interface ChannelConfig {

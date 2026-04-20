@@ -1,5 +1,11 @@
-# MCP Server Authentication Token
+# MCP Server Authentication Token (legacy bearer auth)
 MCP_AUTH_TOKEN=your-secure-token-here
+
+# OAuth Password for authorization flow
+OAUTH_PASSWORD=changeme
+
+# Cookie encryption key (generate with: openssl rand -base64 32)
+COOKIE_ENCRYPTION_KEY=
 
 # Telegram Instances (JSON array)
 # Each instance must have: id (lowercase alphanumeric with dashes), botToken, chatId

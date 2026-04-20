@@ -21,29 +21,53 @@ if [[ -z "${MCP_AUTH_TOKEN:-}" ]]; then
 fi
 
 echo "Setting MCP_AUTH_TOKEN..."
-echo "$MCP_AUTH_TOKEN" | wrangler secret put MCP_AUTH_TOKEN
+echo "$MCP_AUTH_TOKEN" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} MCP_AUTH_TOKEN
 
 # Optional: TELEGRAM_INSTANCES (JSON array)
 if [[ -n "${TELEGRAM_INSTANCES:-}" ]]; then
   echo "Setting TELEGRAM_INSTANCES..."
-  echo "$TELEGRAM_INSTANCES" | wrangler secret put TELEGRAM_INSTANCES
+  echo "$TELEGRAM_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} TELEGRAM_INSTANCES
 else
   read -p "Enter TELEGRAM_INSTANCES JSON (optional, press Enter to skip): " TELEGRAM_INSTANCES
   if [[ -n "$TELEGRAM_INSTANCES" ]]; then
-    echo "$TELEGRAM_INSTANCES" | wrangler secret put TELEGRAM_INSTANCES
+    echo "$TELEGRAM_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} TELEGRAM_INSTANCES
   fi
 fi
 
 # Optional: DISCORD_INSTANCES (JSON array)
 if [[ -n "${DISCORD_INSTANCES:-}" ]]; then
   echo "Setting DISCORD_INSTANCES..."
-  echo "$DISCORD_INSTANCES" | wrangler secret put DISCORD_INSTANCES
+  echo "$DISCORD_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} DISCORD_INSTANCES
 else
   read -p "Enter DISCORD_INSTANCES JSON (optional, press Enter to skip): " DISCORD_INSTANCES
   if [[ -n "$DISCORD_INSTANCES" ]]; then
-    echo "$DISCORD_INSTANCES" | wrangler secret put DISCORD_INSTANCES
+    echo "$DISCORD_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} DISCORD_INSTANCES
   fi
 fi
+
+# OAUTH_PASSWORD is required
+if [[ -z "${OAUTH_PASSWORD:-}" ]]; then
+  read -p "Enter OAUTH_PASSWORD (required): " OAUTH_PASSWORD
+  if [[ -z "$OAUTH_PASSWORD" ]]; then
+    echo "Error: OAUTH_PASSWORD is required"
+    exit 1
+  fi
+fi
+
+echo "Setting OAUTH_PASSWORD..."
+echo "$OAUTH_PASSWORD" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} OAUTH_PASSWORD
+
+# COOKIE_ENCRYPTION_KEY is required
+if [[ -z "${COOKIE_ENCRYPTION_KEY:-}" ]]; then
+  read -p "Enter COOKIE_ENCRYPTION_KEY (required, generate with: openssl rand -base64 32): " COOKIE_ENCRYPTION_KEY
+  if [[ -z "$COOKIE_ENCRYPTION_KEY" ]]; then
+    echo "Error: COOKIE_ENCRYPTION_KEY is required"
+    exit 1
+  fi
+fi
+
+echo "Setting COOKIE_ENCRYPTION_KEY..."
+echo "$COOKIE_ENCRYPTION_KEY" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} COOKIE_ENCRYPTION_KEY
 
 echo ""
 echo "Secrets set successfully!"

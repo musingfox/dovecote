@@ -2,6 +2,13 @@ import { describe, it, expect } from "bun:test";
 import app from "../../src/index";
 import type { Env } from "../../src/types";
 import { config } from "./config";
+import { MockKV } from "../helpers/mock-kv";
+
+const oauthDefaults = {
+  OAUTH_KV: new MockKV() as any,
+  OAUTH_PASSWORD: "test-password",
+  COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+};
 
 /**
  * E2E tests — supports both local (in-process) and remote (HTTP) testing.
@@ -25,8 +32,8 @@ async function doFetch(req: Request): Promise<Response> {
     } as RequestInit);
     return fetch(newReq);
   } else {
-    // Local mode: use app.fetch
-    return app.fetch(req, config.env);
+    // Local mode: use app.fetch (OAuthProvider requires ctx)
+    return app.fetch(req, config.env, {} as ExecutionContext);
   }
 }
 
@@ -68,7 +75,7 @@ describe("E2E: Health", () => {
 });
 
 describe("E2E: Auth", () => {
-  it("allows request without token (authless mode)", async () => {
+  it("rejects request without auth (OAuth required)", async () => {
     const req = new Request("http://localhost/mcp", {
       method: "POST",
       headers: {
@@ -87,7 +94,7 @@ describe("E2E: Auth", () => {
       }),
     });
     const res = await doFetch(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 
   it("rejects request with wrong token", async () => {
@@ -95,6 +102,7 @@ describe("E2E: Auth", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
         Authorization: "Bearer wrong-token",
       },
       body: JSON.stringify({
@@ -106,6 +114,20 @@ describe("E2E: Auth", () => {
     });
     const res = await doFetch(req);
     expect(res.status).toBe(401);
+  });
+
+  it("accepts legacy MCP_AUTH_TOKEN bearer", async () => {
+    const req = mcpRequest(
+      "initialize",
+      {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "legacy-test", version: "1.0.0" },
+      },
+      99
+    );
+    const res = await doFetch(req);
+    expect(res.status).toBe(200);
   });
 });
 
@@ -237,6 +259,7 @@ describe("E2E: send_notification → unknown channel", () => {
 
 describe("E2E: no Telegram config", () => {
   const envNoTelegram: Env = {
+    ...oauthDefaults,
     MCP_AUTH_TOKEN: "dev-test-token-123",
     DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
   };
@@ -248,7 +271,7 @@ describe("E2E: no Telegram config", () => {
     }
 
     const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 10);
-    const res = await app.fetch(req, envNoTelegram);
+    const res = await app.fetch(req, envNoTelegram, {} as ExecutionContext);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -269,7 +292,7 @@ describe("E2E: no Telegram config", () => {
       { name: "send_notification", arguments: { channel: "telegram-default", content: { text: "test" } } },
       11
     );
-    const res = await app.fetch(req, envNoTelegram);
+    const res = await app.fetch(req, envNoTelegram, {} as ExecutionContext);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -280,6 +303,7 @@ describe("E2E: no Telegram config", () => {
 
 describe("E2E: no Discord config", () => {
   const envNoDiscord: Env = {
+    ...oauthDefaults,
     MCP_AUTH_TOKEN: "dev-test-token-123",
     TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
   };
@@ -291,7 +315,7 @@ describe("E2E: no Discord config", () => {
     }
 
     const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 20);
-    const res = await app.fetch(req, envNoDiscord);
+    const res = await app.fetch(req, envNoDiscord, {} as ExecutionContext);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -312,7 +336,7 @@ describe("E2E: no Discord config", () => {
       { name: "send_notification", arguments: { channel: "discord-default", content: { text: "test" } } },
       21
     );
-    const res = await app.fetch(req, envNoDiscord);
+    const res = await app.fetch(req, envNoDiscord, {} as ExecutionContext);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -323,6 +347,7 @@ describe("E2E: no Discord config", () => {
 
 describe("E2E: no channel config at all", () => {
   const envEmpty: Env = {
+    ...oauthDefaults,
     MCP_AUTH_TOKEN: "dev-test-token-123",
   };
 
@@ -333,7 +358,7 @@ describe("E2E: no channel config at all", () => {
     }
 
     const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 30);
-    const res = await app.fetch(req, envEmpty);
+    const res = await app.fetch(req, envEmpty, {} as ExecutionContext);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -353,7 +378,7 @@ describe("E2E: no channel config at all", () => {
         { name: "send_notification", arguments: { channel, content: { text: "test" } } },
         31
       );
-      const res = await app.fetch(req, envEmpty);
+      const res = await app.fetch(req, envEmpty, {} as ExecutionContext);
       expect(res.status).toBe(200);
 
       const data = parseSSEData(await res.text());

@@ -1,72 +1,33 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { bearerAuth } from "hono/bearer-auth";
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import apiApp from "./api.js";
+import authorizeApp from "./auth/authorize.js";
+import { resolveExternalToken } from "./auth/resolve-external-token.js";
 import type { Env } from "./types.js";
-import { createMCPServer } from "./server.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
-const app = new Hono<{ Bindings: Env }>();
+/**
+ * Main OAuth Provider configuration
+ * Wraps the MCP API with OAuth 2.1 + PKCE + DCR support
+ * while maintaining backward compatibility with legacy bearer tokens via resolveExternalToken
+ */
+export default new OAuthProvider<Env>({
+  // API handler wrapping - the library expects an object with a fetch method
+  apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
+  apiRoute: "/mcp",
 
-// CORS middleware
-app.use(
-  "/mcp",
-  cors({
-    origin: "*",
-    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "mcp-session-id", "Last-Event-ID", "mcp-protocol-version"],
-    exposeHeaders: ["mcp-session-id", "mcp-protocol-version"],
-  })
-);
+  // Authorization UI handler
+  defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) },
 
-// Bearer auth middleware for MCP endpoints (skip OPTIONS)
-// If a token is provided, validate it. If no token is provided, allow access
-// (enables authless mode for clients like Claude web that don't support Bearer auth).
-app.use("/mcp", async (c, next) => {
-  if (c.req.method === "OPTIONS") {
-    return next();
-  }
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader) {
-    return next();
-  }
-  const auth = bearerAuth({
-    verifyToken: (token, c) => token === c.env.MCP_AUTH_TOKEN,
-  });
-  return auth(c, next);
+  // OAuth endpoints
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  clientRegistrationEndpoint: "/register",
+
+  // Scopes
+  scopesSupported: ["dovecote:notify"],
+
+  // Security: disallow plain PKCE (OAuth 2.1 compliance)
+  allowPlainPKCE: false,
+
+  // Legacy bearer token support via external token resolution
+  resolveExternalToken,
 });
-
-// Health endpoint
-app.get("/health", (c) => {
-  return c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// MCP transport endpoint - stateless mode
-app.all("/mcp", async (c) => {
-  const method = c.req.method;
-
-  // Allow GET, POST, DELETE, OPTIONS
-  if (!["GET", "POST", "DELETE", "OPTIONS"].includes(method)) {
-    return c.text("Method Not Allowed", 405);
-  }
-
-  // Handle OPTIONS (preflight)
-  if (method === "OPTIONS") {
-    return c.body(null, 204);
-  }
-
-  // Create new transport and server for each request (stateless mode)
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-
-  const server = createMCPServer(c.env);
-  await server.connect(transport);
-
-  // Handle the request
-  return transport.handleRequest(c.req.raw);
-});
-
-export default app;

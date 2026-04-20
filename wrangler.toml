@@ -2,3 +2,16 @@ name = "dovecote"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
+
+# TODO: replace with real IDs via: wrangler kv namespace create OAUTH_KV
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_ME"
+preview_id = "REPLACE_ME"
+
+[env.staging]
+name = "dovecote-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "OAUTH_KV"
+id = "869f4dd5df204c97842095366bf169e1"
