@@ -2,6 +2,8 @@ import type { SendResult } from "../types.js";
 import type { ChannelProvider, MessageContent, ServiceAdapter, DiscordInstanceConfig } from "./types.js";
 import { isValidInstanceId, isValidDiscordWebhookUrl } from "./utils.js";
 
+const MAX_ERROR_DETAIL = 100;
+
 export class DiscordProvider implements ChannelProvider {
   constructor(
     private channelId: string,
@@ -48,10 +50,21 @@ export class DiscordProvider implements ChannelProvider {
       }
 
       const text = await response.text();
+      let detail = text;
+      try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed === "object" && parsed !== null && typeof parsed.message === "string") {
+          detail = parsed.message;
+        }
+      } catch {
+      }
+      if (detail.length > MAX_ERROR_DETAIL) {
+        detail = detail.slice(0, MAX_ERROR_DETAIL) + "...";
+      }
       return {
         success: false,
         channel: this.channelId,
-        error: `HTTP ${response.status}: ${text}`,
+        error: `HTTP ${response.status}: ${detail}`,
       };
     } catch (error) {
       return {

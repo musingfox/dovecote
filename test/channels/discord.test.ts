@@ -104,6 +104,81 @@ describe("DiscordProvider (BC7)", () => {
       error: "redirect",
     });
   });
+
+  it("JSON with message field → extract message (BC-SANITIZE-DISCORD)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ message: "Unknown Webhook", code: 10015 }),
+          { status: 404 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 404: Unknown Webhook");
+  });
+
+  it("non-JSON short → use raw text (BC-SANITIZE-DISCORD)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(new Response("Not Found", { status: 404 }));
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 404: Not Found");
+  });
+
+  it("non-JSON long → truncate to 100 chars + '...' (BC-SANITIZE-DISCORD)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(new Response("B".repeat(200), { status: 500 }));
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 500: " + "B".repeat(100) + "...");
+  });
+
+  it("JSON without message → use raw JSON (BC-SANITIZE-DISCORD)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ retry_after: 5.0, global: false }),
+          { status: 429 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("HTTP 429:");
+    expect(result.error).toContain("retry_after");
+  });
 });
 
 describe("discordAdapter (BC2, BC8)", () => {

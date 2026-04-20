@@ -60,6 +60,86 @@ describe("TelegramProvider (BC6)", () => {
     expect(result.channel).toBe("telegram-alerts");
     expect(result.error).toContain("HTTP 401");
   });
+
+  it("JSON with description field → extract description (BC-SANITIZE-TELEGRAM)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: false, error_code: 401, description: "Unauthorized" }),
+          { status: 401 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "bad:token", "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 401: Unauthorized");
+  });
+
+  it("non-JSON short → use raw text (BC-SANITIZE-TELEGRAM)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(new Response("Unauthorized", { status: 401 }));
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "bad:token", "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 401: Unauthorized");
+  });
+
+  it("non-JSON long → truncate to 100 chars + '...' (BC-SANITIZE-TELEGRAM)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(new Response("A".repeat(200), { status: 500 }));
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "bad:token", "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 500: " + "A".repeat(100) + "...");
+  });
+
+  it("JSON without description → use raw JSON (BC-SANITIZE-TELEGRAM)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: false, error_code: 400 }),
+          { status: 400 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "bad:token", "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('HTTP 400: {"ok":false,"error_code":400}');
+  });
+
+  it("JSON with non-string description → use raw JSON (BC-SANITIZE-TELEGRAM)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ description: 123 }),
+          { status: 400 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "bad:token", "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('HTTP 400: {"description":123}');
+  });
 });
 
 describe("telegramAdapter (BC1, BC8)", () => {

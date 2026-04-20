@@ -2,6 +2,8 @@ import type { SendResult } from "../types.js";
 import type { ChannelProvider, MessageContent, ServiceAdapter, TelegramInstanceConfig } from "./types.js";
 import { isValidInstanceId } from "./utils.js";
 
+const MAX_ERROR_DETAIL = 100;
+
 export class TelegramProvider implements ChannelProvider {
   constructor(
     private channelId: string,
@@ -33,10 +35,21 @@ export class TelegramProvider implements ChannelProvider {
 
       if (!response.ok) {
         const text = await response.text();
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed === "object" && parsed !== null && typeof parsed.description === "string") {
+            detail = parsed.description;
+          }
+        } catch {
+        }
+        if (detail.length > MAX_ERROR_DETAIL) {
+          detail = detail.slice(0, MAX_ERROR_DETAIL) + "...";
+        }
         return {
           success: false,
           channel: this.channelId,
-          error: `HTTP ${response.status}: ${text}`,
+          error: `HTTP ${response.status}: ${detail}`,
         };
       }
 
