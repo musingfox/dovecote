@@ -1,14 +1,16 @@
 # Dovecote
 
+[繁體中文](./README.zh-tw.md)
+
 Agent notification infrastructure — an MCP server deployed on Cloudflare Workers that receives messages from agents and forwards them to configured notification channels.
 
 ## Features
 
 - **MCP over Streamable HTTP** — compatible with Claude Code, Claude web connector, and any MCP client
-- **OAuth 2.1 + PKCE** — Claude.ai web connector登入流程，支援 Dynamic Client Registration (RFC 7591) 與 Protected Resource Metadata (RFC 9728)
-- **Legacy bearer token** — 舊客戶端可繼續使用 `MCP_AUTH_TOKEN` 直連
-- **Multi-instance channels** — Telegram / Discord 可設定多個 instance (`TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON 陣列)
-- **CSRF protection** — HMAC-SHA256 + HttpOnly/Secure cookie
+- **OAuth 2.1 + PKCE** — sign-in flow for the Claude.ai web connector, with Dynamic Client Registration (RFC 7591) and Protected Resource Metadata (RFC 9728)
+- **Legacy bearer token** — older clients can still authenticate directly with `MCP_AUTH_TOKEN`
+- **Multi-instance channels** — configure multiple Telegram / Discord instances via `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON arrays
+- **CSRF protection** — HMAC-SHA256 with HttpOnly/Secure cookie
 
 ## Architecture
 
@@ -46,7 +48,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    bun install
    ```
 
-2. Create `.dev.vars` file (參考 `.dev.vars.example`)：
+2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
    MCP_AUTH_TOKEN=your-legacy-bearer-token
    OAUTH_PASSWORD=your-authorize-page-password
@@ -93,17 +95,17 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    This will prompt you to enter secrets. If `.dev.vars` exists, it will use values from there as defaults.
 
    Required:
-   - `MCP_AUTH_TOKEN` — legacy bearer token for MCP clients that don't do OAuth
-   - `OAUTH_PASSWORD` — password shown on `/authorize` page (Claude.ai OAuth flow)
-   - `COOKIE_ENCRYPTION_KEY` — HMAC key for CSRF cookie (base64, 32 bytes)
+   - `MCP_AUTH_TOKEN` — legacy bearer token for MCP clients that don't use OAuth
+   - `OAUTH_PASSWORD` — password shown on the `/authorize` page (Claude.ai OAuth flow)
+   - `COOKIE_ENCRYPTION_KEY` — HMAC key for the CSRF cookie (base64, 32 bytes)
 
    Optional (notification channels, JSON arrays):
    - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
    - `DISCORD_INSTANCES` — `[{"id":"default","webhookUrl":"..."}]`
 
-   Staging 環境：設 `WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`。
+   For the staging environment: `WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`.
 
-   同時在 Cloudflare dashboard 建立 KV namespace 並把 id 寫入 `wrangler.toml` 的 `[[kv_namespaces]]`（binding `OAUTH_KV`）。
+   Also create a KV namespace in the Cloudflare dashboard and write its id into the `[[kv_namespaces]]` block of `wrangler.toml` (binding `OAUTH_KV`).
 
 3. **Deploy the worker**
    ```bash
@@ -122,14 +124,14 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    bun run deploy:verify https://dovecote.your-subdomain.workers.dev
    ```
 
-   This runs three tests:
+   This runs three checks:
    - Health check (GET /health → 200 OK)
    - Wrong token rejected (POST /mcp with invalid Bearer token → 401)
    - Authorized MCP initialize (POST /mcp with Bearer token → 200 OK with serverInfo)
 
 ### Claude.ai Web Connector (OAuth)
 
-在 Claude.ai 新增 connector 時填入 worker URL（如 `https://dovecote.<sub>.workers.dev`）。Claude 會跳轉到 `/authorize` 要求輸入 `OAUTH_PASSWORD`，通過後透過 OAuth 2.1 + PKCE 拿到 access token，後續 MCP 呼叫自動帶 Bearer。
+When adding a connector on Claude.ai, fill in the worker URL (e.g., `https://dovecote.<sub>.workers.dev`). Claude redirects to `/authorize`, which asks for `OAUTH_PASSWORD`; on success it completes the OAuth 2.1 + PKCE flow to obtain an access token, and subsequent MCP calls carry the Bearer token automatically.
 
 5. **Run E2E tests against production** (optional)
    ```bash
