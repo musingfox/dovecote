@@ -23,36 +23,25 @@ fi
 echo "Setting MCP_AUTH_TOKEN..."
 echo "$MCP_AUTH_TOKEN" | wrangler secret put MCP_AUTH_TOKEN
 
-# Optional: TELEGRAM_BOT_TOKEN
-if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-  echo "Setting TELEGRAM_BOT_TOKEN..."
-  echo "$TELEGRAM_BOT_TOKEN" | wrangler secret put TELEGRAM_BOT_TOKEN
+# Optional: TELEGRAM_INSTANCES (JSON array)
+if [[ -n "${TELEGRAM_INSTANCES:-}" ]]; then
+  echo "Setting TELEGRAM_INSTANCES..."
+  echo "$TELEGRAM_INSTANCES" | wrangler secret put TELEGRAM_INSTANCES
 else
-  read -p "Enter TELEGRAM_BOT_TOKEN (optional, press Enter to skip): " TELEGRAM_BOT_TOKEN
-  if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
-    echo "$TELEGRAM_BOT_TOKEN" | wrangler secret put TELEGRAM_BOT_TOKEN
+  read -p "Enter TELEGRAM_INSTANCES JSON (optional, press Enter to skip): " TELEGRAM_INSTANCES
+  if [[ -n "$TELEGRAM_INSTANCES" ]]; then
+    echo "$TELEGRAM_INSTANCES" | wrangler secret put TELEGRAM_INSTANCES
   fi
 fi
 
-# Optional: TELEGRAM_CHAT_ID
-if [[ -n "${TELEGRAM_CHAT_ID:-}" ]]; then
-  echo "Setting TELEGRAM_CHAT_ID..."
-  echo "$TELEGRAM_CHAT_ID" | wrangler secret put TELEGRAM_CHAT_ID
+# Optional: DISCORD_INSTANCES (JSON array)
+if [[ -n "${DISCORD_INSTANCES:-}" ]]; then
+  echo "Setting DISCORD_INSTANCES..."
+  echo "$DISCORD_INSTANCES" | wrangler secret put DISCORD_INSTANCES
 else
-  read -p "Enter TELEGRAM_CHAT_ID (optional, press Enter to skip): " TELEGRAM_CHAT_ID
-  if [[ -n "$TELEGRAM_CHAT_ID" ]]; then
-    echo "$TELEGRAM_CHAT_ID" | wrangler secret put TELEGRAM_CHAT_ID
-  fi
-fi
-
-# Optional: DISCORD_WEBHOOK_URL
-if [[ -n "${DISCORD_WEBHOOK_URL:-}" ]]; then
-  echo "Setting DISCORD_WEBHOOK_URL..."
-  echo "$DISCORD_WEBHOOK_URL" | wrangler secret put DISCORD_WEBHOOK_URL
-else
-  read -p "Enter DISCORD_WEBHOOK_URL (optional, press Enter to skip): " DISCORD_WEBHOOK_URL
-  if [[ -n "$DISCORD_WEBHOOK_URL" ]]; then
-    echo "$DISCORD_WEBHOOK_URL" | wrangler secret put DISCORD_WEBHOOK_URL
+  read -p "Enter DISCORD_INSTANCES JSON (optional, press Enter to skip): " DISCORD_INSTANCES
+  if [[ -n "$DISCORD_INSTANCES" ]]; then
+    echo "$DISCORD_INSTANCES" | wrangler secret put DISCORD_INSTANCES
   fi
 fi
 

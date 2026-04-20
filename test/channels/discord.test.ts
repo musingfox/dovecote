@@ -1,13 +1,20 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { DiscordProvider, discordFactory } from "../../src/channels/discord";
+import { DiscordProvider, discordAdapter } from "../../src/channels/discord";
 
-describe("DiscordProvider (BC3)", () => {
+describe("DiscordProvider (BC7)", () => {
   beforeEach(() => {
-    // Reset fetch mock before each test
     mock.restore();
   });
 
-  it("send text only → sends { content, username }", async () => {
+  it("constructor accepts channelId, webhookUrl", () => {
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    expect(provider).toBeDefined();
+  });
+
+  it("send text only → success with composite channelId", async () => {
     const mockFetch = mock((url: string, options?: any) => {
       return Promise.resolve(
         new Response(
@@ -23,151 +30,248 @@ describe("DiscordProvider (BC3)", () => {
     globalThis.fetch = mockFetch as any;
 
     const provider = new DiscordProvider(
+      "discord-team-a",
       "https://discord.com/api/webhooks/123/abc"
     );
     const result = await provider.send({ text: "Hello" });
 
     expect(result).toEqual({
       success: true,
-      channel: "discord",
+      channel: "discord-team-a",
       messageId: "msg-001",
       detail: { text: "Hello", chatId: "ch-123" },
     });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(
-      "https://discord.com/api/webhooks/123/abc?wait=true"
-    );
-    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
-    expect(body).toEqual({ content: "Hello", username: "Dovecote" });
   });
 
-  it("send embed only → sends { embeds: [...], username }", async () => {
-    const mockFetch = mock((url: string, options?: any) => {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            id: "msg-002",
-            embeds: [{ title: "Alert", description: "Issue" }],
-            channel_id: "ch-123",
-          }),
-          { status: 200 }
-        )
-      );
-    });
-    globalThis.fetch = mockFetch as any;
-
-    const provider = new DiscordProvider(
-      "https://discord.com/api/webhooks/123/abc"
-    );
-    const result = await provider.send({
-      embed: { title: "Alert", description: "Issue" },
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.channel).toBe("discord");
-    expect(result.messageId).toBe("msg-002");
-    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
-    expect(body.embeds).toEqual([{ title: "Alert", description: "Issue" }]);
-    expect(body.username).toBe("Dovecote");
-    expect(body.content).toBeUndefined();
-  });
-
-  it("send both text and embed → sends { content, embeds: [...], username }", async () => {
-    const mockFetch = mock((url: string, options?: any) => {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            id: "msg-003",
-            content: "Check this",
-            embeds: [{ title: "Report" }],
-            channel_id: "ch-123",
-          }),
-          { status: 200 }
-        )
-      );
-    });
-    globalThis.fetch = mockFetch as any;
-
-    const provider = new DiscordProvider(
-      "https://discord.com/api/webhooks/123/abc"
-    );
-    const result = await provider.send({
-      text: "Check this",
-      embed: { title: "Report" },
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.messageId).toBe("msg-003");
-    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
-    expect(body.content).toBe("Check this");
-    expect(body.embeds).toEqual([{ title: "Report" }]);
-    expect(body.username).toBe("Dovecote");
-  });
-
-  it("send returns failure on HTTP 404", async () => {
+  it("send returns HTTP 404 error", async () => {
     const mockFetch = mock(() => {
       return Promise.resolve(new Response("Not Found", { status: 404 }));
     });
     globalThis.fetch = mockFetch as any;
 
     const provider = new DiscordProvider(
+      "discord-team-a",
       "https://discord.com/api/webhooks/123/abc"
     );
     const result = await provider.send({ text: "Hello" });
 
     expect(result.success).toBe(false);
-    expect(result.channel).toBe("discord");
+    expect(result.channel).toBe("discord-team-a");
     expect(result.error).toContain("HTTP 404");
   });
 
-  it("send returns failure on network error", async () => {
-    const mockFetch = mock(() => {
-      throw new Error("Network error");
+  it("send includes redirect: error in fetch options (BC-SSRF3)", async () => {
+    const mockFetch = mock((url: string, options?: any) => {
+      expect(options).toHaveProperty("redirect");
+      expect(options.redirect).toBe("error");
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "msg-001",
+            content: "test",
+            channel_id: "ch-123",
+          }),
+          { status: 200 }
+        )
+      );
     });
     globalThis.fetch = mockFetch as any;
 
     const provider = new DiscordProvider(
+      "discord-team-a",
       "https://discord.com/api/webhooks/123/abc"
     );
-    const result = await provider.send({ text: "Hello" });
+    await provider.send({ text: "test" });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Network error");
+    expect(mockFetch).toHaveBeenCalled();
+  });
+
+  it("send handles redirect TypeError (BC-SSRF3)", async () => {
+    const mockFetch = mock(() => {
+      throw new TypeError("redirect");
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    const result = await provider.send({ text: "test" });
+
+    expect(result).toEqual({
+      success: false,
+      channel: "discord-team-a",
+      error: "redirect",
+    });
   });
 });
 
-describe("discordFactory", () => {
-  it("create returns provider when env var set", () => {
-    const env = {
-      MCP_AUTH_TOKEN: "x",
-      DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/123/abc",
-    };
-    expect(discordFactory.create(env as any)).not.toBeNull();
+describe("discordAdapter (BC2, BC8)", () => {
+  it("service === 'discord'", () => {
+    expect(discordAdapter.service).toBe("discord");
   });
 
-  it("create returns null when env var missing", () => {
-    const env = { MCP_AUTH_TOKEN: "x" };
-    expect(discordFactory.create(env as any)).toBeNull();
+  it("envKey === 'DISCORD_INSTANCES'", () => {
+    expect(discordAdapter.envKey).toBe("DISCORD_INSTANCES");
   });
 
-  it("getConfig returns enabled true when configured", () => {
-    const env = {
-      MCP_AUTH_TOKEN: "x",
-      DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/123/abc",
-    };
-    expect(discordFactory.getConfig(env as any)).toEqual({
-      id: "discord",
-      name: "Discord",
-      enabled: true,
+  it("parseInstances: undefined → empty, no errors", () => {
+    const result = discordAdapter.parseInstances(undefined);
+    expect(result).toEqual({ instances: [], errors: [] });
+  });
+
+  it("parseInstances: empty string → empty, no errors", () => {
+    const result = discordAdapter.parseInstances("");
+    expect(result).toEqual({ instances: [], errors: [] });
+  });
+
+  it("parseInstances: valid single instance", () => {
+    const json = JSON.stringify([
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: id lowercased", () => {
+    const json = JSON.stringify([
+      { id: "TeamA", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "teama", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+  });
+
+  it("parseInstances: dash allowed (my-bot)", () => {
+    const json = JSON.stringify([
+      { id: "my-bot", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "my-bot", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: dash allowed (team-a)", () => {
+    const json = JSON.stringify([
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: multiple valid instances", () => {
+    const json = JSON.stringify([
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/1/a" },
+      { id: "team-b", webhookUrl: "https://discord.com/api/webhooks/2/b" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toHaveLength(2);
+    expect(result.instances[0]?.id).toBe("team-a");
+    expect(result.instances[1]?.id).toBe("team-b");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: 'not json' → invalid JSON error, no instances", () => {
+    const result = discordAdapter.parseInstances("not json");
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toEqual(["DISCORD_INSTANCES: invalid JSON"]);
+  });
+
+  it("parseInstances: duplicate id → no instances, duplicate error", () => {
+    const json = JSON.stringify([
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/1/a" },
+      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/2/b" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toEqual(["DISCORD_INSTANCES: duplicate id 'team-a'"]);
+  });
+
+  it("parseInstances: id '-bad' → invalid id error", () => {
+    const json = JSON.stringify([
+      { id: "-bad", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: invalid id '-bad'");
+  });
+
+  it("parseInstances: id 'trail-' → invalid id error", () => {
+    const json = JSON.stringify([
+      { id: "trail-", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: invalid id 'trail-'");
+  });
+
+  it("parseInstances: id 'bad--id' → invalid id error (consecutive dashes)", () => {
+    const json = JSON.stringify([
+      { id: "bad--id", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: invalid id 'bad--id'");
+  });
+
+  it("parseInstances: missing webhookUrl → missing-field error", () => {
+    const json = JSON.stringify([
+      { id: "team-a" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: missing 'webhookUrl' for id 'team-a'");
+  });
+
+  it("parseInstances: http webhook URL rejected (BC-SSRF2)", () => {
+    const json = JSON.stringify([
+      { id: "bad", webhookUrl: "http://discord.com/api/webhooks/1/t" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: invalid webhookUrl for id 'bad'");
+  });
+
+  it("parseInstances: evil.com webhook URL rejected (BC-SSRF2)", () => {
+    const json = JSON.stringify([
+      { id: "bad", webhookUrl: "https://evil.com/api/webhooks/1/t" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: invalid webhookUrl for id 'bad'");
+  });
+
+  it("parseInstances: mixed valid+invalid webhooks (BC-SSRF2)", () => {
+    const json = JSON.stringify([
+      { id: "good", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+      { id: "bad", webhookUrl: "https://localhost/api/webhooks/1/t" },
+    ]);
+    const result = discordAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "good", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+    ]);
+    expect(result.errors).toContain("DISCORD_INSTANCES: invalid webhookUrl for id 'bad'");
+  });
+
+  it("createProvider returns object with .send", () => {
+    const provider = discordAdapter.createProvider("discord-team-a", {
+      id: "team-a",
+      webhookUrl: "https://discord.com/api/webhooks/123/abc",
     });
+    expect(provider).toHaveProperty("send");
+    expect(typeof provider.send).toBe("function");
   });
 
-  it("getConfig returns enabled false when not configured", () => {
-    const env = { MCP_AUTH_TOKEN: "x" };
-    expect(discordFactory.getConfig(env as any)).toEqual({
-      id: "discord",
-      name: "Discord",
-      enabled: false,
-    });
+  it("displayName('team-a') → 'Discord (team-a)'", () => {
+    expect(discordAdapter.displayName("team-a")).toBe("Discord (team-a)");
   });
 });

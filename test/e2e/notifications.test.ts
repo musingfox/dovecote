@@ -131,7 +131,7 @@ describe("E2E: MCP Initialize", () => {
 });
 
 describe("E2E: list_channels", () => {
-  it("returns all channels with correct enabled status", async () => {
+  it("returns all channels with correct enabled status and service field", async () => {
     const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 2);
     const res = await doFetch(req);
     expect(res.status).toBe(200);
@@ -139,27 +139,21 @@ describe("E2E: list_channels", () => {
     const data = parseSSEData(await res.text());
     const channels = JSON.parse(data.result.content[0].text);
 
-    expect(channels).toHaveLength(2);
+    expect(channels).toHaveLength(config.expectedChannels.length);
 
-    const telegram = channels.find((c: any) => c.id === "telegram");
-    const discord = channels.find((c: any) => c.id === "discord");
-
-    expect(telegram).toBeDefined();
-    expect(discord).toBeDefined();
-
-    if (config.env.TELEGRAM_BOT_TOKEN && config.env.TELEGRAM_CHAT_ID) {
-      expect(telegram.enabled).toBe(true);
-    }
-    if (config.env.DISCORD_WEBHOOK_URL) {
-      expect(discord.enabled).toBe(true);
+    for (const channel of channels) {
+      expect(channel.enabled).toBe(true);
+      expect(channel.service).toBeDefined();
+      expect(config.expectedChannels).toContain(channel.id);
     }
   });
 });
 
 describe("E2E: send_notification → Telegram", () => {
   it("sends message and verifies receipt via API response", async () => {
-    if (!config.env.TELEGRAM_BOT_TOKEN || !config.env.TELEGRAM_CHAT_ID) {
-      console.log("Skipping: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set");
+    const telegramChannel = config.expectedChannels.find(c => c.startsWith("telegram-"));
+    if (!telegramChannel) {
+      console.log("Skipping: No Telegram instance configured");
       return;
     }
 
@@ -168,7 +162,7 @@ describe("E2E: send_notification → Telegram", () => {
       "tools/call",
       {
         name: "send_notification",
-        arguments: { channel: "telegram", content: { text: sentMessage } },
+        arguments: { channel: telegramChannel, content: { text: sentMessage } },
       },
       3
     );
@@ -179,17 +173,18 @@ describe("E2E: send_notification → Telegram", () => {
     expect(data.result.isError).toBeUndefined();
 
     const result = JSON.parse(data.result.content[0].text);
-    expect(result.channel).toBe("telegram");
+    expect(result.channel).toBe(telegramChannel);
     expect(result.messageId).toBeDefined();
     expect(result.detail.text).toBe(sentMessage);
-    expect(result.detail.chatId).toBe(config.env.TELEGRAM_CHAT_ID);
+    expect(result.detail.chatId).toBeDefined();
   });
 });
 
 describe("E2E: send_notification → Discord", () => {
   it("sends message and verifies receipt via API response", async () => {
-    if (!config.env.DISCORD_WEBHOOK_URL) {
-      console.log("Skipping: DISCORD_WEBHOOK_URL not set");
+    const discordChannel = config.expectedChannels.find(c => c.startsWith("discord-"));
+    if (!discordChannel) {
+      console.log("Skipping: No Discord instance configured");
       return;
     }
 
@@ -198,7 +193,7 @@ describe("E2E: send_notification → Discord", () => {
       "tools/call",
       {
         name: "send_notification",
-        arguments: { channel: "discord", content: { text: sentMessage } },
+        arguments: { channel: discordChannel, content: { text: sentMessage } },
       },
       4
     );
@@ -209,7 +204,7 @@ describe("E2E: send_notification → Discord", () => {
     expect(data.result.isError).toBeUndefined();
 
     const result = JSON.parse(data.result.content[0].text);
-    expect(result.channel).toBe("discord");
+    expect(result.channel).toBe(discordChannel);
     expect(result.messageId).toBeDefined();
     expect(result.detail.text).toBe(sentMessage);
     expect(result.detail.chatId).toBeDefined();
@@ -243,10 +238,10 @@ describe("E2E: send_notification → unknown channel", () => {
 describe("E2E: no Telegram config", () => {
   const envNoTelegram: Env = {
     MCP_AUTH_TOKEN: "dev-test-token-123",
-    DISCORD_WEBHOOK_URL: "https://example.com/webhook",
+    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
   };
 
-  it("list_channels shows telegram disabled", async () => {
+  it("list_channels shows only discord", async () => {
     if (config.isRemote) {
       console.log("Skipping: in-process test not applicable in remote mode");
       return;
@@ -258,11 +253,12 @@ describe("E2E: no Telegram config", () => {
 
     const data = parseSSEData(await res.text());
     const channels = JSON.parse(data.result.content[0].text);
-    const telegram = channels.find((c: any) => c.id === "telegram");
-    expect(telegram.enabled).toBe(false);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe("discord-test");
+    expect(channels[0].service).toBe("discord");
   });
 
-  it("send_notification to telegram returns channel not configured", async () => {
+  it("send_notification to telegram returns unknown channel", async () => {
     if (config.isRemote) {
       console.log("Skipping: in-process test not applicable in remote mode");
       return;
@@ -270,7 +266,7 @@ describe("E2E: no Telegram config", () => {
 
     const req = mcpRequest(
       "tools/call",
-      { name: "send_notification", arguments: { channel: "telegram", content: { text: "test" } } },
+      { name: "send_notification", arguments: { channel: "telegram-default", content: { text: "test" } } },
       11
     );
     const res = await app.fetch(req, envNoTelegram);
@@ -278,18 +274,17 @@ describe("E2E: no Telegram config", () => {
 
     const data = parseSSEData(await res.text());
     expect(data.result.isError).toBe(true);
-    expect(data.result.content[0].text).toContain("Channel not configured");
+    expect(data.result.content[0].text).toContain("Unknown channel");
   });
 });
 
 describe("E2E: no Discord config", () => {
   const envNoDiscord: Env = {
     MCP_AUTH_TOKEN: "dev-test-token-123",
-    TELEGRAM_BOT_TOKEN: "fake:token",
-    TELEGRAM_CHAT_ID: "123",
+    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
   };
 
-  it("list_channels shows discord disabled", async () => {
+  it("list_channels shows only telegram", async () => {
     if (config.isRemote) {
       console.log("Skipping: in-process test not applicable in remote mode");
       return;
@@ -301,11 +296,12 @@ describe("E2E: no Discord config", () => {
 
     const data = parseSSEData(await res.text());
     const channels = JSON.parse(data.result.content[0].text);
-    const discord = channels.find((c: any) => c.id === "discord");
-    expect(discord.enabled).toBe(false);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe("telegram-test");
+    expect(channels[0].service).toBe("telegram");
   });
 
-  it("send_notification to discord returns channel not configured", async () => {
+  it("send_notification to discord returns unknown channel", async () => {
     if (config.isRemote) {
       console.log("Skipping: in-process test not applicable in remote mode");
       return;
@@ -313,7 +309,7 @@ describe("E2E: no Discord config", () => {
 
     const req = mcpRequest(
       "tools/call",
-      { name: "send_notification", arguments: { channel: "discord", content: { text: "test" } } },
+      { name: "send_notification", arguments: { channel: "discord-default", content: { text: "test" } } },
       21
     );
     const res = await app.fetch(req, envNoDiscord);
@@ -321,7 +317,7 @@ describe("E2E: no Discord config", () => {
 
     const data = parseSSEData(await res.text());
     expect(data.result.isError).toBe(true);
-    expect(data.result.content[0].text).toContain("Channel not configured");
+    expect(data.result.content[0].text).toContain("Unknown channel");
   });
 });
 
@@ -330,7 +326,7 @@ describe("E2E: no channel config at all", () => {
     MCP_AUTH_TOKEN: "dev-test-token-123",
   };
 
-  it("list_channels shows all disabled", async () => {
+  it("list_channels returns empty array", async () => {
     if (config.isRemote) {
       console.log("Skipping: in-process test not applicable in remote mode");
       return;
@@ -342,16 +338,16 @@ describe("E2E: no channel config at all", () => {
 
     const data = parseSSEData(await res.text());
     const channels = JSON.parse(data.result.content[0].text);
-    expect(channels.every((c: any) => c.enabled === false)).toBe(true);
+    expect(channels).toEqual([]);
   });
 
-  it("send_notification to any channel returns not configured", async () => {
+  it("send_notification to any channel returns unknown channel", async () => {
     if (config.isRemote) {
       console.log("Skipping: in-process test not applicable in remote mode");
       return;
     }
 
-    for (const channel of ["telegram", "discord"]) {
+    for (const channel of ["telegram-default", "discord-default"]) {
       const req = mcpRequest(
         "tools/call",
         { name: "send_notification", arguments: { channel, content: { text: "test" } } },
@@ -362,7 +358,7 @@ describe("E2E: no channel config at all", () => {
 
       const data = parseSSEData(await res.text());
       expect(data.result.isError).toBe(true);
-      expect(data.result.content[0].text).toContain("Channel not configured");
+      expect(data.result.content[0].text).toContain("Unknown channel");
     }
   });
 });

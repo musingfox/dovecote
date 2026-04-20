@@ -1,0 +1,14 @@
+# MCP Server Authentication Token
+MCP_AUTH_TOKEN=your-secure-token-here
+
+# Telegram Instances (JSON array)
+# Each instance must have: id (lowercase alphanumeric with dashes), botToken, chatId
+TELEGRAM_INSTANCES=[{"id":"default","botToken":"123456789:ABCdefGHIjklMNOpqrsTUVwxyz","chatId":"123456789"}]
+
+# Discord Instances (JSON array)
+# Each instance must have: id (lowercase alphanumeric with dashes), webhookUrl
+DISCORD_INSTANCES=[{"id":"default","webhookUrl":"https://discord.com/api/webhooks/123456789/abcdefghijklmnopqrstuvwxyz"}]
+
+# Multiple instances example:
+# TELEGRAM_INSTANCES=[{"id":"alerts","botToken":"...","chatId":"..."},{"id":"team-a","botToken":"...","chatId":"..."}]
+# DISCORD_INSTANCES=[{"id":"general","webhookUrl":"..."},{"id":"team-b","webhookUrl":"..."}]

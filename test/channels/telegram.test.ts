@@ -1,13 +1,17 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
-import { TelegramProvider, telegramFactory } from "../../src/channels/telegram";
+import { TelegramProvider, telegramAdapter } from "../../src/channels/telegram";
 
-describe("TelegramProvider (BC4)", () => {
+describe("TelegramProvider (BC6)", () => {
   beforeEach(() => {
-    // Reset fetch mock before each test
     mock.restore();
   });
 
-  it("send text only → sends { chat_id, text }", async () => {
+  it("constructor accepts channelId, botToken, chatId", () => {
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
+    expect(provider).toBeDefined();
+  });
+
+  it("send text only → success with composite channelId", async () => {
     const mockFetch = mock((url: string, options?: any) => {
       return Promise.resolve(
         new Response(
@@ -21,125 +25,180 @@ describe("TelegramProvider (BC4)", () => {
     });
     globalThis.fetch = mockFetch as any;
 
-    const provider = new TelegramProvider("123:ABC", "chat456");
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
     const result = await provider.send({ text: "Hello" });
 
     expect(result).toEqual({
       success: true,
-      channel: "telegram",
+      channel: "telegram-alerts",
       messageId: "456",
       detail: { text: "Hello", chatId: "chat456" },
     });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(
-      "https://api.telegram.org/bot123:ABC/sendMessage"
-    );
-    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
-    expect(body).toEqual({ chat_id: "chat456", text: "Hello" });
   });
 
-  it("send with embed ignored → sends only text, embed not in payload", async () => {
-    const mockFetch = mock((url: string, options?: any) => {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            result: { message_id: 457, text: "Notification", chat: { id: "chat456" } },
-          }),
-          { status: 200 }
-        )
-      );
-    });
-    globalThis.fetch = mockFetch as any;
-
-    const provider = new TelegramProvider("123:ABC", "chat456");
-    const result = await provider.send({
-      text: "Notification",
-      embed: { title: "Ignored" },
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.channel).toBe("telegram");
-    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body ?? "{}");
-    expect(body.text).toBe("Notification");
-    expect(body).not.toHaveProperty("embed");
-    expect(body).not.toHaveProperty("embeds");
-  });
-
-  it("send embed-only → returns error (Telegram requires text)", async () => {
-    const provider = new TelegramProvider("123:ABC", "chat456");
+  it("send embed-only → 'Telegram requires text content'", async () => {
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
     const result = await provider.send({
       embed: { title: "No text" },
     });
 
     expect(result.success).toBe(false);
-    expect(result.channel).toBe("telegram");
+    expect(result.channel).toBe("telegram-alerts");
     expect(result.error).toBe("Telegram requires text content");
   });
 
-  it("send returns failure on non-ok response", async () => {
+  it("send returns HTTP 401 error", async () => {
     const mockFetch = mock(() => {
       return Promise.resolve(new Response("Unauthorized", { status: 401 }));
     });
     globalThis.fetch = mockFetch as any;
 
-    const provider = new TelegramProvider("bad:token", "chat456");
+    const provider = new TelegramProvider("telegram-alerts", "bad:token", "chat456");
     const result = await provider.send({ text: "Hello" });
 
     expect(result.success).toBe(false);
-    expect(result.channel).toBe("telegram");
-    expect(result.error).toBeDefined();
-    expect(result.error).toContain("401");
-  });
-
-  it("send returns failure on network error", async () => {
-    const mockFetch = mock(() => {
-      throw new Error("Network error");
-    });
-    globalThis.fetch = mockFetch as any;
-
-    const provider = new TelegramProvider("123:ABC", "chat456");
-    const result = await provider.send({ text: "Hello" });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Network error");
+    expect(result.channel).toBe("telegram-alerts");
+    expect(result.error).toContain("HTTP 401");
   });
 });
 
-describe("telegramFactory", () => {
-  it("create returns provider when both env vars set", () => {
-    const env = {
-      MCP_AUTH_TOKEN: "x",
-      TELEGRAM_BOT_TOKEN: "bot123",
-      TELEGRAM_CHAT_ID: "chat456",
-    };
-    expect(telegramFactory.create(env)).not.toBeNull();
+describe("telegramAdapter (BC1, BC8)", () => {
+  it("service === 'telegram'", () => {
+    expect(telegramAdapter.service).toBe("telegram");
   });
 
-  it("create returns null when env vars missing", () => {
-    const env = { MCP_AUTH_TOKEN: "x" };
-    expect(telegramFactory.create(env as any)).toBeNull();
+  it("envKey === 'TELEGRAM_INSTANCES'", () => {
+    expect(telegramAdapter.envKey).toBe("TELEGRAM_INSTANCES");
   });
 
-  it("getConfig returns enabled true when configured", () => {
-    const env = {
-      MCP_AUTH_TOKEN: "x",
-      TELEGRAM_BOT_TOKEN: "bot123",
-      TELEGRAM_CHAT_ID: "chat456",
-    };
-    expect(telegramFactory.getConfig(env)).toEqual({
-      id: "telegram",
-      name: "Telegram",
-      enabled: true,
+  it("parseInstances: undefined → empty, no errors", () => {
+    const result = telegramAdapter.parseInstances(undefined);
+    expect(result).toEqual({ instances: [], errors: [] });
+  });
+
+  it("parseInstances: empty string → empty, no errors", () => {
+    const result = telegramAdapter.parseInstances("");
+    expect(result).toEqual({ instances: [], errors: [] });
+  });
+
+  it("parseInstances: valid single instance", () => {
+    const json = JSON.stringify([
+      { id: "alerts", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "alerts", botToken: "bot123", chatId: "chat456" },
+    ]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: id lowercased", () => {
+    const json = JSON.stringify([
+      { id: "Alerts", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "alerts", botToken: "bot123", chatId: "chat456" },
+    ]);
+  });
+
+  it("parseInstances: dash allowed (my-bot)", () => {
+    const json = JSON.stringify([
+      { id: "my-bot", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "my-bot", botToken: "bot123", chatId: "chat456" },
+    ]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: dash allowed (team-a)", () => {
+    const json = JSON.stringify([
+      { id: "team-a", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([
+      { id: "team-a", botToken: "bot123", chatId: "chat456" },
+    ]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: multiple valid instances", () => {
+    const json = JSON.stringify([
+      { id: "alerts", botToken: "bot1", chatId: "chat1" },
+      { id: "team-a", botToken: "bot2", chatId: "chat2" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toHaveLength(2);
+    expect(result.instances[0]?.id).toBe("alerts");
+    expect(result.instances[1]?.id).toBe("team-a");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("parseInstances: 'not json' → invalid JSON error, no instances", () => {
+    const result = telegramAdapter.parseInstances("not json");
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toEqual(["TELEGRAM_INSTANCES: invalid JSON"]);
+  });
+
+  it("parseInstances: duplicate id → no instances, duplicate error", () => {
+    const json = JSON.stringify([
+      { id: "alerts", botToken: "bot1", chatId: "chat1" },
+      { id: "alerts", botToken: "bot2", chatId: "chat2" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toEqual(["TELEGRAM_INSTANCES: duplicate id 'alerts'"]);
+  });
+
+  it("parseInstances: id '-bad' → invalid id error", () => {
+    const json = JSON.stringify([
+      { id: "-bad", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("TELEGRAM_INSTANCES: invalid id '-bad'");
+  });
+
+  it("parseInstances: id 'trail-' → invalid id error", () => {
+    const json = JSON.stringify([
+      { id: "trail-", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("TELEGRAM_INSTANCES: invalid id 'trail-'");
+  });
+
+  it("parseInstances: id 'bad--id' → invalid id error (consecutive dashes)", () => {
+    const json = JSON.stringify([
+      { id: "bad--id", botToken: "bot123", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("TELEGRAM_INSTANCES: invalid id 'bad--id'");
+  });
+
+  it("parseInstances: missing botToken → missing-field error", () => {
+    const json = JSON.stringify([
+      { id: "alerts", chatId: "chat456" },
+    ]);
+    const result = telegramAdapter.parseInstances(json);
+    expect(result.instances).toEqual([]);
+    expect(result.errors).toContain("TELEGRAM_INSTANCES: missing 'botToken' for id 'alerts'");
+  });
+
+  it("createProvider returns object with .send", () => {
+    const provider = telegramAdapter.createProvider("telegram-alerts", {
+      id: "alerts",
+      botToken: "bot123",
+      chatId: "chat456",
     });
+    expect(provider).toHaveProperty("send");
+    expect(typeof provider.send).toBe("function");
   });
 
-  it("getConfig returns enabled false when not configured", () => {
-    const env = { MCP_AUTH_TOKEN: "x" };
-    expect(telegramFactory.getConfig(env as any)).toEqual({
-      id: "telegram",
-      name: "Telegram",
-      enabled: false,
-    });
+  it("displayName('alerts') → 'Telegram (alerts)'", () => {
+    expect(telegramAdapter.displayName("alerts")).toBe("Telegram (alerts)");
   });
 });

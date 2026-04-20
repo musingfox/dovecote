@@ -1,14 +1,14 @@
 export interface Env {
   MCP_AUTH_TOKEN: string;
-  TELEGRAM_BOT_TOKEN?: string;
-  TELEGRAM_CHAT_ID?: string;
-  DISCORD_WEBHOOK_URL?: string;
+  TELEGRAM_INSTANCES?: string;
+  DISCORD_INSTANCES?: string;
 }
 
 export interface ChannelConfig {
   id: string;
   name: string;
   enabled: boolean;
+  service: string;
 }
 
 export interface SendResult {

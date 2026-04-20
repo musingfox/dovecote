@@ -1,8 +1,10 @@
-import type { Env, SendResult } from "../types.js";
-import type { ChannelProvider, ChannelFactory, MessageContent } from "./types.js";
+import type { SendResult } from "../types.js";
+import type { ChannelProvider, MessageContent, ServiceAdapter, TelegramInstanceConfig } from "./types.js";
+import { isValidInstanceId } from "./utils.js";
 
 export class TelegramProvider implements ChannelProvider {
   constructor(
+    private channelId: string,
     private botToken: string,
     private chatId: string
   ) {}
@@ -11,7 +13,7 @@ export class TelegramProvider implements ChannelProvider {
     if (content.text === undefined) {
       return {
         success: false,
-        channel: "telegram",
+        channel: this.channelId,
         error: "Telegram requires text content",
       };
     }
@@ -33,7 +35,7 @@ export class TelegramProvider implements ChannelProvider {
         const text = await response.text();
         return {
           success: false,
-          channel: "telegram",
+          channel: this.channelId,
           error: `HTTP ${response.status}: ${text}`,
         };
       }
@@ -42,7 +44,7 @@ export class TelegramProvider implements ChannelProvider {
       if (data.ok && data.result?.message_id) {
         return {
           success: true,
-          channel: "telegram",
+          channel: this.channelId,
           messageId: String(data.result.message_id),
           detail: {
             text: data.result.text,
@@ -53,32 +55,89 @@ export class TelegramProvider implements ChannelProvider {
 
       return {
         success: false,
-        channel: "telegram",
+        channel: this.channelId,
         error: "Unexpected response format",
       };
     } catch (error) {
       return {
         success: false,
-        channel: "telegram",
+        channel: this.channelId,
         error: error instanceof Error ? error.message : String(error),
       };
     }
   }
 }
 
-export const telegramFactory: ChannelFactory = {
-  id: "telegram",
-  create(env: Env): ChannelProvider | null {
-    if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
-      return new TelegramProvider(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID);
+export const telegramAdapter: ServiceAdapter<TelegramInstanceConfig> = {
+  service: "telegram",
+  envKey: "TELEGRAM_INSTANCES",
+
+  parseInstances(json: string | undefined): { instances: TelegramInstanceConfig[]; errors: string[] } {
+    if (json === undefined || json === "") {
+      return { instances: [], errors: [] };
     }
-    return null;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return { instances: [], errors: ["TELEGRAM_INSTANCES: invalid JSON"] };
+    }
+
+    if (!Array.isArray(parsed)) {
+      return { instances: [], errors: ["TELEGRAM_INSTANCES: expected array"] };
+    }
+
+    const instances: TelegramInstanceConfig[] = [];
+    const errors: string[] = [];
+    const seenIds = new Set<string>();
+
+    for (const entry of parsed) {
+      if (typeof entry !== "object" || entry === null) {
+        errors.push("TELEGRAM_INSTANCES: entry must be object");
+        continue;
+      }
+
+      const { id, botToken, chatId } = entry as Record<string, unknown>;
+
+      if (typeof id !== "string") {
+        errors.push("TELEGRAM_INSTANCES: missing or invalid 'id'");
+        continue;
+      }
+
+      const normalizedId = id.toLowerCase();
+
+      if (!isValidInstanceId(normalizedId)) {
+        errors.push(`TELEGRAM_INSTANCES: invalid id '${id}'`);
+        continue;
+      }
+
+      if (typeof botToken !== "string") {
+        errors.push(`TELEGRAM_INSTANCES: missing 'botToken' for id '${id}'`);
+        continue;
+      }
+
+      if (typeof chatId !== "string") {
+        errors.push(`TELEGRAM_INSTANCES: missing 'chatId' for id '${id}'`);
+        continue;
+      }
+
+      if (seenIds.has(normalizedId)) {
+        return { instances: [], errors: [`TELEGRAM_INSTANCES: duplicate id '${id}'`] };
+      }
+
+      seenIds.add(normalizedId);
+      instances.push({ id: normalizedId, botToken, chatId });
+    }
+
+    return { instances, errors };
   },
-  getConfig(env: Env) {
-    return {
-      id: "telegram",
-      name: "Telegram",
-      enabled: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
-    };
+
+  createProvider(channelId: string, config: TelegramInstanceConfig): ChannelProvider {
+    return new TelegramProvider(channelId, config.botToken, config.chatId);
+  },
+
+  displayName(instanceId: string): string {
+    return `Telegram (${instanceId})`;
   },
 };

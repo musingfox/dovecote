@@ -37,8 +37,27 @@ export interface ChannelProvider {
   send(content: MessageContent): Promise<SendResult>;
 }
 
-export interface ChannelFactory {
+export interface ServiceAdapter<C = unknown> {
+  service: string;
+  envKey: string;
+  parseInstances(json: string | undefined): { instances: C[]; errors: string[] };
+  createProvider(channelId: string, config: C): ChannelProvider;
+  displayName(instanceId: string): string;
+}
+
+export interface ChannelRegistration {
+  channelId: string;
+  service: string;
+  createProvider: () => ChannelProvider;
+}
+
+export interface TelegramInstanceConfig {
   id: string;
-  create(env: Env): ChannelProvider | null;
-  getConfig(env: Env): ChannelConfig;
+  botToken: string;
+  chatId: string;
+}
+
+export interface DiscordInstanceConfig {
+  id: string;
+  webhookUrl: string;
 }
