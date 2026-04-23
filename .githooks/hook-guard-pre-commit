@@ -231,8 +231,8 @@ check_syntax_validation() {
         fi
         ;;
       *.yaml|*.yml)
-        if command -v python3 &>/dev/null && python3 -c "import yaml" 2>/dev/null; then
-          if ! python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
+        if command -v bun &>/dev/null; then
+          if ! bun -e 'Bun.YAML.parse(await Bun.stdin.text())' <"$file" 2>/dev/null; then
             fail "Invalid YAML: $file"
             found=1
           fi
