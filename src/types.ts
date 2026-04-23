@@ -7,6 +7,7 @@ export interface Env {
   OAUTH_KV: KVNamespace;
   OAUTH_PASSWORD: string;
   COOKIE_ENCRYPTION_KEY: string;
+  ADMIN_REVOKE_TOKEN?: string;
 }
 
 export interface ChannelConfig {

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import apiApp from "../src/api.js";
 import type { Env } from "../src/types.js";
+import { createMockExecutionCtx } from "./helpers/mock-execution-ctx";
 
 const mockEnv: Env = {
   MCP_AUTH_TOKEN: "test-token",
@@ -13,7 +14,8 @@ const mockEnv: Env = {
 
 test("GET /health returns 200 with status ok", async () => {
   const req = new Request("https://example.com/health");
-  const res = await apiApp.fetch(req, mockEnv);
+  const ctx = createMockExecutionCtx(null);
+  const res = await apiApp.fetch(req, mockEnv, ctx as any);
 
   expect(res.status).toBe(200);
 
@@ -48,7 +50,8 @@ test("POST /mcp with MCP initialize returns 200", async () => {
     body: JSON.stringify(initializeRequest),
   });
 
-  const res = await apiApp.fetch(req, mockEnv);
+  const ctx = createMockExecutionCtx({ userId: "operator", scopes: ["dovecote:notify"] });
+  const res = await apiApp.fetch(req, mockEnv, ctx as any);
   expect(res.status).toBe(200);
 
   const text = await res.text();
@@ -60,7 +63,8 @@ test("GET /mcp returns 405 Method Not Allowed", async () => {
     method: "GET",
   });
 
-  const res = await apiApp.fetch(req, mockEnv);
+  const ctx = createMockExecutionCtx(null);
+  const res = await apiApp.fetch(req, mockEnv, ctx as any);
   expect(res.status).toBe(405);
   expect(await res.text()).toBe("Method Not Allowed");
 });
@@ -70,13 +74,15 @@ test("OPTIONS /mcp returns 204", async () => {
     method: "OPTIONS",
   });
 
-  const res = await apiApp.fetch(req, mockEnv);
+  const ctx = createMockExecutionCtx(null);
+  const res = await apiApp.fetch(req, mockEnv, ctx as any);
   expect(res.status).toBe(204);
 });
 
 test("GET /unknown returns 404", async () => {
   const req = new Request("https://example.com/unknown");
-  const res = await apiApp.fetch(req, mockEnv);
+  const ctx = createMockExecutionCtx(null);
+  const res = await apiApp.fetch(req, mockEnv, ctx as any);
 
   expect(res.status).toBe(404);
   expect(await res.text()).toBe("Not Found");

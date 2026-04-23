@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import authorizeApp from "../../src/auth/authorize.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
+import { SCOPES_SUPPORTED } from "../../src/auth/scopes.js";
 
 // Mock OAUTH_PROVIDER
 const mockAuthRequest: AuthRequest = {
@@ -16,9 +17,15 @@ const mockAuthRequest: AuthRequest = {
 
 const mockOAuthProvider: OAuthHelpers = {
   parseAuthRequest: async () => mockAuthRequest,
-  completeAuthorization: async () => ({
-    redirectTo: `${mockAuthRequest.redirectUri}?code=test-code&state=${mockAuthRequest.state}`,
-  }),
+  completeAuthorization: async (params: any) => {
+    // Validate that props contains userId and scopes
+    if (!params.props || !params.props.userId || !params.props.scopes) {
+      throw new Error("Missing required props");
+    }
+    return {
+      redirectTo: `${mockAuthRequest.redirectUri}?code=test-code&state=${mockAuthRequest.state}`,
+    };
+  },
   lookupClient: async () => null,
   createClient: async () => ({} as any),
   listClients: async () => ({ items: [] }),
@@ -36,7 +43,12 @@ interface AuthEnv extends Env {
 
 const mockEnv: AuthEnv = {
   MCP_AUTH_TOKEN: "test-token",
-  OAUTH_KV: {} as any,
+  OAUTH_KV: {
+    put: async () => {},
+    get: async () => null,
+    delete: async () => {},
+    list: async () => ({ keys: [], list_complete: true }),
+  } as any,
   OAUTH_PASSWORD: "correct-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
   OAUTH_PROVIDER: mockOAuthProvider,
@@ -173,4 +185,44 @@ test("POST /authorize with correct password but invalid CSRF returns 403", async
   const postRes = await authorizeApp.fetch(postReq, mockEnv);
   expect(postRes.status).toBe(403);
   expect(await postRes.text()).toContain("Invalid CSRF token");
+});
+
+/**
+ * Helper function to simulate scope filtering logic
+ * Extracted for unit testing without mounting full OAuth provider
+ */
+function filterScopes(scope: string): string[] {
+  const requestedScopes = scope.split(" ");
+  return requestedScopes.filter((s) =>
+    (SCOPES_SUPPORTED as readonly string[]).includes(s)
+  );
+}
+
+test("authorize scope filter: both supported scopes", () => {
+  const scope = "dovecote:notify dovecote:env:read";
+  const effectiveScopes = filterScopes(scope);
+
+  expect(effectiveScopes).toEqual(["dovecote:notify", "dovecote:env:read"]);
+});
+
+test("authorize scope filter: one supported, one unsupported", () => {
+  const scope = "dovecote:notify admin:delete";
+  const effectiveScopes = filterScopes(scope);
+
+  expect(effectiveScopes).toEqual(["dovecote:notify"]);
+});
+
+test("authorize scope filter: no supported scopes", () => {
+  const scope = "admin:delete";
+  const effectiveScopes = filterScopes(scope);
+
+  expect(effectiveScopes).toEqual([]);
+});
+
+test("authorize scope filter: empty string", () => {
+  const scope = "";
+  const effectiveScopes = filterScopes(scope);
+
+  // split("") produces [""], filter drops it
+  expect(effectiveScopes).toEqual([]);
 });

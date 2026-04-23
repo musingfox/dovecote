@@ -10,11 +10,13 @@
     "deploy:verify": "./scripts/verify-deployment.sh",
     "test": "bun test",
     "test:e2e": "bun test test/e2e/",
-    "test:e2e:remote": "bun test test/e2e"
+    "test:e2e:remote": "bun test test/e2e",
+    "prepare": "lefthook install || true"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260410.1",
     "@types/bun": "latest",
+    "lefthook": "^2.1.6",
     "wrangler": "^4.81.1"
   },
   "peerDependencies": {

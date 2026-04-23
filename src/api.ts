@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./types.js";
+import { extractAuth } from "./auth/ctx.js";
 import { createMCPServer } from "./server.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
@@ -27,12 +28,15 @@ app.get("/health", (c) => {
 
 // MCP transport endpoint - stateless mode
 app.post("/mcp", async (c) => {
+  // Extract auth from ExecutionContext (fail-closed)
+  const auth = extractAuth(c.executionCtx);
+
   // Create new transport and server for each request (stateless mode)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
 
-  const server = createMCPServer(c.env);
+  const server = createMCPServer(c.env, auth, c.executionCtx);
   await server.connect(transport);
 
   // Handle the request

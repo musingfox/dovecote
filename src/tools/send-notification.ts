@@ -1,10 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
+import type { AuthCtx } from "../auth/ctx.js";
 import { sendToChannel } from "../channels/registry.js";
 import { messageContentSchema } from "../channels/schemas.js";
 
-export function registerSendNotificationTool(server: McpServer, env: Env): void {
+export function registerSendNotificationTool(
+  server: McpServer,
+  env: Env,
+  _auth: AuthCtx,
+  _ctx: ExecutionContext
+): void {
   // @ts-expect-error - zod peer dependency type conflict with MCP SDK
   server.tool(
     "send_notification",

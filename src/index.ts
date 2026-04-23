@@ -2,6 +2,7 @@ import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import apiApp from "./api.js";
 import authorizeApp from "./auth/authorize.js";
 import { resolveExternalToken } from "./auth/resolve-external-token.js";
+import { SCOPES_SUPPORTED } from "./auth/scopes.js";
 import type { Env } from "./types.js";
 
 /**
@@ -23,7 +24,11 @@ export default new OAuthProvider<Env>({
   clientRegistrationEndpoint: "/register",
 
   // Scopes
-  scopesSupported: ["dovecote:notify"],
+  scopesSupported: [...SCOPES_SUPPORTED],
+
+  // Token TTLs
+  accessTokenTTL: 3600,
+  refreshTokenTTL: 2592000,
 
   // Security: disallow plain PKCE (OAuth 2.1 compliance)
   allowPlainPKCE: false,

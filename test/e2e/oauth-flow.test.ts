@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import type { Env } from "../../src/types.js";
 import app from "../../src/index.js";
+import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 
 /**
  * Map-backed KV mock for testing
@@ -69,7 +70,7 @@ const mockEnv: Env = {
 
 test("GET /.well-known/oauth-authorization-server returns metadata", async () => {
   const req = new Request("https://example.com/.well-known/oauth-authorization-server");
-  const res = await app.fetch(req, mockEnv, {} as ExecutionContext);
+  const res = await app.fetch(req, mockEnv, createMockExecutionCtx() as any);
 
   expect(res.status).toBe(200);
 
@@ -84,7 +85,7 @@ test("GET /.well-known/oauth-authorization-server returns metadata", async () =>
 
 test("GET /.well-known/oauth-protected-resource returns metadata", async () => {
   const req = new Request("https://example.com/.well-known/oauth-protected-resource");
-  const res = await app.fetch(req, mockEnv, {} as ExecutionContext);
+  const res = await app.fetch(req, mockEnv, createMockExecutionCtx() as any);
 
   expect(res.status).toBe(200);
 
@@ -110,7 +111,7 @@ test("POST /mcp without Authorization returns 401", async () => {
     }),
   });
 
-  const res = await app.fetch(req, mockEnv, {} as ExecutionContext);
+  const res = await app.fetch(req, mockEnv, createMockExecutionCtx() as any);
   expect(res.status).toBe(401);
 
   const wwwAuth = res.headers.get("WWW-Authenticate");
@@ -138,7 +139,7 @@ test("POST /mcp with legacy bearer token returns 200", async () => {
     }),
   });
 
-  const res = await app.fetch(req, mockEnv, {} as ExecutionContext);
+  const res = await app.fetch(req, mockEnv, createMockExecutionCtx() as any);
   expect(res.status).toBe(200);
 
   const text = await res.text();
@@ -161,7 +162,7 @@ test("Full OAuth flow: DCR -> Authorize -> Token -> API access", async () => {
     }),
   });
 
-  const registerRes = await app.fetch(registerReq, mockEnv, {} as ExecutionContext);
+  const registerRes = await app.fetch(registerReq, mockEnv, createMockExecutionCtx() as any);
   expect(registerRes.status).toBe(201);
 
   const clientInfo = await registerRes.json();
@@ -183,7 +184,7 @@ test("Full OAuth flow: DCR -> Authorize -> Token -> API access", async () => {
   authorizeUrl.searchParams.set("scope", "dovecote:notify");
 
   const authorizeGetReq = new Request(authorizeUrl.toString());
-  const authorizeGetRes = await app.fetch(authorizeGetReq, mockEnv, {} as ExecutionContext);
+  const authorizeGetRes = await app.fetch(authorizeGetReq, mockEnv, createMockExecutionCtx() as any);
   expect(authorizeGetRes.status).toBe(200);
 
   const html = await authorizeGetRes.text();
@@ -217,7 +218,7 @@ test("Full OAuth flow: DCR -> Authorize -> Token -> API access", async () => {
     body: authorizeFormData,
   });
 
-  const authorizePostRes = await app.fetch(authorizePostReq, mockEnv, {} as ExecutionContext);
+  const authorizePostRes = await app.fetch(authorizePostReq, mockEnv, createMockExecutionCtx() as any);
   expect(authorizePostRes.status).toBe(302);
 
   const location = authorizePostRes.headers.get("Location");
@@ -249,7 +250,7 @@ test("Full OAuth flow: DCR -> Authorize -> Token -> API access", async () => {
     body: tokenFormData.toString(),
   });
 
-  const tokenRes = await app.fetch(tokenReq, mockEnv, {} as ExecutionContext);
+  const tokenRes = await app.fetch(tokenReq, mockEnv, createMockExecutionCtx() as any);
   expect(tokenRes.status).toBe(200);
 
   const tokenData = await tokenRes.json();
@@ -277,7 +278,7 @@ test("Full OAuth flow: DCR -> Authorize -> Token -> API access", async () => {
     }),
   });
 
-  const mcpRes = await app.fetch(mcpReq, mockEnv, {} as ExecutionContext);
+  const mcpRes = await app.fetch(mcpReq, mockEnv, createMockExecutionCtx() as any);
   expect(mcpRes.status).toBe(200);
 
   const mcpText = await mcpRes.text();

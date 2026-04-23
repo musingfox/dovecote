@@ -1,7 +1,10 @@
 import { Hono } from "hono";
+import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { generateCSRF, validateCSRF } from "./csrf.js";
+import { SCOPES_SUPPORTED } from "./scopes.js";
+import { writeAudit } from "./audit.js";
 
 // Extend Env to include the OAUTH_PROVIDER helper
 interface AuthEnv extends Env {
@@ -86,13 +89,40 @@ app.post("/authorize", async (c) => {
   }
 
   try {
+    // Filter requested scopes to only supported ones
+    const requestedScopes = authRequest.scope ?? [];
+    const effectiveScopes = requestedScopes.filter((s) =>
+      (SCOPES_SUPPORTED as readonly string[]).includes(s)
+    );
+
     // Complete authorization
     const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
       request: authRequest,
       userId: "operator",
-      scope: authRequest.scope ?? ["dovecote:notify"],
+      scope: effectiveScopes,
       metadata: { label: "operator" },
-      props: {},
+      props: { userId: "operator", scopes: effectiveScopes },
+    });
+
+    // Emit audit event on success
+    // Shim for c.executionCtx if not available (e.g., in Hono subrouters or tests)
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      // ExecutionContext not available (e.g., in tests)
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "authorize",
+      userId: "operator",
+      ok: true,
     });
 
     // Redirect to callback URL

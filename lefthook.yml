@@ -1,0 +1,11 @@
+pre-commit:
+  commands:
+    hook-guard:
+      run: .githooks/hook-guard-pre-commit
+    no-empty-props-in-auth:
+      glob: "src/auth/*.ts"
+      run: |
+        if rg -l 'props:\s*\{\s*\}' {staged_files} ; then
+          echo "Empty props:{} found in src/auth/** — populate with {userId, scopes}"
+          exit 1
+        fi
