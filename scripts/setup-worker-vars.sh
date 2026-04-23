@@ -69,5 +69,16 @@ fi
 echo "Setting COOKIE_ENCRYPTION_KEY..."
 echo "$COOKIE_ENCRYPTION_KEY" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} COOKIE_ENCRYPTION_KEY
 
+# Optional: ADMIN_REVOKE_TOKEN
+if [[ -n "${ADMIN_REVOKE_TOKEN:-}" ]]; then
+  echo "Setting ADMIN_REVOKE_TOKEN..."
+  echo "$ADMIN_REVOKE_TOKEN" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} ADMIN_REVOKE_TOKEN
+else
+  read -p "Enter ADMIN_REVOKE_TOKEN (optional, press Enter to skip): " ADMIN_REVOKE_TOKEN
+  if [[ -n "$ADMIN_REVOKE_TOKEN" ]]; then
+    echo "$ADMIN_REVOKE_TOKEN" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} ADMIN_REVOKE_TOKEN
+  fi
+fi
+
 echo ""
 echo "Secrets set successfully!"

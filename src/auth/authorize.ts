@@ -5,6 +5,8 @@ import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provid
 import { generateCSRF, validateCSRF } from "./csrf.js";
 import { SCOPES_SUPPORTED } from "./scopes.js";
 import { writeAudit } from "./audit.js";
+import { checkRateLimit } from "./rate-limit.js";
+import { validateRevokeBody } from "./revoke-schema.js";
 
 // Extend Env to include the OAUTH_PROVIDER helper
 interface AuthEnv extends Env {
@@ -137,6 +139,150 @@ app.post("/authorize", async (c) => {
  */
 app.get("/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+/**
+ * POST /admin/revoke - Revoke an OAuth grant (Contract C)
+ * Operator-only endpoint to immediately revoke grants (T1/T11/T17)
+ */
+app.post("/admin/revoke", async (c) => {
+  // C.1: Check if revoke endpoint is configured
+  if (!c.env.ADMIN_REVOKE_TOKEN) {
+    return c.json({ error: "revoke endpoint not configured" }, 503);
+  }
+
+  // Get IP address
+  const ip = c.req.raw.headers.get("CF-Connecting-IP") || "unknown";
+
+  // C.2: Rate limiting
+  const rateLimitResult = await checkRateLimit(c.env.OAUTH_KV, ip);
+  if (!rateLimitResult.allowed) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.revoke",
+      grantId: "",
+      ok: false,
+      reason: "rate_limited",
+    });
+
+    return c.json({ error: "rate limited" }, 429, {
+      "Retry-After": "60",
+    });
+  }
+
+  // C.3: Authorization check
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.revoke",
+      grantId: "",
+      ok: false,
+      reason: "auth_failed",
+    });
+
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const token = authHeader.substring(7); // Remove "Bearer "
+  if (!timingSafeEqual(token, c.env.ADMIN_REVOKE_TOKEN)) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.revoke",
+      grantId: "",
+      ok: false,
+      reason: "auth_failed",
+    });
+
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  // C.4: Parse and validate request body
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch (error) {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  const validation = validateRevokeBody(body);
+  if (!validation.success) {
+    return c.json({ error: validation.error }, 400);
+  }
+
+  const { grantId } = validation.data!;
+
+  // Shim ExecutionContext for revokeGrant and audit
+  let ctx: ExecutionContext;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    ctx = {
+      waitUntil: (p: Promise<any>) => {
+        p.catch(() => {});
+      },
+      passThroughOnException: () => {},
+    } as any;
+  }
+
+  // C.5: Revoke grant via provider
+  try {
+    await c.env.OAUTH_PROVIDER.revokeGrant(grantId, "operator");
+  } catch (error) {
+    writeAudit(c.env, ctx, {
+      event: "admin.revoke",
+      grantId,
+      ok: false,
+      reason: "provider_error",
+    });
+
+    return c.json({ error: "revoke failed" }, 500);
+  }
+
+  // C.6: Success - audit and return
+  writeAudit(c.env, ctx, {
+    event: "admin.revoke",
+    grantId,
+    ok: true,
+  });
+
+  return c.json({ ok: true, grantId }, 200);
 });
 
 /**
