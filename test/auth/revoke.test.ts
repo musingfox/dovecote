@@ -70,7 +70,6 @@ test("admin revoke: success with valid token and grantId", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -128,7 +127,6 @@ test("admin revoke: wrong token returns 401", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -178,7 +176,6 @@ test("admin revoke: missing Authorization header returns 401", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -219,7 +216,6 @@ test("admin revoke: malformed Authorization (Basic xxx) returns 401", async () =
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -261,7 +257,6 @@ test("admin revoke: token unset returns 503", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -310,7 +305,6 @@ test("admin revoke: rate limited after 5 requests returns 429", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -379,7 +373,6 @@ test("admin revoke: invalid body (regex) returns 400", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -421,7 +414,6 @@ test("admin revoke: invalid JSON returns 400", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -463,7 +455,6 @@ test("admin revoke: missing grantId field returns 400", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -507,7 +498,6 @@ test("admin revoke: provider error returns 500", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -561,7 +551,6 @@ test("admin revoke: IP fallback to 'unknown' when CF-Connecting-IP missing", asy
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
@@ -607,7 +596,6 @@ test("admin revoke: GET request returns 404", async () => {
   };
 
   const env: AuthEnv = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",

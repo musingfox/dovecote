@@ -9,7 +9,6 @@ import type { Env } from "../../src/types";
 describe("buildChannelRegistry (BC3)", () => {
   it("env with telegram + discord instances → 2 registrations", () => {
     const env: Env = {
-      MCP_AUTH_TOKEN: "x",
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
@@ -23,8 +22,8 @@ describe("buildChannelRegistry (BC3)", () => {
     expect(registry.find((r) => r.channelId === "discord-team-a")).toBeDefined();
   });
 
-  it("empty env (only MCP_AUTH_TOKEN) → []", () => {
-    const env: Env = { MCP_AUTH_TOKEN: "x" };
+  it("empty env → []", () => {
+    const env: Env = {};
     const registry = buildChannelRegistry(env);
     expect(registry).toEqual([]);
   });
@@ -33,7 +32,6 @@ describe("buildChannelRegistry (BC3)", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
     const env: Env = {
-      MCP_AUTH_TOKEN: "x",
       TELEGRAM_INSTANCES: "not json",
       DISCORD_INSTANCES: JSON.stringify([
         { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
@@ -51,7 +49,6 @@ describe("buildChannelRegistry (BC3)", () => {
 describe("getChannelConfigs (BC4)", () => {
   it("includes service field, name like 'Telegram (alerts)', enabled: true", () => {
     const env: Env = {
-      MCP_AUTH_TOKEN: "x",
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
@@ -80,7 +77,7 @@ describe("getChannelConfigs (BC4)", () => {
   });
 
   it("empty env → []", () => {
-    const env: Env = { MCP_AUTH_TOKEN: "x" };
+    const env: Env = {};
     const configs = getChannelConfigs(env);
     expect(configs).toEqual([]);
   });
@@ -106,7 +103,6 @@ describe("sendToChannel (BC5)", () => {
     globalThis.fetch = mockFetch as any;
 
     const env: Env = {
-      MCP_AUTH_TOKEN: "x",
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
@@ -118,7 +114,7 @@ describe("sendToChannel (BC5)", () => {
   });
 
   it("sendToChannel('slack-general', ...) → { success: false, error: 'Unknown channel' }", async () => {
-    const env: Env = { MCP_AUTH_TOKEN: "x" };
+    const env: Env = {};
     const result = await sendToChannel("slack-general", { text: "Hello" }, env);
     expect(result).toEqual({
       success: false,
@@ -129,7 +125,6 @@ describe("sendToChannel (BC5)", () => {
 
   it("sendToChannel('telegram', ...) → { success: false, error: 'Unknown channel' }", async () => {
     const env: Env = {
-      MCP_AUTH_TOKEN: "x",
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
@@ -158,7 +153,6 @@ describe("sendToChannel (BC5)", () => {
     globalThis.fetch = mockFetch as any;
 
     const env: Env = {
-      MCP_AUTH_TOKEN: "x",
       DISCORD_INSTANCES: JSON.stringify([
         { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
       ]),

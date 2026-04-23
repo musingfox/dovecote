@@ -12,24 +12,6 @@ test("extractAuth with valid userId and scopes", () => {
   expect(result).toEqual({ userId: "op", scopes: ["dovecote:notify"] });
 });
 
-test("extractAuth with legacy flag (C4 - no strict mode)", () => {
-  const ctx = {
-    props: {
-      legacy: true,
-      userId: "legacy-bearer",
-      scopes: ["dovecote:notify"],
-    },
-    waitUntil: () => {},
-    passThroughOnException: () => {},
-  } as any;
-
-  const result = extractAuth(ctx);
-  expect(result).toEqual({
-    userId: "legacy-bearer",
-    scopes: ["dovecote:notify"],
-  });
-});
-
 test("extractAuth with empty props", () => {
   const ctx = {
     props: {},

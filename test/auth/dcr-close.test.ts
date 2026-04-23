@@ -29,7 +29,6 @@ test("DCR closed: POST /mcp/register returns 4xx or 5xx", async () => {
   const kv = new MockKV();
 
   const env: Env = {
-    MCP_AUTH_TOKEN: "test-token",
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",

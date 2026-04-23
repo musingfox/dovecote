@@ -60,7 +60,6 @@ class MockKV implements KVNamespace {
 }
 
 const mockEnv: Env = {
-  MCP_AUTH_TOKEN: "legacy-token-123",
   OAUTH_KV: new MockKV() as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
@@ -119,33 +118,6 @@ test("POST /mcp without Authorization returns 401", async () => {
   const wwwAuth = res.headers.get("WWW-Authenticate");
   expect(wwwAuth).toBeTruthy();
   expect(wwwAuth).toContain("resource_metadata");
-});
-
-test("POST /mcp with legacy bearer token returns 200", async () => {
-  const req = new Request("https://example.com/mcp", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      Authorization: "Bearer legacy-token-123",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "test", version: "1.0" },
-      },
-    }),
-  });
-
-  const res = await app.fetch(req, mockEnv, createMockExecutionCtx() as any);
-  expect(res.status).toBe(200);
-
-  const text = await res.text();
-  expect(text).toContain("dovecote-mcp-server");
 });
 
 test("Full OAuth flow: Bootstrap -> Authorize -> Token -> API access", async () => {

@@ -8,7 +8,6 @@ Agent notification infrastructure — an MCP server deployed on Cloudflare Worke
 
 - **MCP over Streamable HTTP** — compatible with Claude Code, Claude web connector, and any MCP client
 - **OAuth 2.1 + PKCE** — sign-in flow for the Claude.ai web connector, with Dynamic Client Registration (RFC 7591) and Protected Resource Metadata (RFC 9728)
-- **Legacy bearer token** — older clients can still authenticate directly with `MCP_AUTH_TOKEN`
 - **Multi-instance channels** — configure multiple Telegram / Discord instances via `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON arrays
 - **CSRF protection** — HMAC-SHA256 with HttpOnly/Secure cookie
 
@@ -17,9 +16,7 @@ Agent notification infrastructure — an MCP server deployed on Cloudflare Worke
 ```
 Agent (Claude Code / claude.ai / any MCP client)
   │
-  ▼  MCP over Streamable HTTP
-  │   ├─ OAuth 2.1 + PKCE (Claude.ai web connector)
-  │   └─ Bearer token (legacy MCP_AUTH_TOKEN)
+  ▼  MCP over Streamable HTTP (OAuth 2.1 + PKCE)
 Dovecote (Cloudflare Worker + OAUTH_KV)
   │
   ├──▶ Telegram Bot API
@@ -39,7 +36,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 - **Runtime**: Cloudflare Workers (TypeScript, Hono)
 - **Transport**: Streamable HTTP (SSE)
 - **Storage**: Cloudflare KV (`OAUTH_KV` — OAuth clients/grants/tokens + encrypted channel config)
-- **Auth**: `@cloudflare/workers-oauth-provider` (OAuth 2.1) + legacy bearer fallback
+- **Auth**: `@cloudflare/workers-oauth-provider` (OAuth 2.1)
 
 ## Development
 
@@ -50,7 +47,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
-   MCP_AUTH_TOKEN=your-legacy-bearer-token
    OAUTH_PASSWORD=your-authorize-page-password
    COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
@@ -95,7 +91,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    This will prompt you to enter secrets. If `.dev.vars` exists, it will use values from there as defaults.
 
    Required:
-   - `MCP_AUTH_TOKEN` — legacy bearer token for MCP clients that don't use OAuth
    - `OAUTH_PASSWORD` — password shown on the `/authorize` page (Claude.ai OAuth flow)
    - `COOKIE_ENCRYPTION_KEY` — HMAC key for the CSRF cookie (base64, 32 bytes)
 
@@ -118,16 +113,12 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 4. **Verify deployment**
    ```bash
-   MCP_AUTH_TOKEN=your-token ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
+   ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
    # or
-   export MCP_AUTH_TOKEN=your-token
    bun run deploy:verify https://dovecote.your-subdomain.workers.dev
    ```
 
-   This runs three checks:
-   - Health check (GET /health → 200 OK)
-   - Wrong token rejected (POST /mcp with invalid Bearer token → 401)
-   - Authorized MCP initialize (POST /mcp with Bearer token → 200 OK with serverInfo)
+   This runs a health check (GET /health → 200 OK)
 
 ### Claude.ai Web Connector (OAuth)
 
@@ -136,14 +127,12 @@ When adding a connector on Claude.ai, fill in the worker URL (e.g., `https://dov
 5. **Run E2E tests against production** (optional)
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_AUTH_TOKEN=your-token \
    bun test:e2e:remote
    ```
 
    For testing notification channels on production:
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_AUTH_TOKEN=your-token \
    TEST_TELEGRAM_INSTANCES='[{"id":"default","botToken":"...","chatId":"..."}]' \
    TEST_DISCORD_INSTANCES='[{"id":"default","webhookUrl":"..."}]' \
    bun test:e2e:remote
@@ -167,7 +156,6 @@ To test against a deployed worker, set environment variables:
 
 ```bash
 TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-TEST_AUTH_TOKEN=your-production-token \
 bun test test/e2e/
 ```
 

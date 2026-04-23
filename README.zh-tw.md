@@ -8,7 +8,6 @@ Agent 通知基礎設施 — 部署在 Cloudflare Workers 上的 MCP server，�
 
 - **MCP over Streamable HTTP** — 相容 Claude Code、Claude web connector 與任何 MCP client
 - **OAuth 2.1 + PKCE** — Claude.ai web connector 登入流程，支援 Dynamic Client Registration (RFC 7591) 與 Protected Resource Metadata (RFC 9728)
-- **Legacy bearer token** — 舊客戶端可繼續使用 `MCP_AUTH_TOKEN` 直連
 - **Multi-instance channels** — Telegram / Discord 可透過 `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON 陣列設定多個 instance
 - **CSRF 保護** — HMAC-SHA256 搭配 HttpOnly/Secure cookie
 
@@ -17,9 +16,7 @@ Agent 通知基礎設施 — 部署在 Cloudflare Workers 上的 MCP server，�
 ```
 Agent (Claude Code / claude.ai / 任何 MCP client)
   │
-  ▼  MCP over Streamable HTTP
-  │   ├─ OAuth 2.1 + PKCE (Claude.ai web connector)
-  │   └─ Bearer token (legacy MCP_AUTH_TOKEN)
+  ▼  MCP over Streamable HTTP (OAuth 2.1 + PKCE)
 Dovecote (Cloudflare Worker + OAUTH_KV)
   │
   ├──▶ Telegram Bot API
@@ -39,7 +36,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 - **Runtime**：Cloudflare Workers（TypeScript、Hono）
 - **Transport**：Streamable HTTP (SSE)
 - **儲存**：Cloudflare KV（`OAUTH_KV` — OAuth clients/grants/tokens 與加密後的 channel 設定）
-- **認證**：`@cloudflare/workers-oauth-provider`（OAuth 2.1）＋ legacy bearer fallback
+- **認證**：`@cloudflare/workers-oauth-provider`（OAuth 2.1）
 
 ## 開發
 
@@ -50,7 +47,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 2. 建立 `.dev.vars`（可參考 `.dev.vars.example`）：
    ```env
-   MCP_AUTH_TOKEN=your-legacy-bearer-token
    OAUTH_PASSWORD=your-authorize-page-password
    COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
@@ -95,7 +91,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    script 會提示輸入 secrets；若 `.dev.vars` 存在，會以其值作為預設。
 
    必要：
-   - `MCP_AUTH_TOKEN` — 給不走 OAuth 的舊客戶端使用的 bearer token
    - `OAUTH_PASSWORD` — `/authorize` 頁面要求輸入的密碼（Claude.ai OAuth 流程）
    - `COOKIE_ENCRYPTION_KEY` — CSRF cookie 的 HMAC 金鑰（base64、32 bytes）
 
@@ -118,16 +113,12 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 4. **驗證部署**
    ```bash
-   MCP_AUTH_TOKEN=your-token ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
+   ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
    # 或
-   export MCP_AUTH_TOKEN=your-token
    bun run deploy:verify https://dovecote.your-subdomain.workers.dev
    ```
 
-   會跑三項檢查：
-   - 健康檢查（GET /health → 200 OK）
-   - 錯誤 token 被拒絕（POST /mcp 帶無效 Bearer → 401）
-   - 合法 MCP initialize（POST /mcp 帶正確 Bearer → 200 OK 含 serverInfo）
+   會跑健康檢查（GET /health → 200 OK）
 
 ### Claude.ai Web Connector（OAuth）
 
@@ -136,14 +127,12 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 5. **對 production 執行 E2E 測試**（選用）
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_AUTH_TOKEN=your-token \
    bun test:e2e:remote
    ```
 
    要一併驗證通知頻道：
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_AUTH_TOKEN=your-token \
    TEST_TELEGRAM_INSTANCES='[{"id":"default","botToken":"...","chatId":"..."}]' \
    TEST_DISCORD_INSTANCES='[{"id":"default","webhookUrl":"..."}]' \
    bun test:e2e:remote
@@ -167,7 +156,6 @@ bun test test/e2e/
 
 ```bash
 TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-TEST_AUTH_TOKEN=your-production-token \
 bun test test/e2e/
 ```
 

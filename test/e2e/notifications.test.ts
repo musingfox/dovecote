@@ -8,7 +8,137 @@ const oauthDefaults = {
   OAUTH_KV: new MockKV() as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+  ADMIN_REVOKE_TOKEN: "admin-test-token",
+  ENABLE_CLIENT_BOOTSTRAP: "1",
 };
+
+const authenticatedCtx = {
+  props: { userId: "test-user", scopes: ["dovecote:notify", "dovecote:env:read"] },
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+} as ExecutionContext;
+
+// Helper to get an OAuth access token for local testing via full OAuth flow
+let cachedAccessToken: string | null = null;
+async function getTestAccessToken(): Promise<string> {
+  if (cachedAccessToken) return cachedAccessToken;
+
+  // Step 1: Bootstrap client
+  const bootstrapReq = new Request("http://localhost/admin/bootstrap-client", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer admin-test-token`,
+    },
+    body: JSON.stringify({
+      clientName: "e2e-test-client",
+      redirectUris: ["https://test.local/callback"],
+    }),
+  });
+
+  const bootstrapRes = await doFetch(bootstrapReq);
+  if (bootstrapRes.status !== 200) {
+    throw new Error(`Bootstrap failed: ${bootstrapRes.status} ${await bootstrapRes.text()}`);
+  }
+
+  const clientInfo = await bootstrapRes.json();
+  const clientId = clientInfo.client_id;
+
+  // Step 2: Generate PKCE challenge
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+  // Step 3: GET /authorize to get CSRF token
+  const authorizeUrl = new URL("http://localhost/authorize");
+  authorizeUrl.searchParams.set("client_id", clientId);
+  authorizeUrl.searchParams.set("redirect_uri", "https://test.local/callback");
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("state", "test-state");
+  authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  authorizeUrl.searchParams.set("scope", "dovecote:notify dovecote:env:read");
+
+  const authorizeGetReq = new Request(authorizeUrl.toString());
+  const authorizeGetRes = await doFetch(authorizeGetReq);
+
+  const html = await authorizeGetRes.text();
+  const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
+  if (!csrfMatch) throw new Error("CSRF token not found");
+  const csrfToken = csrfMatch[1];
+
+  const setCookie = authorizeGetRes.headers.get("Set-Cookie");
+  if (!setCookie) throw new Error("Cookie not found");
+  const cookieMatch = setCookie.match(/csrf=([^;]+)/);
+  if (!cookieMatch) throw new Error("CSRF cookie not found");
+  const cookieValue = cookieMatch[1];
+
+  // Step 4: POST /authorize with password
+  const authorizeFormData = new FormData();
+  authorizeFormData.append("csrf_token", csrfToken);
+  authorizeFormData.append("password", "test-password");
+  authorizeFormData.append("response_type", "code");
+  authorizeFormData.append("client_id", clientId);
+  authorizeFormData.append("redirect_uri", "https://test.local/callback");
+  authorizeFormData.append("state", "test-state");
+  authorizeFormData.append("scope", "dovecote:notify dovecote:env:read");
+  authorizeFormData.append("code_challenge", codeChallenge);
+  authorizeFormData.append("code_challenge_method", "S256");
+
+  const authorizePostReq = new Request("http://localhost/authorize", {
+    method: "POST",
+    headers: { Cookie: `csrf=${cookieValue}` },
+    body: authorizeFormData,
+  });
+
+  const authorizePostRes = await doFetch(authorizePostReq);
+  const location = authorizePostRes.headers.get("Location");
+  if (!location) throw new Error("No redirect location");
+
+  const locationUrl = new URL(location);
+  const code = locationUrl.searchParams.get("code");
+  if (!code) throw new Error("No authorization code");
+
+  // Step 5: Exchange code for token
+  const tokenFormData = new URLSearchParams();
+  tokenFormData.set("grant_type", "authorization_code");
+  tokenFormData.set("code", code);
+  tokenFormData.set("redirect_uri", "https://test.local/callback");
+  tokenFormData.set("client_id", clientId);
+  tokenFormData.set("code_verifier", codeVerifier);
+
+  const tokenReq = new Request("http://localhost/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: tokenFormData.toString(),
+  });
+
+  const tokenRes = await doFetch(tokenReq);
+  if (tokenRes.status !== 200) {
+    throw new Error(`Token exchange failed: ${tokenRes.status} ${await tokenRes.text()}`);
+  }
+
+  const tokenData = await tokenRes.json();
+  cachedAccessToken = tokenData.access_token;
+  return cachedAccessToken;
+}
+
+function generateCodeVerifier(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return base64UrlEncode(array);
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return base64UrlEncode(new Uint8Array(hash));
+}
+
+function base64UrlEncode(buffer: Uint8Array): string {
+  const base64 = btoa(String.fromCharCode(...buffer));
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
 
 /**
  * E2E tests — supports both local (in-process) and remote (HTTP) testing.
@@ -32,12 +162,17 @@ async function doFetch(req: Request): Promise<Response> {
     } as RequestInit);
     return fetch(newReq);
   } else {
-    // Local mode: use app.fetch (OAuthProvider requires ctx)
-    return app.fetch(req, config.env, {} as ExecutionContext);
+    // Local mode: use app.fetch with authenticated context
+    const ctx = {
+      props: { userId: "test-user", scopes: ["dovecote:notify", "dovecote:env:read"] },
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+    } as ExecutionContext;
+    return app.fetch(req, config.env, ctx);
   }
 }
 
-function mcpRequest(
+async function mcpRequest(
   method: string,
   params: Record<string, unknown>,
   id: number,
@@ -47,10 +182,19 @@ function mcpRequest(
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
   };
-  const t = token ?? config.authToken;
+
+  let t = token;
+  if (!t && !config.isRemote) {
+    // For local testing, get or create an OAuth token
+    t = await getTestAccessToken();
+  } else if (!t && config.isRemote) {
+    t = config.authToken || undefined;
+  }
+
   if (t) {
     headers.Authorization = `Bearer ${t}`;
   }
+
   return new Request("http://localhost/mcp", {
     method: "POST",
     headers,
@@ -115,25 +259,11 @@ describe("E2E: Auth", () => {
     const res = await doFetch(req);
     expect(res.status).toBe(401);
   });
-
-  it("accepts legacy MCP_AUTH_TOKEN bearer", async () => {
-    const req = mcpRequest(
-      "initialize",
-      {
-        protocolVersion: "2025-03-26",
-        capabilities: {},
-        clientInfo: { name: "legacy-test", version: "1.0.0" },
-      },
-      99
-    );
-    const res = await doFetch(req);
-    expect(res.status).toBe(200);
-  });
 });
 
 describe("E2E: MCP Initialize", () => {
   it("returns server info", async () => {
-    const req = mcpRequest(
+    const req = await mcpRequest(
       "initialize",
       {
         protocolVersion: "2025-03-26",
@@ -154,7 +284,7 @@ describe("E2E: MCP Initialize", () => {
 
 describe("E2E: list_channels", () => {
   it("returns all channels with correct enabled status and service field", async () => {
-    const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 2);
+    const req = await mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 2);
     const res = await doFetch(req);
     expect(res.status).toBe(200);
 
@@ -180,7 +310,7 @@ describe("E2E: send_notification → Telegram", () => {
     }
 
     const sentMessage = `E2E telegram test @ ${new Date().toISOString()}`;
-    const req = mcpRequest(
+    const req = await mcpRequest(
       "tools/call",
       {
         name: "send_notification",
@@ -211,7 +341,7 @@ describe("E2E: send_notification → Discord", () => {
     }
 
     const sentMessage = `E2E discord test @ ${new Date().toISOString()}`;
-    const req = mcpRequest(
+    const req = await mcpRequest(
       "tools/call",
       {
         name: "send_notification",
@@ -235,7 +365,7 @@ describe("E2E: send_notification → Discord", () => {
 
 describe("E2E: send_notification → unknown channel", () => {
   it("returns error for nonexistent channel", async () => {
-    const req = mcpRequest(
+    const req = await mcpRequest(
       "tools/call",
       {
         name: "send_notification",
@@ -260,7 +390,7 @@ describe("E2E: send_notification → unknown channel", () => {
 describe("E2E: no Telegram config", () => {
   const envNoTelegram: Env = {
     ...oauthDefaults,
-    MCP_AUTH_TOKEN: "dev-test-token-123",
+    OAUTH_KV: config.env.OAUTH_KV, // Share KV to access OAuth tokens
     DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
   };
 
@@ -270,8 +400,8 @@ describe("E2E: no Telegram config", () => {
       return;
     }
 
-    const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 10);
-    const res = await app.fetch(req, envNoTelegram, {} as ExecutionContext);
+    const req = await mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 10);
+    const res = await app.fetch(req, envNoTelegram, authenticatedCtx);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -287,12 +417,12 @@ describe("E2E: no Telegram config", () => {
       return;
     }
 
-    const req = mcpRequest(
+    const req = await mcpRequest(
       "tools/call",
       { name: "send_notification", arguments: { channel: "telegram-default", content: { text: "test" } } },
       11
     );
-    const res = await app.fetch(req, envNoTelegram, {} as ExecutionContext);
+    const res = await app.fetch(req, envNoTelegram, authenticatedCtx);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -304,7 +434,7 @@ describe("E2E: no Telegram config", () => {
 describe("E2E: no Discord config", () => {
   const envNoDiscord: Env = {
     ...oauthDefaults,
-    MCP_AUTH_TOKEN: "dev-test-token-123",
+    OAUTH_KV: config.env.OAUTH_KV, // Share KV to access OAuth tokens
     TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
   };
 
@@ -314,8 +444,8 @@ describe("E2E: no Discord config", () => {
       return;
     }
 
-    const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 20);
-    const res = await app.fetch(req, envNoDiscord, {} as ExecutionContext);
+    const req = await mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 20);
+    const res = await app.fetch(req, envNoDiscord, authenticatedCtx);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -331,12 +461,12 @@ describe("E2E: no Discord config", () => {
       return;
     }
 
-    const req = mcpRequest(
+    const req = await mcpRequest(
       "tools/call",
       { name: "send_notification", arguments: { channel: "discord-default", content: { text: "test" } } },
       21
     );
-    const res = await app.fetch(req, envNoDiscord, {} as ExecutionContext);
+    const res = await app.fetch(req, envNoDiscord, authenticatedCtx);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -348,7 +478,7 @@ describe("E2E: no Discord config", () => {
 describe("E2E: no channel config at all", () => {
   const envEmpty: Env = {
     ...oauthDefaults,
-    MCP_AUTH_TOKEN: "dev-test-token-123",
+    OAUTH_KV: config.env.OAUTH_KV, // Share KV to access OAuth tokens
   };
 
   it("list_channels returns empty array", async () => {
@@ -357,7 +487,7 @@ describe("E2E: no channel config at all", () => {
       return;
     }
 
-    const req = mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 30);
+    const req = await mcpRequest("tools/call", { name: "list_channels", arguments: {} }, 30);
     const res = await app.fetch(req, envEmpty, {} as ExecutionContext);
     expect(res.status).toBe(200);
 
@@ -373,12 +503,12 @@ describe("E2E: no channel config at all", () => {
     }
 
     for (const channel of ["telegram-default", "discord-default"]) {
-      const req = mcpRequest(
+      const req = await mcpRequest(
         "tools/call",
         { name: "send_notification", arguments: { channel, content: { text: "test" } } },
         31
       );
-      const res = await app.fetch(req, envEmpty, {} as ExecutionContext);
+      const res = await app.fetch(req, envEmpty, authenticatedCtx);
       expect(res.status).toBe(200);
 
       const data = parseSSEData(await res.text());

@@ -5,7 +5,6 @@ import type { Env } from "../src/types";
 import { createMockExecutionCtx } from "./helpers/mock-execution-ctx";
 
 const mockEnv: Env = {
-  MCP_AUTH_TOKEN: "test-token-123",
   OAUTH_KV: {} as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",

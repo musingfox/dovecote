@@ -9,7 +9,6 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    MCP_AUTH_TOKEN: "test",
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
   };
@@ -79,7 +78,6 @@ test("writeAudit failure tolerance - KV.put rejects", async () => {
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    MCP_AUTH_TOKEN: "test",
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
   };

@@ -6,7 +6,7 @@ import { MockKV } from "../helpers/mock-kv";
 export interface E2EConfig {
   baseUrl: string;
   isRemote: boolean;
-  authToken: string;
+  authToken: string | null;
   env: Env;
   expectedChannels: string[];
 }
@@ -67,10 +67,6 @@ function loadConfig(): E2EConfig {
 
   // Remote mode
   if (testBaseUrl) {
-    if (!testAuthToken) {
-      throw new Error("TEST_AUTH_TOKEN is required when TEST_BASE_URL is set");
-    }
-
     // Read JSON env vars if provided, else construct from individual env vars for convenience
     let telegramInstances = process.env.TEST_TELEGRAM_INSTANCES;
     let discordInstances = process.env.TEST_DISCORD_INSTANCES;
@@ -91,7 +87,6 @@ function loadConfig(): E2EConfig {
     }
 
     const env: Env = {
-      MCP_AUTH_TOKEN: testAuthToken,
       TELEGRAM_INSTANCES: telegramInstances,
       DISCORD_INSTANCES: discordInstances,
       OAUTH_KV: {} as any,
@@ -103,7 +98,7 @@ function loadConfig(): E2EConfig {
     return {
       baseUrl: testBaseUrl,
       isRemote: true,
-      authToken: testAuthToken,
+      authToken: testAuthToken || null,
       env,
       expectedChannels: deriveExpectedChannels(env),
     };
@@ -113,25 +108,21 @@ function loadConfig(): E2EConfig {
   const varsPath = resolve(import.meta.dir, "../../.dev.vars");
   const vars = parseDevVars(varsPath);
 
-  if (!vars.MCP_AUTH_TOKEN) {
-    throw new Error("Missing MCP_AUTH_TOKEN in .dev.vars");
-  }
-
   const env: Env = {
-    MCP_AUTH_TOKEN: vars.MCP_AUTH_TOKEN,
     TELEGRAM_INSTANCES: vars.TELEGRAM_INSTANCES,
     DISCORD_INSTANCES: vars.DISCORD_INSTANCES,
     OAUTH_KV: new MockKV() as any,
     OAUTH_PASSWORD: vars.OAUTH_PASSWORD || "test-password",
     COOKIE_ENCRYPTION_KEY:
       vars.COOKIE_ENCRYPTION_KEY || "test-key-32-bytes-minimum-length-required",
-    ADMIN_REVOKE_TOKEN: vars.ADMIN_REVOKE_TOKEN,
+    ADMIN_REVOKE_TOKEN: vars.ADMIN_REVOKE_TOKEN || "admin-test-token",
+    ENABLE_CLIENT_BOOTSTRAP: vars.ENABLE_CLIENT_BOOTSTRAP || "1",
   };
 
   return {
     baseUrl: "http://localhost:8787",
     isRemote: false,
-    authToken: vars.MCP_AUTH_TOKEN,
+    authToken: null,
     env,
     expectedChannels: deriveExpectedChannels(env),
   };

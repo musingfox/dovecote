@@ -42,7 +42,6 @@ interface AuthEnv extends Env {
 }
 
 const mockEnv: AuthEnv = {
-  MCP_AUTH_TOKEN: "test-token",
   OAUTH_KV: {
     put: async () => {},
     get: async () => null,

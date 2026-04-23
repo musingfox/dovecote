@@ -28,17 +28,6 @@ describe("E2E Config", () => {
     delete require.cache[require.resolve("./config")];
   });
 
-  it("throws error when TEST_BASE_URL is set but TEST_AUTH_TOKEN is missing", () => {
-    process.env.TEST_BASE_URL = "https://example.com";
-    delete process.env.TEST_AUTH_TOKEN;
-
-    expect(() => {
-      // Force reload the module
-      delete require.cache[require.resolve("./config")];
-      require("./config");
-    }).toThrow("TEST_AUTH_TOKEN is required when TEST_BASE_URL is set");
-  });
-
   it("loads local mode config when no TEST_BASE_URL", () => {
     delete process.env.TEST_BASE_URL;
     delete process.env.TEST_AUTH_TOKEN;
@@ -49,8 +38,7 @@ describe("E2E Config", () => {
 
     expect(config.isRemote).toBe(false);
     expect(config.baseUrl).toBe("http://localhost:8787");
-    expect(config.authToken).toBeDefined();
-    expect(config.env.MCP_AUTH_TOKEN).toBeDefined();
+    expect(config.authToken).toBeNull();
   });
 
   it("loads remote mode config when TEST_BASE_URL and TEST_AUTH_TOKEN are set", () => {
@@ -64,6 +52,5 @@ describe("E2E Config", () => {
     expect(config.isRemote).toBe(true);
     expect(config.baseUrl).toBe("https://example.com");
     expect(config.authToken).toBe("test-token");
-    expect(config.env.MCP_AUTH_TOKEN).toBe("test-token");
   });
 });
