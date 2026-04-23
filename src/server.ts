@@ -4,6 +4,7 @@ import type { Env } from "./types.js";
 import type { AuthCtx } from "./auth/ctx.js";
 import { registerListChannelsTool } from "./tools/list-channels.js";
 import { registerSendNotificationTool } from "./tools/send-notification.js";
+import { registerGetEnvTool } from "./tools/get-env.js";
 
 /**
  * Creates an MCP server instance with dovecote configuration
@@ -21,6 +22,7 @@ export function createMCPServer(
 
   registerListChannelsTool(server, env, auth, ctx);
   registerSendNotificationTool(server, env, auth, ctx);
+  registerGetEnvTool(server, env, auth, ctx);
 
   return server;
 }
