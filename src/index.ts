@@ -33,6 +33,9 @@ export default new OAuthProvider<Env>({
   // Security: disallow plain PKCE (OAuth 2.1 compliance)
   allowPlainPKCE: false,
 
+  // DCR closed: disallow public client registration
+  disallowPublicClientRegistration: true,
+
   // Legacy bearer token support via external token resolution
   resolveExternalToken,
 });

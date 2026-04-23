@@ -66,6 +66,8 @@ const mockEnv: Env = {
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
   TELEGRAM_INSTANCES: undefined,
   DISCORD_INSTANCES: undefined,
+  ADMIN_REVOKE_TOKEN: "admin-token-123",
+  ENABLE_CLIENT_BOOTSTRAP: "1",
 };
 
 test("GET /.well-known/oauth-authorization-server returns metadata", async () => {
@@ -146,26 +148,24 @@ test("POST /mcp with legacy bearer token returns 200", async () => {
   expect(text).toContain("dovecote-mcp-server");
 });
 
-test("Full OAuth flow: DCR -> Authorize -> Token -> API access", async () => {
-  // Step 1: Dynamic Client Registration
-  const registerReq = new Request("https://example.com/register", {
+test("Full OAuth flow: Bootstrap -> Authorize -> Token -> API access", async () => {
+  // Step 1: Bootstrap client (DCR is now closed, use admin endpoint)
+  const bootstrapReq = new Request("https://example.com/admin/bootstrap-client", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: "Bearer admin-token-123",
     },
     body: JSON.stringify({
-      redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
-      client_name: "test-client",
-      grant_types: ["authorization_code"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
+      clientName: "test-client",
+      redirectUris: ["https://claude.ai/api/mcp/auth_callback"],
     }),
   });
 
-  const registerRes = await app.fetch(registerReq, mockEnv, createMockExecutionCtx() as any);
-  expect(registerRes.status).toBe(201);
+  const bootstrapRes = await app.fetch(bootstrapReq, mockEnv, createMockExecutionCtx() as any);
+  expect(bootstrapRes.status).toBe(200);
 
-  const clientInfo = await registerRes.json();
+  const clientInfo = await bootstrapRes.json();
   expect(clientInfo.client_id).toBeTruthy();
   const clientId = clientInfo.client_id;
 

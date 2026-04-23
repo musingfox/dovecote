@@ -8,6 +8,7 @@ export interface Env {
   OAUTH_PASSWORD: string;
   COOKIE_ENCRYPTION_KEY: string;
   ADMIN_REVOKE_TOKEN?: string;
+  ENABLE_CLIENT_BOOTSTRAP?: string;
 }
 
 export interface ChannelConfig {

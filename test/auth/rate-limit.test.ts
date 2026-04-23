@@ -99,3 +99,68 @@ test("rate limit: KV.get throws, returns fail-open (allowed=true, current=0)", a
   const result = await checkRateLimit(kv, "1.2.3.4");
   expect(result).toEqual({ allowed: true, current: 0 });
 });
+
+test("rate limit: bootstrap namespace - 5 calls allowed, 6th denied", async () => {
+  const kv = new MockKV();
+  const ip = "1.2.3.4";
+
+  // First 5 calls should be allowed
+  for (let i = 0; i < 5; i++) {
+    const result = await checkRateLimit(kv as any, ip, "bootstrap");
+    expect(result.allowed).toBe(true);
+    expect(result.current).toBe(i + 1);
+  }
+
+  // Verify KV has the bootstrap namespace key
+  const bootstrapKey = kv.getStore().get("rl:bootstrap:1.2.3.4");
+  expect(bootstrapKey).toBeTruthy();
+  expect(bootstrapKey?.value).toBe("5");
+
+  // 6th call should be denied
+  const result6 = await checkRateLimit(kv as any, ip, "bootstrap");
+  expect(result6.allowed).toBe(false);
+  expect(result6.current).toBe(6);
+});
+
+test("rate limit: default namespace (revoke) backward compat", async () => {
+  const kv = new MockKV();
+  const ip = "1.2.3.4";
+
+  // Call without namespace argument (defaults to "revoke")
+  const result = await checkRateLimit(kv as any, ip);
+  expect(result.allowed).toBe(true);
+  expect(result.current).toBe(1);
+
+  // Verify KV uses revoke namespace key
+  const revokeKey = kv.getStore().get("rl:revoke:1.2.3.4");
+  expect(revokeKey).toBeTruthy();
+  expect(revokeKey?.value).toBe("1");
+
+  // Verify no bootstrap key
+  const bootstrapKey = kv.getStore().get("rl:bootstrap:1.2.3.4");
+  expect(bootstrapKey).toBeUndefined();
+});
+
+test("rate limit: separate namespaces - bootstrap and revoke independent", async () => {
+  const kv = new MockKV();
+  const ip = "1.2.3.4";
+
+  // Make 6 bootstrap calls (6th should fail)
+  for (let i = 0; i < 6; i++) {
+    await checkRateLimit(kv as any, ip, "bootstrap");
+  }
+
+  // Bootstrap namespace should be rate limited
+  const bootstrapResult = await checkRateLimit(kv as any, ip, "bootstrap");
+  expect(bootstrapResult.allowed).toBe(false);
+  expect(bootstrapResult.current).toBe(7);
+
+  // Revoke namespace should still allow (independent counter)
+  const revokeResult = await checkRateLimit(kv as any, ip);
+  expect(revokeResult.allowed).toBe(true);
+  expect(revokeResult.current).toBe(1);
+
+  // Verify both keys exist
+  expect(kv.getStore().has("rl:bootstrap:1.2.3.4")).toBe(true);
+  expect(kv.getStore().has("rl:revoke:1.2.3.4")).toBe(true);
+});

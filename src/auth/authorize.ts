@@ -7,6 +7,7 @@ import { SCOPES_SUPPORTED } from "./scopes.js";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
 import { validateRevokeBody } from "./revoke-schema.js";
+import { validateBootstrapBody } from "./bootstrap-schema.js";
 
 // Extend Env to include the OAUTH_PROVIDER helper
 interface AuthEnv extends Env {
@@ -283,6 +284,194 @@ app.post("/admin/revoke", async (c) => {
   });
 
   return c.json({ ok: true, grantId }, 200);
+});
+
+/**
+ * POST /admin/bootstrap-client - Bootstrap OAuth client (Contract Bootstrap-Endpoint)
+ * Flag-gated endpoint for operators to create OAuth clients
+ */
+app.post("/admin/bootstrap-client", async (c) => {
+  // Flag check: must be exactly "1" to enable
+  if (c.env.ENABLE_CLIENT_BOOTSTRAP !== "1") {
+    return c.text("Not Found", 404);
+  }
+
+  // Get IP address
+  const ip = c.req.raw.headers.get("CF-Connecting-IP") || "unknown";
+
+  // Rate limiting (separate namespace from revoke)
+  const rateLimitResult = await checkRateLimit(c.env.OAUTH_KV, ip, "bootstrap");
+  if (!rateLimitResult.allowed) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName: "",
+      ok: false,
+      reason: "rate_limited",
+    });
+
+    return c.json({ error: "rate limited" }, 429, {
+      "Retry-After": "60",
+    });
+  }
+
+  // Authorization check
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName: "",
+      ok: false,
+      reason: "auth_failed",
+    });
+
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const token = authHeader.substring(7); // Remove "Bearer "
+  if (!c.env.ADMIN_REVOKE_TOKEN || !timingSafeEqual(token, c.env.ADMIN_REVOKE_TOKEN)) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName: "",
+      ok: false,
+      reason: "auth_failed",
+    });
+
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  // Parse and validate request body
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch (error) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName: "",
+      ok: false,
+      reason: "invalid_json",
+    });
+
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  const validation = validateBootstrapBody(body);
+  if (!validation.success) {
+    // Shim ExecutionContext for audit
+    let ctx: ExecutionContext;
+    try {
+      ctx = c.executionCtx;
+    } catch {
+      ctx = {
+        waitUntil: (p: Promise<any>) => {
+          p.catch(() => {});
+        },
+        passThroughOnException: () => {},
+      } as any;
+    }
+
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName: "",
+      ok: false,
+      reason: "invalid_body",
+    });
+
+    return c.json({ error: validation.error }, 400);
+  }
+
+  const { clientName, redirectUris } = validation.data!;
+
+  // Shim ExecutionContext for createClient and audit
+  let ctx: ExecutionContext;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    ctx = {
+      waitUntil: (p: Promise<any>) => {
+        p.catch(() => {});
+      },
+      passThroughOnException: () => {},
+    } as any;
+  }
+
+  // Create client via provider (public client with no secret)
+  try {
+    const result = await c.env.OAUTH_PROVIDER.createClient({
+      clientName,
+      redirectUris,
+      tokenEndpointAuthMethod: "none",
+    });
+
+    // Success - audit and return
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName,
+      ok: true,
+    });
+
+    return c.json({ client_id: result.clientId }, 200);
+  } catch (error) {
+    writeAudit(c.env, ctx, {
+      event: "admin.bootstrap",
+      clientName,
+      ok: false,
+      reason: "provider_error",
+    });
+
+    return c.json({ error: "bootstrap failed" }, 500);
+  }
 });
 
 /**

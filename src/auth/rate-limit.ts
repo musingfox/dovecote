@@ -6,19 +6,21 @@ export interface RateLimitResult {
 }
 
 /**
- * Check rate limit for admin revoke endpoint (Contract A)
+ * Check rate limit for admin endpoints (Contract A, extended for RateLimit-Namespace)
  * - 5 requests per 60 seconds per IP
  * - Fail-open on KV errors (don't block on infrastructure issues)
  *
  * @param kv - KVNamespace for storing counters
  * @param ip - Client IP address
+ * @param namespace - Rate limit namespace (default: "revoke" for backward compat)
  * @returns Promise resolving to allowed status and current count
  */
 export async function checkRateLimit(
   kv: KVNamespace,
-  ip: string
+  ip: string,
+  namespace: string = "revoke"
 ): Promise<RateLimitResult> {
-  const key = `rl:revoke:${ip}`;
+  const key = `rl:${namespace}:${ip}`;
 
   try {
     // Get current count
