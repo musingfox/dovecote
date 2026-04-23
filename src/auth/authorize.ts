@@ -3,7 +3,7 @@ import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { generateCSRF, validateCSRF } from "./csrf.js";
-import { SCOPES_SUPPORTED } from "./scopes.js";
+import { SCOPES_SUPPORTED, SCOPE_DESCRIPTIONS } from "./scopes.js";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
 import { validateRevokeBody } from "./revoke-schema.js";
@@ -13,6 +13,12 @@ import { validateBootstrapBody } from "./bootstrap-schema.js";
 interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
 }
+
+const securityHeaders = {
+  "Content-Security-Policy": "frame-ancestors 'none'",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+} as const;
 
 const app = new Hono<{ Bindings: AuthEnv }>();
 
@@ -35,6 +41,14 @@ app.get("/authorize", async (c) => {
   try {
     const authRequest = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
 
+    // Validate scopes
+    const hasInvalidScope = authRequest.scope.some(
+      (s) => !(SCOPES_SUPPORTED as readonly string[]).includes(s)
+    );
+    if (hasInvalidScope) {
+      return c.text("Bad Request: Invalid scope requested", 400, securityHeaders);
+    }
+
     // Generate CSRF token
     const { token: csrfToken, cookie } = await generateCSRF({
       secretKey: c.env.COOKIE_ENCRYPTION_KEY,
@@ -44,10 +58,11 @@ app.get("/authorize", async (c) => {
     const html = renderAuthorizationForm(authRequest, csrfToken);
 
     return c.html(html, 200, {
+      ...securityHeaders,
       "Set-Cookie": cookie,
     });
   } catch (error) {
-    return c.text("Bad Request: Invalid authorization request", 400);
+    return c.text("Bad Request: Invalid authorization request", 400, securityHeaders);
   }
 });
 
@@ -525,6 +540,11 @@ function renderAuthorizationForm(authRequest: AuthRequest, csrfToken: string): s
       color: #333;
       word-break: break-all;
     }
+    .scope-warning {
+      color: #d32f2f;
+      font-size: 13px;
+      margin-top: 6px;
+    }
     label {
       display: block;
       margin-top: 20px;
@@ -566,10 +586,16 @@ function renderAuthorizationForm(authRequest: AuthRequest, csrfToken: string): s
     </div>
     ${
       authRequest.scope && authRequest.scope.length > 0
-        ? `<div class="info">
-      <div class="info-label">Scopes:</div>
-      <div class="info-value">${escapeHtml(authRequest.scope.join(", "))}</div>
-    </div>`
+        ? authRequest.scope.map((scopeName) => {
+            const scopeInfo = SCOPE_DESCRIPTIONS[scopeName as keyof typeof SCOPE_DESCRIPTIONS];
+            const description = scopeInfo.description;
+            const warning = scopeInfo.warning;
+            return `<div class="info">
+      <div class="info-label">${escapeHtml(scopeName)}</div>
+      <div class="info-value">${escapeHtml(description)}</div>
+      ${warning ? `<div class="scope-warning">${escapeHtml(warning)}</div>` : ""}
+    </div>`;
+          }).join("")
         : ""
     }
     <form method="POST" action="/authorize">
