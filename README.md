@@ -113,12 +113,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 4. **Verify deployment**
    ```bash
-   ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
-   # or
-   bun run deploy:verify https://dovecote.your-subdomain.workers.dev
+   TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify
    ```
 
-   This runs a health check (GET /health → 200 OK)
+   This runs smoke tests to verify OAuth metadata, closed DCR, and endpoint availability. For detailed deployment procedures including client provisioning, see [docs/deploy-runbook.md](./docs/deploy-runbook.md).
 
 ### Claude.ai Web Connector (OAuth)
 
@@ -162,6 +160,24 @@ bun test test/e2e/
 In remote mode:
 - Tests use actual HTTP requests via global `fetch()`
 - Tests that require custom environment configurations are skipped (they only apply to in-process testing)
+
+## Security
+
+dovecote implements defense-in-depth security controls:
+
+- **OAuth 2.1 + PKCE**: Authorization flow requires S256 code challenge (plain challenge rejected)
+- **Closed Dynamic Client Registration**: Public DCR disabled; clients provisioned via operator-only `/admin/bootstrap-client` endpoint
+- **CSRF Protection**: HMAC-signed cookie validation on authorization form submission
+- **Rate Limiting**: 5 requests per 60 seconds per IP address on admin endpoints
+- **Audit Trail**: All authorization and privileged operations logged to KV with 90-day TTL
+- **Anti-Clickjacking Headers**: `/authorize` endpoint serves `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`
+- **Scope-Based Access Control**:
+  - `dovecote:notify` – Send notifications via configured channels
+  - `dovecote:env:read` – **High privilege**: Read environment profiles from KV storage. Grant with caution.
+
+### Vulnerability Reporting
+
+Please report security vulnerabilities via [GitHub Issues](https://github.com/musingfox/dovecote/issues) or email [nick12703990@gmail.com](mailto:nick12703990@gmail.com).
 
 ## License
 

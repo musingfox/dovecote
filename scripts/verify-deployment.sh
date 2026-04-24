@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# DEPRECATED: Use 'bun test test/e2e/smoke.test.ts' instead. See docs/deploy-runbook.md.
 set -euo pipefail
 
 WORKER_URL="${1:-${WORKER_URL:-}}"

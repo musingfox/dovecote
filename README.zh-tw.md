@@ -113,12 +113,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 4. **驗證部署**
    ```bash
-   ./scripts/verify-deployment.sh https://dovecote.your-subdomain.workers.dev
-   # 或
-   bun run deploy:verify https://dovecote.your-subdomain.workers.dev
+   TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify
    ```
 
-   會跑健康檢查（GET /health → 200 OK）
+   會跑 smoke tests 驗證 OAuth metadata、關閉的 DCR、端點可用性。詳細部署流程（包含 client provisioning）見 [docs/deploy-runbook.md](./docs/deploy-runbook.md)。
 
 ### Claude.ai Web Connector（OAuth）
 
@@ -162,6 +160,24 @@ bun test test/e2e/
 Remote 模式下：
 - 透過全域 `fetch()` 發真正的 HTTP 請求
 - 需要客製 env 的測試會被跳過（那些只在 in-process 有意義）
+
+## 安全性
+
+dovecote 實作多層防禦安全控制：
+
+- **OAuth 2.1 + PKCE**：授權流程要求 S256 code challenge（拒絕 plain challenge）
+- **關閉動態客戶端註冊**：公開 DCR 已停用；客戶端透過 operator-only `/admin/bootstrap-client` 端點配置
+- **CSRF 保護**：授權表單送出時驗證 HMAC 簽章 cookie
+- **速率限制**：admin 端點每 IP 60 秒內限 5 次請求
+- **稽核軌跡**：所有授權與特權操作記錄至 KV，保留 90 天
+- **防點擊劫持標頭**：`/authorize` 端點回傳 `Content-Security-Policy: frame-ancestors 'none'` 與 `X-Frame-Options: DENY`
+- **基於 Scope 的存取控制**：
+  - `dovecote:notify` – 透過已設定通道發送通知
+  - `dovecote:env:read` – **高權限**：從 KV 儲存讀取環境設定檔。授予時需謹慎。
+
+### 漏洞通報
+
+請透過 [GitHub Issues](https://github.com/musingfox/dovecote/issues) 或電郵 [nick12703990@gmail.com](mailto:nick12703990@gmail.com) 回報安全漏洞。
 
 ## License
 

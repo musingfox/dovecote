@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:secrets": "./scripts/setup-worker-vars.sh",
-    "deploy:verify": "./scripts/verify-deployment.sh",
+    "deploy:verify": "bun test test/e2e/smoke.test.ts",
     "test": "bun test",
     "test:e2e": "bun test test/e2e/",
     "test:e2e:remote": "bun test test/e2e",
