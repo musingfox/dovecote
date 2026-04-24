@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Schema for revoke request body (Contract B)
- * - grantId must match OAuth provider library format: base62 alphanumeric (A-Za-z0-9_-), minimum 16 chars
+ * - grantId must match OAuth provider library format: base64url alphanumeric (A-Za-z0-9_-), minimum 16 chars
  */
 const revokeBodySchema = z.object({
   grantId: z.string().regex(/^[A-Za-z0-9_-]{16,}$/),

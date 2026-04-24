@@ -10,7 +10,7 @@ Before deploying to production:
    ```bash
    bun test
    ```
-   Ensure all tests pass (current baseline: 221 pass / 1 skip / 0 fail).
+   Ensure all tests pass (current baseline: 229 pass / 1 skip / 0 fail).
 
 2. **Verify Wrangler authentication**:
    ```bash

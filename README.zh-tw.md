@@ -177,7 +177,7 @@ dovecote 實作多層防禦安全控制：
 
 ### 漏洞通報
 
-請透過 [GitHub Issues](https://github.com/musingfox/dovecote/issues) 或電郵 [nick12703990@gmail.com](mailto:nick12703990@gmail.com) 回報安全漏洞。
+請透過 [GitHub Security Advisories](https://github.com/musingfox/dovecote/security/advisories/new) 私下回報安全漏洞，請勿開立公開 issue 討論安全問題。
 
 ## License
 

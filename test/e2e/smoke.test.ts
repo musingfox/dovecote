@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import app from "../../src/index.js";
 import { config } from "./config.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
+import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce.js";
 
 /**
  * Smoke tests: basic OAuth and MCP flow validation
@@ -298,17 +299,16 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
   expect(tokenParts.length).toBeGreaterThanOrEqual(2);
   const grantId = tokenParts[1];
 
+  if (!grantId) {
+    console.warn("Could not extract grantId from access token, skipping C6 revoke test");
+    return;
+  }
+
   // Verify grant exists in KV before revocation
   const kv = config.env.OAUTH_KV as any;
   const grantKey = `grant:operator:${grantId}`;
   const grantBeforeRevoke = await kv.get(grantKey);
   expect(grantBeforeRevoke).not.toBeNull();
-
-  if (!grantId) {
-    // If we can't find grantId, skip this test
-    console.warn("Could not find grantId in KV, skipping C6 revoke test");
-    return;
-  }
 
   // Step 7: Revoke the grant
   const revokeRes = await doFetch("/admin/revoke", {
@@ -368,20 +368,3 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
   expect(isRevoked).toBe(true);
 });
 
-function generateCodeVerifier(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return base64UrlEncode(array);
-}
-
-async function generateCodeChallenge(verifier: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return base64UrlEncode(new Uint8Array(hash));
-}
-
-function base64UrlEncode(buffer: Uint8Array): string {
-  const base64 = btoa(String.fromCharCode(...buffer));
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
