@@ -74,10 +74,10 @@ TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
 bun test test/e2e/smoke.test.ts
 ```
 
-Or use the npm script shorthand:
+Or use the script shorthand (requires `TEST_BASE_URL`):
 
 ```bash
-bun run deploy:verify
+TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify
 ```
 
 Expected results:

@@ -22,6 +22,10 @@ fi
 echo ""
 echo "Next steps:"
 echo "  1. Set secrets: ./scripts/setup-worker-vars.sh"
-echo "  2. Verify deployment: ./scripts/verify-deployment.sh $WORKER_URL"
+if [[ -n "$WORKER_URL" ]]; then
+  echo "  2. Verify deployment: TEST_BASE_URL=$WORKER_URL bun run deploy:verify"
+else
+  echo "  2. Verify deployment: TEST_BASE_URL=<worker-url> bun run deploy:verify"
+fi
 
 exit 0

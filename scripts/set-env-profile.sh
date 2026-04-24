@@ -20,7 +20,7 @@ if [ ! -f "$FILE" ]; then
 fi
 
 # Build wrangler command with optional --env flag
-WRANGLER_CMD="wrangler kv key put --binding OAUTH_KV"
+WRANGLER_CMD="wrangler kv key put --binding OAUTH_KV --remote"
 
 if [ -n "${WRANGLER_ENV:-}" ]; then
   WRANGLER_CMD="$WRANGLER_CMD --env $WRANGLER_ENV"
