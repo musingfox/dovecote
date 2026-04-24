@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { validateRevokeBody } from "../../src/auth/revoke-schema.js";
 
-test("revoke schema: valid 20-char lowercase grantId", () => {
+test("revoke schema: valid 20-char alphanumeric grantId", () => {
   const result = validateRevokeBody({ grantId: "abcdefghijklmnopqrst" });
 
   expect(result.success).toBe(true);
@@ -9,11 +9,11 @@ test("revoke schema: valid 20-char lowercase grantId", () => {
   expect(result.error).toBeUndefined();
 });
 
-test("revoke schema: valid 21-char grantId with hyphens", () => {
-  const result = validateRevokeBody({ grantId: "a-b-c-d-e-f-g-h-i-j-k" });
+test("revoke schema: valid mixed-case grantId with underscore", () => {
+  const result = validateRevokeBody({ grantId: "5BJ6fIn2hfVOEiX8_test" });
 
   expect(result.success).toBe(true);
-  expect(result.data).toEqual({ grantId: "a-b-c-d-e-f-g-h-i-j-k" });
+  expect(result.data).toEqual({ grantId: "5BJ6fIn2hfVOEiX8_test" });
   expect(result.error).toBeUndefined();
 });
 
@@ -25,8 +25,8 @@ test("revoke schema: too short grantId fails", () => {
   expect(result.data).toBeUndefined();
 });
 
-test("revoke schema: uppercase grantId fails", () => {
-  const result = validateRevokeBody({ grantId: "ABCDEFGHIJKLMNOPQRST" });
+test("revoke schema: grantId with space fails", () => {
+  const result = validateRevokeBody({ grantId: "abc def ghi jkl mnop" });
 
   expect(result.success).toBe(false);
   expect(result.error).toBeTruthy();

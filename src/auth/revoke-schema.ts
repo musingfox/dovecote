@@ -2,10 +2,10 @@ import { z } from "zod";
 
 /**
  * Schema for revoke request body (Contract B)
- * - grantId must be lowercase alphanumeric with hyphens, minimum 20 chars
+ * - grantId must match OAuth provider library format: base62 alphanumeric (A-Za-z0-9_-), minimum 16 chars
  */
 const revokeBodySchema = z.object({
-  grantId: z.string().regex(/^[a-z0-9-]{20,}$/),
+  grantId: z.string().regex(/^[A-Za-z0-9_-]{16,}$/),
 });
 
 export type ValidationResult =
