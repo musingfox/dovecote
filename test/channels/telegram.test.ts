@@ -11,8 +11,10 @@ describe("TelegramProvider (BC6)", () => {
     expect(provider).toBeDefined();
   });
 
-  it("send text only → success with composite channelId", async () => {
+  it("send text only → success with composite channelId, no parse_mode or disable_web_page_preview", async () => {
+    let capturedBody: any;
     const mockFetch = mock((url: string, options?: any) => {
+      capturedBody = JSON.parse(options.body);
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -34,17 +36,91 @@ describe("TelegramProvider (BC6)", () => {
       messageId: "456",
       detail: { text: "Hello", chatId: "chat456" },
     });
+    // text-only must not set parse_mode or disable_web_page_preview
+    expect(capturedBody).toEqual({ chat_id: "chat456", text: "Hello" });
+    expect("parse_mode" in capturedBody).toBe(false);
+    expect("disable_web_page_preview" in capturedBody).toBe(false);
   });
 
-  it("send embed-only → 'Telegram requires text content'", async () => {
+  it("send embed-only → success with HTML body", async () => {
+    let capturedBody: any;
+    const mockFetch = mock((url: string, options?: any) => {
+      capturedBody = JSON.parse(options.body);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: { message_id: 789, text: "<b>T</b>", chat: { id: "chat456" } },
+          }),
+          { status: 200 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
+    const result = await provider.send({ embed: { title: "T" } });
+
+    expect(result.success).toBe(true);
+    expect(capturedBody.text).toBe("<b>T</b>");
+    expect(capturedBody.parse_mode).toBe("HTML");
+    expect(capturedBody.disable_web_page_preview).toBe(true);
+    expect(capturedBody.chat_id).toBe("chat456");
+  });
+
+  it("send combined text+embed → escaped text + rendered embed", async () => {
+    let capturedBody: any;
+    const mockFetch = mock((url: string, options?: any) => {
+      capturedBody = JSON.parse(options.body);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: { message_id: 999, text: "x", chat: { id: "chat456" } },
+          }),
+          { status: 200 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
     const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
     const result = await provider.send({
-      embed: { title: "No text" },
+      text: "Heads up <user>",
+      embed: { title: "T", description: "D" },
     });
+
+    expect(result.success).toBe(true);
+    expect(capturedBody.text).toBe("Heads up &lt;user&gt;\n\n<b>T</b>\nD");
+    expect(capturedBody.parse_mode).toBe("HTML");
+    expect(capturedBody.disable_web_page_preview).toBe(true);
+  });
+
+  it("send neither text nor embed → 'Telegram requires text or embed content'", async () => {
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
+    const result = await provider.send({} as any);
 
     expect(result.success).toBe(false);
     expect(result.channel).toBe("telegram-alerts");
-    expect(result.error).toBe("Telegram requires text content");
+    expect(result.error).toBe("Telegram requires text or embed content");
+  });
+
+  it("400 with description 'message is too long' → error contains description (regression)", async () => {
+    const mockFetch = mock(() => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: false, error_code: 400, description: "message is too long" }),
+          { status: 400 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
+    const result = await provider.send({ embed: { title: "Big title" } });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("HTTP 400: message is too long");
   });
 
   it("send returns HTTP 401 error", async () => {

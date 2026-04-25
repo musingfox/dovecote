@@ -15,10 +15,10 @@ export function registerSendNotificationTool(
   // @ts-expect-error - zod peer dependency type conflict with MCP SDK
   server.tool(
     "send_notification",
-    "Send a message to a notification channel",
+    "Send a notification message (text, embed, or both) to a channel",
     {
       channel: z.string().describe("Channel ID"),
-      content: messageContentSchema.describe("Message content with optional text and embed"),
+      content: messageContentSchema.describe("Message content: supply text, embed, or both. Channels that support embed (e.g. Telegram) will render it as formatted HTML."),
     },
     async ({ channel, content }) => {
       const result = await sendToChannel(channel, content, env);

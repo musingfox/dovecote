@@ -1,6 +1,7 @@
 import type { SendResult } from "../types.js";
 import type { ChannelProvider, MessageContent, ServiceAdapter, TelegramInstanceConfig } from "./types.js";
 import { isValidInstanceId } from "./utils.js";
+import { escapeTelegramHtml, renderEmbedAsHtml } from "./telegram-format.js";
 
 const MAX_ERROR_DETAIL = 100;
 
@@ -12,11 +13,40 @@ export class TelegramProvider implements ChannelProvider {
   ) {}
 
   async send(content: MessageContent): Promise<SendResult> {
-    if (content.text === undefined) {
+    const hasText = content.text !== undefined;
+    const hasEmbed = content.embed !== undefined;
+
+    if (!hasText && !hasEmbed) {
       return {
         success: false,
         channel: this.channelId,
-        error: "Telegram requires text content",
+        error: "Telegram requires text or embed content",
+      };
+    }
+
+    let body: Record<string, unknown>;
+
+    if (hasText && !hasEmbed) {
+      // text-only: no parse_mode, no disable_web_page_preview
+      body = {
+        chat_id: this.chatId,
+        text: content.text,
+      };
+    } else if (!hasText && hasEmbed) {
+      // embed-only
+      body = {
+        chat_id: this.chatId,
+        text: renderEmbedAsHtml(content.embed!),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      };
+    } else {
+      // text + embed
+      body = {
+        chat_id: this.chatId,
+        text: escapeTelegramHtml(content.text!) + "\n\n" + renderEmbedAsHtml(content.embed!),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
       };
     }
 
@@ -27,10 +57,7 @@ export class TelegramProvider implements ChannelProvider {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          chat_id: this.chatId,
-          text: content.text,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
