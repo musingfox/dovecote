@@ -59,7 +59,12 @@ export async function validateCSRF({
       return false;
     }
 
-    const [nonce, expectedHmac] = parts;
+    const nonce = parts[0];
+    const expectedHmac = parts[1];
+
+    if (nonce === undefined || expectedHmac === undefined) {
+      return false;
+    }
 
     // Verify nonce matches token (timing-safe)
     if (!timingSafeEqual(nonce, token)) {

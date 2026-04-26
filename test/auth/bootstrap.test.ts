@@ -223,7 +223,7 @@ test("bootstrap: flag=1, wrong token returns 401 json, audit auth_failed", async
   // Verify audit was written with auth_failed
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.bootstrap");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("auth_failed");
@@ -237,7 +237,7 @@ test("bootstrap: flag=1, correct token, 6th call same IP returns 429 with Retry-
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
     lookupClient: async () => null,
-    createClient: async () => ({ clientId: "abc123" }),
+    createClient: async () => ({ clientId: "abc123" } as any),
     listClients: async () => ({ items: [] }),
     updateClient: async () => null,
     deleteClient: async () => {},
@@ -342,7 +342,7 @@ test("bootstrap: flag=1, correct token, body not-json returns 400 Invalid JSON, 
   // Verify audit was written with invalid_json
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.bootstrap");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("invalid_json");
@@ -386,13 +386,13 @@ test("bootstrap: flag=1, correct token, missing clientName returns 400, audit in
   const res = await authorizeApp.fetch(req, env);
 
   expect(res.status).toBe(400);
-  const data = await res.json();
+  const data = await res.json() as { error: string };
   expect(data.error).toBeTruthy();
 
   // Verify audit was written with invalid_body
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.bootstrap");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("invalid_body");
@@ -436,13 +436,13 @@ test("bootstrap: flag=1, correct token, empty redirectUris returns 400, audit in
   const res = await authorizeApp.fetch(req, env);
 
   expect(res.status).toBe(400);
-  const data = await res.json();
+  const data = await res.json() as { error: string };
   expect(data.error).toBeTruthy();
 
   // Verify audit was written with invalid_body
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.bootstrap");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("invalid_body");
@@ -494,7 +494,7 @@ test("bootstrap: flag=1, correct token, valid body, mock createClient throws ret
   // Verify audit was written with provider_error
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.bootstrap");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("provider_error");
@@ -509,7 +509,7 @@ test("bootstrap: flag=1, correct token, valid body, returns 200 with client_id, 
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
     lookupClient: async () => null,
-    createClient: async () => ({ clientId: "abc123" }),
+    createClient: async () => ({ clientId: "abc123" } as any),
     listClients: async () => ({ items: [] }),
     updateClient: async () => null,
     deleteClient: async () => {},
@@ -546,7 +546,7 @@ test("bootstrap: flag=1, correct token, valid body, returns 200 with client_id, 
   // Verify audit was written with success
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.bootstrap");
   expect(auditEntry.ok).toBe(true);
   expect(auditEntry.clientName).toBe("my-app");

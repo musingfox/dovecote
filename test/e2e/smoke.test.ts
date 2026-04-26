@@ -127,13 +127,13 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   const html = await authorizeGetRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
   expect(csrfMatch).toBeTruthy();
-  const csrfToken = csrfMatch![1];
+  const csrfToken = csrfMatch![1]!;
 
   const setCookie = authorizeGetRes.headers.get("Set-Cookie");
   expect(setCookie).toBeTruthy();
   const cookieMatch = setCookie!.match(/csrf=([^;]+)/);
   expect(cookieMatch).toBeTruthy();
-  const cookieValue = cookieMatch![1];
+  const cookieValue = cookieMatch![1]!;
 
   // Step 4: POST /authorize
   const authorizeFormData = new FormData();
@@ -251,10 +251,10 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
 
   const html = await authorizeGetRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
-  const csrfToken = csrfMatch![1];
+  const csrfToken = csrfMatch![1]!;
   const setCookie = authorizeGetRes.headers.get("Set-Cookie")!;
   const cookieMatch = setCookie.match(/csrf=([^;]+)/);
-  const cookieValue = cookieMatch![1];
+  const cookieValue = cookieMatch![1]!;
 
   const authorizeFormData = new FormData();
   authorizeFormData.append("csrf_token", csrfToken);

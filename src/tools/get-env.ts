@@ -12,7 +12,6 @@ export function registerGetEnvTool(
   auth: AuthCtx,
   ctx: ExecutionContext
 ): void {
-  // @ts-expect-error - zod peer dependency type conflict with MCP SDK
   server.tool(
     "get_env",
     "Read environment profile from KV storage (requires dovecote:env:read scope)",

@@ -18,7 +18,7 @@ test("GET /health returns 200 with status ok", async () => {
 
   expect(res.status).toBe(200);
 
-  const json = await res.json();
+  const json = await res.json() as { status: string; timestamp: string };
   expect(json.status).toBe("ok");
   expect(json.timestamp).toBeTruthy();
   // Verify timestamp is ISO8601 format

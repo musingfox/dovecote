@@ -21,7 +21,13 @@ test("GET /.well-known/oauth-authorization-server returns metadata", async () =>
 
   expect(res.status).toBe(200);
 
-  const json = await res.json();
+  const json = await res.json() as {
+    authorization_endpoint: string;
+    token_endpoint: string;
+    registration_endpoint: string;
+    scopes_supported: string[];
+    code_challenge_methods_supported: string[];
+  };
   expect(json.authorization_endpoint).toBeTruthy();
   expect(json.token_endpoint).toBeTruthy();
   expect(json.registration_endpoint).toBeTruthy();
@@ -36,7 +42,7 @@ test("GET /.well-known/oauth-protected-resource returns metadata", async () => {
 
   expect(res.status).toBe(200);
 
-  const json = await res.json();
+  const json = await res.json() as { resource: string };
   expect(json.resource).toBeTruthy();
 });
 
@@ -83,7 +89,7 @@ test("Full OAuth flow: Bootstrap -> Authorize -> Token -> API access", async () 
   const bootstrapRes = await app.fetch(bootstrapReq, mockEnv, createMockExecutionCtx() as any);
   expect(bootstrapRes.status).toBe(200);
 
-  const clientInfo = await bootstrapRes.json();
+  const clientInfo = await bootstrapRes.json() as { client_id: string };
   expect(clientInfo.client_id).toBeTruthy();
   const clientId = clientInfo.client_id;
 
@@ -108,13 +114,13 @@ test("Full OAuth flow: Bootstrap -> Authorize -> Token -> API access", async () 
   const html = await authorizeGetRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
   expect(csrfMatch).toBeTruthy();
-  const csrfToken = csrfMatch![1];
+  const csrfToken = csrfMatch![1]!;
 
   const setCookie = authorizeGetRes.headers.get("Set-Cookie");
   expect(setCookie).toBeTruthy();
   const cookieMatch = setCookie!.match(/csrf=([^;]+)/);
   expect(cookieMatch).toBeTruthy();
-  const cookieValue = cookieMatch![1];
+  const cookieValue = cookieMatch![1]!;
 
   // Step 4: POST /authorize with form data
   const authorizeFormData = new FormData();
@@ -171,7 +177,7 @@ test("Full OAuth flow: Bootstrap -> Authorize -> Token -> API access", async () 
   const tokenRes = await app.fetch(tokenReq, mockEnv, createMockExecutionCtx() as any);
   expect(tokenRes.status).toBe(200);
 
-  const tokenData = await tokenRes.json();
+  const tokenData = await tokenRes.json() as { access_token: string; refresh_token: string; token_type: string };
   expect(tokenData.access_token).toBeTruthy();
   expect(tokenData.refresh_token).toBeTruthy();
   expect(tokenData.token_type.toLowerCase()).toBe("bearer");

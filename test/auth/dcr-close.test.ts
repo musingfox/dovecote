@@ -24,7 +24,8 @@ test("DCR closed: POST /mcp/register returns 4xx or 5xx", async () => {
     }),
   });
 
-  const res = await app.fetch(req, env);
+  const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+  const res = await app.fetch(req, env, ctx);
 
   // Should return error status (4xx or 5xx)
   expect(res.status).toBeGreaterThanOrEqual(400);

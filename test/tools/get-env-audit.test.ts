@@ -48,7 +48,7 @@ test("get_env with valid scope logs env.read audit event with ok:true", async ()
   const auditKeys = await kv.list({ prefix: "audit:" });
   expect(auditKeys.keys.length).toBe(1);
 
-  const auditEntry = await kv.get(auditKeys.keys[0].name, { type: "json" });
+  const auditEntry = await kv.get(auditKeys.keys[0]!.name, { type: "json" });
   expect(auditEntry).toMatchObject({
     event: "env.read",
     userId: "user-123",
@@ -98,7 +98,7 @@ test("get_env without scope logs env.read audit event with ok:false", async () =
   const auditKeys = await kv.list({ prefix: "audit:" });
   expect(auditKeys.keys.length).toBe(1);
 
-  const auditEntry = await kv.get(auditKeys.keys[0].name, { type: "json" });
+  const auditEntry = await kv.get(auditKeys.keys[0]!.name, { type: "json" });
   expect(auditEntry).toMatchObject({
     event: "env.read",
     userId: "user-456",
@@ -147,7 +147,7 @@ test("get_env for nonexistent profile logs env.read audit event with ok:false", 
   const auditKeys = await kv.list({ prefix: "audit:" });
   expect(auditKeys.keys.length).toBe(1);
 
-  const auditEntry = await kv.get(auditKeys.keys[0].name, { type: "json" });
+  const auditEntry = await kv.get(auditKeys.keys[0]!.name, { type: "json" });
   expect(auditEntry).toMatchObject({
     event: "env.read",
     userId: "user-789",

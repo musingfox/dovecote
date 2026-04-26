@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import app from "../../src/index";
 import type { Env } from "../../src/types";
+import type { ExecutionContext } from "@cloudflare/workers-types";
 import { config } from "./config";
 import { MockKV } from "../helpers/mock-kv";
 
@@ -41,7 +42,7 @@ async function getTestAccessToken(): Promise<string> {
     throw new Error(`Bootstrap failed: ${bootstrapRes.status} ${await bootstrapRes.text()}`);
   }
 
-  const clientInfo = await bootstrapRes.json();
+  const clientInfo = await bootstrapRes.json() as { client_id: string };
   const clientId = clientInfo.client_id;
 
   // Step 2: Generate PKCE challenge
@@ -64,13 +65,13 @@ async function getTestAccessToken(): Promise<string> {
   const html = await authorizeGetRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
   if (!csrfMatch) throw new Error("CSRF token not found");
-  const csrfToken = csrfMatch[1];
+  const csrfToken = csrfMatch[1]!;
 
   const setCookie = authorizeGetRes.headers.get("Set-Cookie");
   if (!setCookie) throw new Error("Cookie not found");
   const cookieMatch = setCookie.match(/csrf=([^;]+)/);
   if (!cookieMatch) throw new Error("CSRF cookie not found");
-  const cookieValue = cookieMatch[1];
+  const cookieValue = cookieMatch[1]!;
 
   // Step 4: POST /authorize with password
   const authorizeFormData = new FormData();
@@ -117,7 +118,7 @@ async function getTestAccessToken(): Promise<string> {
     throw new Error(`Token exchange failed: ${tokenRes.status} ${await tokenRes.text()}`);
   }
 
-  const tokenData = await tokenRes.json();
+  const tokenData = await tokenRes.json() as { access_token: string };
   cachedAccessToken = tokenData.access_token;
   return cachedAccessToken;
 }
