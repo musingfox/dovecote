@@ -1,5 +1,5 @@
 export class MockKV {
-  private store = new Map<string, { value: string; expiresAt?: number }>();
+  private store = new Map<string, { value: string; metadata?: any; expiresAt?: number; expirationTtl?: number }>();
 
   async get(key: string, options?: { type?: "text" | "json" } | "text" | "json"): Promise<any> {
     const entry = this.store.get(key);
@@ -16,12 +16,17 @@ export class MockKV {
   async put(
     key: string,
     value: string,
-    options?: { expirationTtl?: number }
+    options?: { expirationTtl?: number; metadata?: any }
   ): Promise<void> {
     const expiresAt = options?.expirationTtl
       ? Date.now() + options.expirationTtl * 1000
       : undefined;
-    this.store.set(key, { value, expiresAt });
+    this.store.set(key, {
+      value,
+      metadata: options?.metadata,
+      expiresAt,
+      expirationTtl: options?.expirationTtl,
+    });
   }
 
   async delete(key: string): Promise<void> {
@@ -38,7 +43,18 @@ export class MockKV {
     return { keys, list_complete: keys.length < limit };
   }
 
-  async getWithMetadata() {
-    return { value: null, metadata: null };
+  async getWithMetadata(key: string): Promise<{ value: string | null; metadata: any | null }> {
+    const entry = this.store.get(key);
+    if (!entry) return { value: null, metadata: null };
+    if (entry.expiresAt && Date.now() > entry.expiresAt) {
+      this.store.delete(key);
+      return { value: null, metadata: null };
+    }
+    return { value: entry.value, metadata: entry.metadata ?? null };
+  }
+
+  // Helper for tests that need direct store access
+  getStore() {
+    return this.store;
   }
 }
