@@ -7,10 +7,10 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:secrets": "./scripts/setup-worker-vars.sh",
-    "deploy:verify": "bun test test/e2e/smoke.test.ts",
+    "deploy:verify": "bun test --path-ignore-patterns \"\" test/e2e/smoke.test.ts",
     "test": "bun test",
-    "test:e2e": "bun test test/e2e/",
-    "test:e2e:remote": "bun test test/e2e",
+    "test:e2e": "bun test --path-ignore-patterns \"\" test/e2e/",
+    "test:e2e:remote": "bun test --path-ignore-patterns \"\" test/e2e",
     "prepare": "lefthook install || true"
   },
   "devDependencies": {
