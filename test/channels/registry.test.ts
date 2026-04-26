@@ -8,14 +8,14 @@ import type { Env } from "../../src/types";
 
 describe("buildChannelRegistry (BC3)", () => {
   it("env with telegram + discord instances → 2 registrations", () => {
-    const env: Env = {
+    const env = {
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
       DISCORD_INSTANCES: JSON.stringify([
         { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
       ]),
-    };
+    } as Env;
     const registry = buildChannelRegistry(env);
     expect(registry).toHaveLength(2);
     expect(registry.find((r) => r.channelId === "telegram-alerts")).toBeDefined();
@@ -23,7 +23,7 @@ describe("buildChannelRegistry (BC3)", () => {
   });
 
   it("empty env → []", () => {
-    const env: Env = {};
+    const env = {} as Env;
     const registry = buildChannelRegistry(env);
     expect(registry).toEqual([]);
   });
@@ -31,12 +31,12 @@ describe("buildChannelRegistry (BC3)", () => {
   it("malformed JSON in one service → that service yields 0, other still works; console.warn called", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
-    const env: Env = {
+    const env = {
       TELEGRAM_INSTANCES: "not json",
       DISCORD_INSTANCES: JSON.stringify([
         { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
       ]),
-    };
+    } as Env;
     const registry = buildChannelRegistry(env);
     expect(registry).toHaveLength(1);
     expect(registry[0]?.channelId).toBe("discord-team-a");
@@ -48,14 +48,14 @@ describe("buildChannelRegistry (BC3)", () => {
 
 describe("getChannelConfigs (BC4)", () => {
   it("includes service field, name like 'Telegram (alerts)', enabled: true", () => {
-    const env: Env = {
+    const env = {
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
       DISCORD_INSTANCES: JSON.stringify([
         { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
       ]),
-    };
+    } as Env;
     const configs = getChannelConfigs(env);
     expect(configs).toHaveLength(2);
 
@@ -77,7 +77,7 @@ describe("getChannelConfigs (BC4)", () => {
   });
 
   it("empty env → []", () => {
-    const env: Env = {};
+    const env = {} as Env;
     const configs = getChannelConfigs(env);
     expect(configs).toEqual([]);
   });
@@ -102,11 +102,11 @@ describe("sendToChannel (BC5)", () => {
     });
     globalThis.fetch = mockFetch as any;
 
-    const env: Env = {
+    const env = {
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
-    };
+    } as Env;
     const result = await sendToChannel("telegram-alerts", { text: "Hello" }, env);
     expect(result.success).toBe(true);
     expect(result.channel).toBe("telegram-alerts");
@@ -114,7 +114,7 @@ describe("sendToChannel (BC5)", () => {
   });
 
   it("sendToChannel('slack-general', ...) → { success: false, error: 'Unknown channel' }", async () => {
-    const env: Env = {};
+    const env = {} as Env;
     const result = await sendToChannel("slack-general", { text: "Hello" }, env);
     expect(result).toEqual({
       success: false,
@@ -124,11 +124,11 @@ describe("sendToChannel (BC5)", () => {
   });
 
   it("sendToChannel('telegram', ...) → { success: false, error: 'Unknown channel' }", async () => {
-    const env: Env = {
+    const env = {
       TELEGRAM_INSTANCES: JSON.stringify([
         { id: "alerts", botToken: "bot123", chatId: "chat456" },
       ]),
-    };
+    } as Env;
     const result = await sendToChannel("telegram", { text: "msg" }, env);
     expect(result).toEqual({
       success: false,
@@ -152,11 +152,11 @@ describe("sendToChannel (BC5)", () => {
     });
     globalThis.fetch = mockFetch as any;
 
-    const env: Env = {
+    const env = {
       DISCORD_INSTANCES: JSON.stringify([
         { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
       ]),
-    };
+    } as Env;
     const result = await sendToChannel(
       "discord-team-a",
       { embed: { title: "Test" } },

@@ -90,13 +90,13 @@ test("POST /authorize with correct password and valid CSRF returns 302", async (
   const html = await getRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
   expect(csrfMatch).toBeTruthy();
-  const csrfToken = csrfMatch![1];
+  const csrfToken = csrfMatch![1]!;
 
   const setCookie = getRes.headers.get("Set-Cookie");
   expect(setCookie).toBeTruthy();
   const cookieMatch = setCookie!.match(/csrf=([^;]+)/);
   expect(cookieMatch).toBeTruthy();
-  const cookieValue = cookieMatch![1];
+  const cookieValue = cookieMatch![1]!;
 
   // Now POST with the CSRF token
   const formData = new FormData();
@@ -134,11 +134,11 @@ test("POST /authorize with wrong password returns 403", async () => {
 
   const html = await getRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
-  const csrfToken = csrfMatch![1];
+  const csrfToken = csrfMatch![1]!;
 
   const setCookie = getRes.headers.get("Set-Cookie");
   const cookieMatch = setCookie!.match(/csrf=([^;]+)/);
-  const cookieValue = cookieMatch![1];
+  const cookieValue = cookieMatch![1]!;
 
   // POST with wrong password
   const formData = new FormData();

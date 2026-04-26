@@ -103,7 +103,7 @@ test("admin revoke: success with valid token and grantId", async () => {
   // Verify audit was written
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.revoke");
   expect(auditEntry.ok).toBe(true);
   expect(auditEntry.grantId).toBe("abcdefghijklmnopqrst");
@@ -152,7 +152,7 @@ test("admin revoke: wrong token returns 401", async () => {
   // Verify audit was written with auth_failed
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.revoke");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("auth_failed");
@@ -392,7 +392,7 @@ test("admin revoke: invalid body (regex) returns 400", async () => {
   const res = await authorizeApp.fetch(req, env);
 
   expect(res.status).toBe(400);
-  const data = await res.json();
+  const data = await res.json() as { error: string };
   expect(data.error).toBeTruthy();
 });
 
@@ -474,7 +474,7 @@ test("admin revoke: missing grantId field returns 400", async () => {
   const res = await authorizeApp.fetch(req, env);
 
   expect(res.status).toBe(400);
-  const data = await res.json();
+  const data = await res.json() as { error: string };
   expect(data.error).toBeTruthy();
 });
 
@@ -523,7 +523,7 @@ test("admin revoke: provider error returns 500", async () => {
   // Verify audit was written with provider_error
   const auditKeys = Array.from(kv.getStore().keys()).filter((k) => k.startsWith("audit:"));
   expect(auditKeys.length).toBe(1);
-  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0])!.value);
+  const auditEntry = JSON.parse(kv.getStore().get(auditKeys[0]!)!.value);
   expect(auditEntry.event).toBe("admin.revoke");
   expect(auditEntry.ok).toBe(false);
   expect(auditEntry.reason).toBe("provider_error");

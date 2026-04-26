@@ -21,7 +21,7 @@ test("validateCSRF returns true with matching token and cookie", async () => {
   const { token, cookie } = await generateCSRF({ secretKey });
 
   // Extract cookie value from Set-Cookie header
-  const cookieValue = cookie.split(";")[0].split("=")[1];
+  const cookieValue = cookie.split(";")[0]!.split("=")[1]!;
 
   // Create a request with matching form data and cookie
   const formData = new FormData();
@@ -44,7 +44,7 @@ test("validateCSRF returns false with mismatched token", async () => {
   const { cookie } = await generateCSRF({ secretKey });
 
   // Extract cookie value
-  const cookieValue = cookie.split(";")[0].split("=")[1];
+  const cookieValue = cookie.split(";")[0]!.split("=")[1]!;
 
   // Create request with different token
   const formData = new FormData();
@@ -82,7 +82,7 @@ test("validateCSRF returns false with no csrf_token in form", async () => {
   const secretKey = "s3cret-32b-min...........................";
   const { cookie } = await generateCSRF({ secretKey });
 
-  const cookieValue = cookie.split(";")[0].split("=")[1];
+  const cookieValue = cookie.split(";")[0]!.split("=")[1]!;
 
   const formData = new FormData();
   // No csrf_token in form
