@@ -66,7 +66,7 @@ test("C8: bootstrap → authorize → token → KV non-null", async () => {
   const html = await authorizeGetRes.text();
   const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
   expect(csrfMatch).toBeTruthy();
-  const csrfToken = csrfMatch![1];
+  const csrfToken = csrfMatch![1]!;
 
   const setCookie = authorizeGetRes.headers.get("set-cookie");
   expect(setCookie).toBeTruthy();

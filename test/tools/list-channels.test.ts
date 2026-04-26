@@ -20,7 +20,7 @@ function buildEnvWithChannels(): Env {
   };
 }
 
-function captureHandler(env: Env): () => Promise<any> {
+function captureHandler(env: Env): (args?: unknown) => Promise<any> {
   let capturedHandler: any = null;
   const mockServer = {
     tool: mock((_name: string, _description: string, _schema: any, handler: any) => {

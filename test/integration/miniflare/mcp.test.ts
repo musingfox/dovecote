@@ -61,10 +61,10 @@ async function obtainAccessToken(): Promise<string> {
 
   const authorizeGetRes = await mf.dispatchFetch(authorizeUrl.toString());
   const html = await authorizeGetRes.text();
-  const csrfToken = html.match(/name="csrf_token" value="([^"]+)"/)![1];
+  const csrfToken = html.match(/name="csrf_token" value="([^"]+)"/)![1]!;
   const cookieValue = authorizeGetRes.headers
     .get("set-cookie")!
-    .match(/csrf=([^;]+)/)![1];
+    .match(/csrf=([^;]+)/)![1]!;
 
   const authorizeFormData = new URLSearchParams();
   authorizeFormData.set("csrf_token", csrfToken);
