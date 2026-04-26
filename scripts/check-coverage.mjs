@@ -7,31 +7,45 @@
  *
  * Environment overrides:
  *   COVERAGE_LINE_THRESHOLD  (default: 0.85)
- *   COVERAGE_FUNC_THRESHOLD  (default: 0.85)
+ *   COVERAGE_FUNC_THRESHOLD  (default: 0.75 — Bun lcov counts arrow/closure functions
+ *                            more granularly than its terminal summary; 0.75 is the
+ *                            ratchet baseline per test-flow-07 D8)
  *   LCOV_PATH                (default: coverage/lcov.info)
+ *
+ * Excludes test/** and scripts/** SF entries — we only gate src code.
  */
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const LINE_THRESHOLD = parseFloat(process.env.COVERAGE_LINE_THRESHOLD ?? "0.85");
-const FUNC_THRESHOLD = parseFloat(process.env.COVERAGE_FUNC_THRESHOLD ?? "0.85");
+const FUNC_THRESHOLD = parseFloat(process.env.COVERAGE_FUNC_THRESHOLD ?? "0.75");
 const LCOV_PATH = process.env.LCOV_PATH ?? "coverage/lcov.info";
+
+const DEFAULT_EXCLUDE = /^(test\/|scripts\/)/;
 
 /**
  * Parses an lcov.info string and returns aggregate { lf, lh, fnf, fnh }.
+ * Files matching `exclude` regex (matched against SF path) are skipped.
  * @param {string} content
+ * @param {RegExp} [exclude]
  * @returns {{ lf: number, lh: number, fnf: number, fnh: number }}
  */
-export function parseLcov(content) {
+export function parseLcov(content, exclude = DEFAULT_EXCLUDE) {
   let lf = 0;
   let lh = 0;
   let fnf = 0;
   let fnh = 0;
+  let skip = false;
 
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("LF:")) {
+    if (trimmed.startsWith("SF:")) {
+      const path = trimmed.slice(3);
+      skip = exclude.test(path);
+    } else if (skip) {
+      continue;
+    } else if (trimmed.startsWith("LF:")) {
       lf += parseInt(trimmed.slice(3), 10);
     } else if (trimmed.startsWith("LH:")) {
       lh += parseInt(trimmed.slice(3), 10);
