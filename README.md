@@ -120,7 +120,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 ### Claude.ai Web Connector (OAuth)
 
-When adding a connector on Claude.ai, fill in the worker URL (e.g., `https://dovecote.<sub>.workers.dev`). Claude redirects to `/authorize`, which asks for `OAUTH_PASSWORD`; on success it completes the OAuth 2.1 + PKCE flow to obtain an access token, and subsequent MCP calls carry the Bearer token automatically.
+When adding a connector on Claude.ai, fill in the MCP endpoint URL **including the `/mcp` suffix** (e.g., `https://dovecote.<sub>.workers.dev/mcp`). The bare base URL will fail OAuth discovery and surface as "Authorization with the MCP server failed." Claude redirects to `/authorize`, which asks for `OAUTH_PASSWORD`; on success it completes the OAuth 2.1 + PKCE flow to obtain an access token, and subsequent MCP calls carry the Bearer token automatically.
 
 5. **Run E2E tests against production** (optional)
    ```bash

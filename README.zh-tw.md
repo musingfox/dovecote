@@ -120,7 +120,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 ### Claude.ai Web Connector（OAuth）
 
-在 Claude.ai 新增 connector 時填入 worker URL（例如 `https://dovecote.<sub>.workers.dev`）。Claude 會跳轉到 `/authorize` 要求輸入 `OAUTH_PASSWORD`，通過後透過 OAuth 2.1 + PKCE 取得 access token，之後的 MCP 呼叫會自動帶上 Bearer。
+在 Claude.ai 新增 connector 時，請填入 MCP 端點 URL，**務必包含 `/mcp` 後綴**（例如 `https://dovecote.<sub>.workers.dev/mcp`）。若只填 base URL，OAuth discovery 會失敗，畫面上會看到「Authorization with the MCP server failed.」。Claude 會跳轉到 `/authorize` 要求輸入 `OAUTH_PASSWORD`，通過後透過 OAuth 2.1 + PKCE 取得 access token，之後的 MCP 呼叫會自動帶上 Bearer。
 
 5. **對 production 執行 E2E 測試**（選用）
    ```bash
