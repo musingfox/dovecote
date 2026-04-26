@@ -1,5 +1,7 @@
 # Dovecote
 
+[![CI](https://github.com/musingfox/dovecote/actions/workflows/ci.yml/badge.svg)](https://github.com/musingfox/dovecote/actions/workflows/ci.yml)
+
 [繁體中文](./README.zh-tw.md)
 
 Agent notification infrastructure — an MCP server deployed on Cloudflare Workers that receives messages from agents and forwards them to configured notification channels.
