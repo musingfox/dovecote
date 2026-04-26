@@ -3,62 +3,7 @@ import type { Env } from "../../src/types.js";
 import app from "../../src/index.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce.js";
-
-/**
- * Map-backed KV mock for testing
- */
-class MockKV implements KVNamespace {
-  private store = new Map<string, { value: string; expiresAt?: number }>();
-
-  async get(key: string, options?: any): Promise<any> {
-    const entry = this.store.get(key);
-    if (!entry) return null;
-
-    // Check expiration
-    if (entry.expiresAt && Date.now() > entry.expiresAt) {
-      this.store.delete(key);
-      return null;
-    }
-
-    const type = typeof options === "string" ? options : options?.type;
-    if (type === "json") return JSON.parse(entry.value);
-    return entry.value;
-  }
-
-  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
-    const expiresAt = options?.expirationTtl ? Date.now() + options.expirationTtl * 1000 : undefined;
-    this.store.set(key, { value, expiresAt });
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
-    keys: { name: string }[];
-    list_complete: boolean;
-    cursor?: string;
-  }> {
-    const allKeys = Array.from(this.store.keys());
-    const filteredKeys = options?.prefix
-      ? allKeys.filter((k) => k.startsWith(options.prefix!))
-      : allKeys;
-
-    const limit = options?.limit || 1000;
-    const keys = filteredKeys.slice(0, limit).map((name) => ({ name }));
-
-    return {
-      keys,
-      list_complete: keys.length < limit,
-    };
-  }
-
-  // Stub methods not used by the OAuth provider
-  getWithMetadata = async () => ({ value: null, metadata: null });
-  async getMetadata(): Promise<any> {
-    return null;
-  }
-}
+import { MockKV } from "../helpers/mock-kv.js";
 
 const mockEnv: Env = {
   OAUTH_KV: new MockKV() as any,

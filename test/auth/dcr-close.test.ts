@@ -1,29 +1,7 @@
 import { test, expect } from "bun:test";
 import app from "../../src/index.js";
 import type { Env } from "../../src/types.js";
-
-/**
- * Mock KV implementation for testing
- */
-class MockKV {
-  private store = new Map<string, { value: string; expirationTtl?: number }>();
-
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key)?.value || null;
-  }
-
-  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
-    this.store.set(key, { value, expirationTtl: options?.expirationTtl });
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(): Promise<{ keys: any[]; list_complete: boolean }> {
-    return { keys: [], list_complete: true };
-  }
-}
+import { MockKV } from "../helpers/mock-kv.js";
 
 test("DCR closed: POST /mcp/register returns 4xx or 5xx", async () => {
   const kv = new MockKV();
