@@ -60,10 +60,10 @@ describe("DiscordProvider (BC7)", () => {
     expect(result.error).toContain("HTTP 404");
   });
 
-  it("send includes redirect: error in fetch options (BC-SSRF3)", async () => {
+  it("send includes redirect: manual in fetch options (BC-SSRF3)", async () => {
+    let capturedOptions: any;
     const mockFetch = mock((url: string, options?: any) => {
-      expect(options).toHaveProperty("redirect");
-      expect(options.redirect).toBe("error");
+      capturedOptions = options;
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -84,11 +84,33 @@ describe("DiscordProvider (BC7)", () => {
     await provider.send({ text: "test" });
 
     expect(mockFetch).toHaveBeenCalled();
+    expect(capturedOptions).toHaveProperty("redirect");
+    expect(capturedOptions.redirect).toBe("manual");
   });
 
-  it("send handles redirect TypeError (BC-SSRF3)", async () => {
+  it("3xx response treated as failure (BC-SSRF3)", async () => {
     const mockFetch = mock(() => {
-      throw new TypeError("redirect");
+      return Promise.resolve(
+        new Response(null, { status: 302, headers: { Location: "https://evil.example/" } })
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    const result = await provider.send({ text: "test" });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("discord-team-a");
+    expect(result.error).toContain("HTTP 302");
+    expect(result.error).toContain("unexpected redirect");
+  });
+
+  it("send surfaces network error message", async () => {
+    const mockFetch = mock(() => {
+      throw new TypeError("fetch failed");
     });
     globalThis.fetch = mockFetch as any;
 
@@ -101,7 +123,7 @@ describe("DiscordProvider (BC7)", () => {
     expect(result).toEqual({
       success: false,
       channel: "discord-team-a",
-      error: "redirect",
+      error: "fetch failed",
     });
   });
 

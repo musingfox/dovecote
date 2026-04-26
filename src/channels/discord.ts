@@ -33,8 +33,16 @@ export class DiscordProvider implements ChannelProvider {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-        redirect: "error" as RequestRedirect,
+        redirect: "manual",
       });
+
+      if (response.status >= 300 && response.status < 400) {
+        return {
+          success: false,
+          channel: this.channelId,
+          error: `HTTP ${response.status}: unexpected redirect from Discord webhook`,
+        };
+      }
 
       if (response.ok) {
         const data = (await response.json()) as any;
