@@ -14,10 +14,12 @@
     "test:integration:build": "wrangler deploy --dry-run --outdir dist-test",
     "test:integration": "bun test --path-ignore-patterns \"\" test/integration/",
     "typecheck": "tsc --noEmit",
-    "prepare": "lefthook install || true"
+    "prepare": "lefthook install || true",
+    "mutation": "bunx stryker run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260410.1",
+    "@stryker-mutator/core": "^9.6.1",
     "@types/bun": "latest",
     "fast-check": "^4.7.0",
     "lefthook": "^2.1.6",
