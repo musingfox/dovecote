@@ -8,9 +8,11 @@
     "deploy": "wrangler deploy",
     "deploy:secrets": "./scripts/setup-worker-vars.sh",
     "deploy:verify": "bun test test/e2e/smoke.test.ts",
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns \"**/integration/**\"",
     "test:e2e": "bun test test/e2e/",
     "test:e2e:remote": "bun test test/e2e",
+    "test:integration:build": "wrangler deploy --dry-run --outdir dist-test",
+    "test:integration": "bun test test/integration/",
     "prepare": "lefthook install || true"
   },
   "devDependencies": {
