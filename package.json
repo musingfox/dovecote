@@ -16,6 +16,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260410.1",
     "@types/bun": "latest",
+    "fast-check": "^4.7.0",
     "lefthook": "^2.1.6",
     "wrangler": "^4.81.1"
   },

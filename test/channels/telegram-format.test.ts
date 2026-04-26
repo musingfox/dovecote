@@ -82,4 +82,37 @@ describe("renderEmbedAsHtml", () => {
       footer: { text: "f" },
     })).toBe("");
   });
+
+  it("snapshot: title + url + description + fields (rich embed)", () => {
+    expect(renderEmbedAsHtml({
+      title: "Release v2.0",
+      url: "https://github.com/org/repo/releases/v2.0",
+      description: "Breaking changes & new features",
+      fields: [
+        { name: "Author", value: "Alice <alice@example.com>", inline: true },
+        { name: "Tag", value: "v2.0" },
+      ],
+    })).toMatchInlineSnapshot(`
+      "<b><a href="https://github.com/org/repo/releases/v2.0">Release v2.0</a></b>
+      Breaking changes &amp; new features
+
+      <b>Author</b>
+      Alice &lt;alice@example.com&gt;
+
+      <b>Tag</b>
+      v2.0"
+    `);
+  });
+
+  it("snapshot: url-only embed (no title)", () => {
+    expect(renderEmbedAsHtml({
+      url: 'https://example.com/path?q=1&r=2',
+    })).toMatchInlineSnapshot(`"<a href="https://example.com/path?q=1&amp;r=2">https://example.com/path?q=1&amp;r=2</a>"`);
+  });
+
+  it("snapshot: description-only embed (no title, no url)", () => {
+    expect(renderEmbedAsHtml({
+      description: 'Plain text <b>not bold</b> & safe',
+    })).toMatchInlineSnapshot(`"Plain text &lt;b&gt;not bold&lt;/b&gt; &amp; safe"`);
+  });
 });
