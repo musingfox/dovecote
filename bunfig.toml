@@ -1,4 +1,4 @@
 [test]
 preload = ["./test/preload.ts"]
-pathIgnorePatterns = ["test/e2e/**"]
+pathIgnorePatterns = ["test/e2e/**", "test/integration/**"]
 coverageThreshold = { line = 0.85, function = 0.85 }

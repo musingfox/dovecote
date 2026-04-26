@@ -11,6 +11,8 @@
     "test": "bun test",
     "test:e2e": "bun test --path-ignore-patterns \"\" test/e2e/",
     "test:e2e:remote": "bun test --path-ignore-patterns \"\" test/e2e",
+    "test:integration:build": "wrangler deploy --dry-run --outdir dist-test",
+    "test:integration": "bun test --path-ignore-patterns \"\" test/integration/",
     "typecheck": "tsc --noEmit",
     "prepare": "lefthook install || true"
   },
@@ -19,6 +21,7 @@
     "@types/bun": "latest",
     "fast-check": "^4.7.0",
     "lefthook": "^2.1.6",
+    "miniflare": "^4.20260409.0",
     "wrangler": "^4.81.1"
   },
   "peerDependencies": {
