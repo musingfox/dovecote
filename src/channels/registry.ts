@@ -10,7 +10,8 @@ export function buildChannelRegistry(env: Env): ChannelRegistration[] {
   const registrations: ChannelRegistration[] = [];
 
   for (const adapter of adapters) {
-    const jsonString = env[adapter.envKey as keyof Env];
+    const rawValue = env[adapter.envKey as keyof Env];
+    const jsonString = typeof rawValue === "string" ? rawValue : undefined;
     const { instances, errors } = adapter.parseInstances(jsonString);
 
     for (const error of errors) {

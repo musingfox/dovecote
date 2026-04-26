@@ -33,7 +33,7 @@ export class DiscordProvider implements ChannelProvider {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-        redirect: "error" as RequestRedirect,
+        redirect: "error" as "error" | "follow" | "manual",
       });
 
       if (response.ok) {

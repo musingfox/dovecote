@@ -607,7 +607,7 @@ function renderAuthorizationForm(authRequest: AuthRequest, csrfToken: string): s
       <input type="hidden" name="scope" value="${escapeHtml(authRequest.scope?.join(" ") || "")}">
       ${authRequest.codeChallenge ? `<input type="hidden" name="code_challenge" value="${escapeHtml(authRequest.codeChallenge)}">` : ""}
       ${authRequest.codeChallengeMethod ? `<input type="hidden" name="code_challenge_method" value="${escapeHtml(authRequest.codeChallengeMethod)}">` : ""}
-      ${authRequest.resource ? `<input type="hidden" name="resource" value="${escapeHtml(typeof authRequest.resource === "string" ? authRequest.resource : authRequest.resource[0])}">` : ""}
+      ${authRequest.resource ? `<input type="hidden" name="resource" value="${escapeHtml(typeof authRequest.resource === "string" ? authRequest.resource : (authRequest.resource[0] ?? ""))}">` : ""}
 
       <label for="password">Password:</label>
       <input type="password" id="password" name="password" required autofocus>
@@ -630,7 +630,7 @@ function escapeHtml(str: string): string {
     '"': "&quot;",
     "'": "&#39;",
   };
-  return str.replace(/[&<>"']/g, (char) => map[char]);
+  return str.replace(/[&<>"']/g, (char) => map[char] ?? char);
 }
 
 export default app;

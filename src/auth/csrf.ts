@@ -59,7 +59,7 @@ export async function validateCSRF({
       return false;
     }
 
-    const [nonce, expectedHmac] = parts;
+    const [nonce, expectedHmac] = parts as [string, string];
 
     // Verify nonce matches token (timing-safe)
     if (!timingSafeEqual(nonce, token)) {
