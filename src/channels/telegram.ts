@@ -98,11 +98,11 @@ export class TelegramProvider implements ChannelProvider {
         channel: this.channelId,
         error: "Unexpected response format",
       };
-    } catch (error) {
+    } catch {
       return {
         success: false,
         channel: this.channelId,
-        error: error instanceof Error ? error.message : String(error),
+        error: "Network error reaching Telegram",
       };
     }
   }

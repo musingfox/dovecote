@@ -216,6 +216,54 @@ describe("TelegramProvider (BC6)", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('HTTP 400: {"description":123}');
   });
+
+  it("fetch throws TypeError → generic network error (T1)", async () => {
+    const mockFetch = mock(() => {
+      throw new TypeError("fetch failed");
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", "123:ABC", "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("telegram-alerts");
+    expect(result.error).toBe("Network error reaching Telegram");
+  });
+
+  it("fetch throws error containing bot token → generic message, no token leak (T2)", async () => {
+    const botToken = "123456:ABC-SECRET-TOKEN";
+    const mockFetch = mock(() => {
+      throw new Error(`connect ECONNREFUSED https://api.telegram.org/bot${botToken}/sendMessage`);
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", botToken, "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("telegram-alerts");
+    expect(result.error).toBe("Network error reaching Telegram");
+    expect(result.error).not.toContain("123456:ABC-SECRET-TOKEN");
+    expect(result.error).not.toContain("api.telegram.org");
+  });
+
+  it("fetch throws non-Error value containing raw token → generic message (T3)", async () => {
+    const botToken = "123456:ABC-SECRET-TOKEN";
+    const mockFetch = mock(() => {
+      // eslint-disable-next-line @typescript-eslint/no-throw-literal
+      throw `raw boom ${botToken}`;
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new TelegramProvider("telegram-alerts", botToken, "chat456");
+    const result = await provider.send({ text: "Hello" });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("telegram-alerts");
+    expect(result.error).toBe("Network error reaching Telegram");
+    expect(result.error).not.toContain("123456:ABC-SECRET-TOKEN");
+  });
 });
 
 describe("telegramAdapter (BC1, BC8)", () => {

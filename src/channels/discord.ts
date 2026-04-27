@@ -74,11 +74,11 @@ export class DiscordProvider implements ChannelProvider {
         channel: this.channelId,
         error: `HTTP ${response.status}: ${detail}`,
       };
-    } catch (error) {
+    } catch {
       return {
         success: false,
         channel: this.channelId,
-        error: error instanceof Error ? error.message : String(error),
+        error: "Network error reaching Discord",
       };
     }
   }

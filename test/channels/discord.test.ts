@@ -108,7 +108,7 @@ describe("DiscordProvider (BC7)", () => {
     expect(result.error).toContain("unexpected redirect");
   });
 
-  it("send surfaces network error message", async () => {
+  it("fetch throws TypeError → generic network error (T4)", async () => {
     const mockFetch = mock(() => {
       throw new TypeError("fetch failed");
     });
@@ -123,8 +123,43 @@ describe("DiscordProvider (BC7)", () => {
     expect(result).toEqual({
       success: false,
       channel: "discord-team-a",
-      error: "fetch failed",
+      error: "Network error reaching Discord",
     });
+  });
+
+  it("fetch throws error containing webhook URL → generic message, no token leak (T5)", async () => {
+    const webhookUrl = "https://discord.com/api/webhooks/999/SECRET-WEBHOOK-TOKEN";
+    const mockFetch = mock(() => {
+      throw new Error(`network down: ${webhookUrl}`);
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider("discord-team-a", webhookUrl);
+    const result = await provider.send({ text: "test" });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("discord-team-a");
+    expect(result.error).toBe("Network error reaching Discord");
+    expect(result.error).not.toContain("SECRET-WEBHOOK-TOKEN");
+    expect(result.error).not.toContain("discord.com/api/webhooks");
+  });
+
+  it("fetch throws non-Error value → generic message (T6)", async () => {
+    const mockFetch = mock(() => {
+      // eslint-disable-next-line @typescript-eslint/no-throw-literal
+      throw { toString: () => "https://discord.com/api/webhooks/999/SECRET" };
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/999/SECRET"
+    );
+    const result = await provider.send({ text: "test" });
+
+    expect(result.success).toBe(false);
+    expect(result.channel).toBe("discord-team-a");
+    expect(result.error).toBe("Network error reaching Discord");
   });
 
   it("JSON with message field → extract message (BC-SANITIZE-DISCORD)", async () => {
