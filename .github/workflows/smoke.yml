@@ -36,7 +36,7 @@ jobs:
           TEST_BASE_URL: ${{ inputs.base_url }}
         run: |
           if [ -z "$TEST_BASE_URL" ]; then
-            echo "::error::base_url input is empty" >&2
+            echo "::error::base_url input is empty"
             exit 1
           fi
       - name: Run smoke tests
