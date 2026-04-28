@@ -1,3 +1,7 @@
+# Reusable smoke workflow. Caller must pass `environment` as one of
+# { staging, production } — workflow_call cannot validate via type:choice,
+# so an arbitrary string would bind to a non-existent GitHub Environment
+# and silently bypass reviewer/branch protection rules.
 name: Smoke
 on:
   workflow_dispatch:
