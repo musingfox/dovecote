@@ -7,7 +7,7 @@ import { getChannelConfigs } from "../channels/registry.js";
 export function registerListChannelsTool(
   server: McpServer,
   env: Env,
-  _auth: AuthCtx,
+  auth: AuthCtx,
   _ctx: ExecutionContext
 ): void {
   server.tool(
@@ -15,6 +15,18 @@ export function registerListChannelsTool(
     "List all available notification channels",
     {},
     async () => {
+      if (!auth.scopes.includes("dovecote:notify")) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Forbidden: missing scope dovecote:notify",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const channels = getChannelConfigs(env);
       return {
         content: [

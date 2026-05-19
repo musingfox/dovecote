@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import app from "../../src/index";
+import apiApp from "../../src/api";
 import type { Env } from "../../src/types";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import { config } from "./config";
@@ -139,6 +140,116 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 function base64UrlEncode(buffer: Uint8Array): string {
   const base64 = btoa(String.fromCharCode(...buffer));
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+// Cache for narrow-scope tokens, keyed by scope string
+const narrowScopeTokenCache = new Map<string, string>();
+
+/**
+ * Get an OAuth access token for a specific scope (not the default full-scope token).
+ * Uses a separate client registration per scope to avoid token conflicts.
+ */
+async function getTestAccessTokenForScope(scope: string): Promise<string> {
+  const cached = narrowScopeTokenCache.get(scope);
+  if (cached) return cached;
+
+  // Bootstrap a separate client for this narrow scope
+  const bootstrapReq = new Request("http://localhost/admin/bootstrap-client", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer admin-test-token`,
+    },
+    body: JSON.stringify({
+      clientName: `e2e-test-client-narrow-${scope.replace(/[^a-z0-9]/g, "-")}`,
+      redirectUris: ["https://test.local/callback"],
+    }),
+  });
+
+  const bootstrapRes = await doFetch(bootstrapReq);
+  if (bootstrapRes.status !== 200) {
+    throw new Error(`Bootstrap failed: ${bootstrapRes.status} ${await bootstrapRes.text()}`);
+  }
+
+  const clientInfo = await bootstrapRes.json() as { client_id: string };
+  const clientId = clientInfo.client_id;
+
+  // PKCE challenge
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+  // GET /authorize to get CSRF token
+  const authorizeUrl = new URL("http://localhost/authorize");
+  authorizeUrl.searchParams.set("client_id", clientId);
+  authorizeUrl.searchParams.set("redirect_uri", "https://test.local/callback");
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("state", "test-state-narrow");
+  authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  authorizeUrl.searchParams.set("scope", scope);
+
+  const authorizeGetReq = new Request(authorizeUrl.toString());
+  const authorizeGetRes = await doFetch(authorizeGetReq);
+
+  const html = await authorizeGetRes.text();
+  const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
+  if (!csrfMatch) throw new Error("CSRF token not found in narrow-scope flow");
+  const csrfToken = csrfMatch[1]!;
+
+  const setCookie = authorizeGetRes.headers.get("Set-Cookie");
+  if (!setCookie) throw new Error("Cookie not found in narrow-scope flow");
+  const cookieMatch = setCookie.match(/csrf=([^;]+)/);
+  if (!cookieMatch) throw new Error("CSRF cookie not found in narrow-scope flow");
+  const cookieValue = cookieMatch[1]!;
+
+  // POST /authorize with password
+  const authorizeFormData = new FormData();
+  authorizeFormData.append("csrf_token", csrfToken);
+  authorizeFormData.append("password", "test-password");
+  authorizeFormData.append("response_type", "code");
+  authorizeFormData.append("client_id", clientId);
+  authorizeFormData.append("redirect_uri", "https://test.local/callback");
+  authorizeFormData.append("state", "test-state-narrow");
+  authorizeFormData.append("scope", scope);
+  authorizeFormData.append("code_challenge", codeChallenge);
+  authorizeFormData.append("code_challenge_method", "S256");
+
+  const authorizePostReq = new Request("http://localhost/authorize", {
+    method: "POST",
+    headers: { Cookie: `csrf=${cookieValue}` },
+    body: authorizeFormData,
+  });
+
+  const authorizePostRes = await doFetch(authorizePostReq);
+  const location = authorizePostRes.headers.get("Location");
+  if (!location) throw new Error("No redirect location in narrow-scope flow");
+
+  const locationUrl = new URL(location);
+  const code = locationUrl.searchParams.get("code");
+  if (!code) throw new Error("No authorization code in narrow-scope flow");
+
+  // Exchange code for token
+  const tokenFormData = new URLSearchParams();
+  tokenFormData.set("grant_type", "authorization_code");
+  tokenFormData.set("code", code);
+  tokenFormData.set("redirect_uri", "https://test.local/callback");
+  tokenFormData.set("client_id", clientId);
+  tokenFormData.set("code_verifier", codeVerifier);
+
+  const tokenReq = new Request("http://localhost/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: tokenFormData.toString(),
+  });
+
+  const tokenRes = await doFetch(tokenReq);
+  if (tokenRes.status !== 200) {
+    throw new Error(`Token exchange failed in narrow-scope flow: ${tokenRes.status} ${await tokenRes.text()}`);
+  }
+
+  const tokenData = await tokenRes.json() as { access_token: string };
+  narrowScopeTokenCache.set(scope, tokenData.access_token);
+  return tokenData.access_token;
 }
 
 /**
@@ -516,5 +627,181 @@ describe("E2E: no channel config at all", () => {
       expect(data.result.isError).toBe(true);
       expect(data.result.content[0].text).toContain("Unknown channel");
     }
+  });
+});
+
+// ========================================
+// E2E: Scope guard (C5, C6)
+// ========================================
+
+describe("E2E: scope guard", () => {
+  const envWithChannels: Env = {
+    ...oauthDefaults,
+    OAUTH_KV: config.env.OAUTH_KV,
+    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
+    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
+  };
+
+  const noScopeCtx = {
+    props: { userId: "e2e-no-scope", scopes: [] },
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+  } as ExecutionContext;
+
+  // C5: send_notification with no scope → forbidden
+  it("C5: send_notification with no scope returns isError and Forbidden text", async () => {
+    if (config.isRemote) {
+      console.log("Skipping: in-process test not applicable in remote mode");
+      return;
+    }
+
+    const req = new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          name: "send_notification",
+          arguments: { channel: "discord-test", content: { text: "should be forbidden" } },
+        },
+        id: 40,
+      }),
+    });
+
+    const res = await apiApp.fetch(req, envWithChannels, noScopeCtx);
+    expect(res.status).toBe(200);
+
+    const data = parseSSEData(await res.text());
+    expect(data.result.isError).toBe(true);
+    expect(data.result.content[0].text).toMatch(/Forbidden/);
+  });
+
+  // C6: list_channels with no scope → forbidden, no channel names in response
+  it("C6: list_channels with no scope returns isError and Forbidden, no channel names", async () => {
+    if (config.isRemote) {
+      console.log("Skipping: in-process test not applicable in remote mode");
+      return;
+    }
+
+    const req = new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          name: "list_channels",
+          arguments: {},
+        },
+        id: 41,
+      }),
+    });
+
+    const res = await apiApp.fetch(req, envWithChannels, noScopeCtx);
+    expect(res.status).toBe(200);
+
+    const data = parseSSEData(await res.text());
+    expect(data.result.isError).toBe(true);
+    const text: string = data.result.content[0].text;
+    expect(text).toMatch(/Forbidden/);
+    expect(text).not.toMatch(/discord-test|telegram-test/);
+  });
+});
+
+// ========================================
+// E2E: OAuth-integrated scope guard (C8, C9)
+// ========================================
+
+describe("E2E: OAuth-integrated scope guard", () => {
+  const envWithChannels: Env = {
+    ...oauthDefaults,
+    OAUTH_KV: config.env.OAUTH_KV,
+    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
+    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
+  };
+
+  // Minimal ctx for the OAuth wrapper — no injected props; OAuth provider populates them from token
+  const minimalCtx = {
+    waitUntil: (_promise: Promise<unknown>) => {},
+    passThroughOnException: () => {},
+  } as ExecutionContext;
+
+  // C8: send_notification via OAuth app with env:read-only token → Forbidden
+  it("C8: send_notification via OAuth app with dovecote:env:read token → Forbidden", async () => {
+    if (config.isRemote) {
+      console.log("Skipping: in-process test not applicable in remote mode");
+      return;
+    }
+
+    const narrowToken = await getTestAccessTokenForScope("dovecote:env:read");
+
+    const req = new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${narrowToken}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          name: "send_notification",
+          arguments: { channel: "discord-test", content: { text: "should be forbidden" } },
+        },
+        id: 50,
+      }),
+    });
+
+    const res = await app.fetch(req, envWithChannels, minimalCtx);
+    expect(res.status).toBe(200);
+
+    const data = parseSSEData(await res.text());
+    expect(data.result.isError).toBe(true);
+    expect(data.result.content[0].text).toMatch(/Forbidden/);
+  });
+
+  // C9: list_channels via OAuth app with env:read-only token → Forbidden, no channel names
+  it("C9: list_channels via OAuth app with dovecote:env:read token → Forbidden, no channel names", async () => {
+    if (config.isRemote) {
+      console.log("Skipping: in-process test not applicable in remote mode");
+      return;
+    }
+
+    const narrowToken = await getTestAccessTokenForScope("dovecote:env:read");
+
+    const req = new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${narrowToken}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          name: "list_channels",
+          arguments: {},
+        },
+        id: 51,
+      }),
+    });
+
+    const res = await app.fetch(req, envWithChannels, minimalCtx);
+    expect(res.status).toBe(200);
+
+    const data = parseSSEData(await res.text());
+    expect(data.result.isError).toBe(true);
+    const text: string = data.result.content[0].text;
+    expect(text).toMatch(/Forbidden/);
+    expect(text).not.toMatch(/discord-test|telegram-test/);
   });
 });

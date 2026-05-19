@@ -1,4 +1,4 @@
-import { test, expect, mock, beforeEach } from "bun:test";
+import { test, expect, mock, spyOn, beforeEach } from "bun:test";
 import { registerSendNotificationTool } from "../../src/tools/send-notification.js";
 import type { Env } from "../../src/types.js";
 import type { AuthCtx } from "../../src/auth/ctx.js";
@@ -84,4 +84,197 @@ test("send_notification: SSRF URL rejected at config time → handler returns er
 
   // fetch was never called
   expect(mockFetch.mock.calls.length).toBe(0);
+});
+
+// ============================================================
+// C1: scope-fail rejection with audit
+// ============================================================
+
+function buildNoScopeHandler(auth: AuthCtx): (args: any) => Promise<any> {
+  const kv = new MockKV();
+  const env: Env = {
+    OAUTH_KV: kv as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test",
+  };
+  const ctx = createMockExecutionCtx(auth) as any;
+  let capturedHandler: any = null;
+  const mockServer = {
+    tool: mock((_name: string, _description: string, _schema: any, handler: any) => {
+      capturedHandler = handler;
+    }),
+  };
+  registerSendNotificationTool(mockServer as any, env, auth, ctx);
+  if (!capturedHandler) throw new Error("handler was not captured");
+  return capturedHandler;
+}
+
+test("C1: send_notification forbidden (user-A, scopes=[], discord-test) → isError + audit", async () => {
+  const auth: AuthCtx = { userId: "user-A", scopes: [] };
+  const consoleLogSpy = spyOn(console, "log");
+
+  const handler = buildNoScopeHandler(auth);
+  const result = await handler({ channel: "discord-test", content: { text: "hi" } });
+
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toBe("Forbidden: missing scope dovecote:notify");
+
+  const logCalls = consoleLogSpy.mock.calls
+    .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
+    .map((call) => JSON.parse(call[0]));
+  const auditLog = logCalls.find((log: any) => log.event === "notify.send");
+
+  expect(auditLog).toBeDefined();
+  expect(auditLog.userId).toBe("user-A");
+  expect(auditLog.channel).toBe("discord-test");
+  expect(auditLog.ok).toBe(false);
+  expect(auditLog.reason).toBe("forbidden");
+
+  consoleLogSpy.mockRestore();
+});
+
+test("C1: send_notification forbidden (user-B, scopes=[dovecote:env:read], telegram-test) → isError + audit", async () => {
+  const auth: AuthCtx = { userId: "user-B", scopes: ["dovecote:env:read"] };
+  const consoleLogSpy = spyOn(console, "log");
+
+  const handler = buildNoScopeHandler(auth);
+  const result = await handler({ channel: "telegram-test", content: { text: "x" } });
+
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toBe("Forbidden: missing scope dovecote:notify");
+
+  const logCalls = consoleLogSpy.mock.calls
+    .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
+    .map((call) => JSON.parse(call[0]));
+  const auditLog = logCalls.find((log: any) => log.event === "notify.send");
+
+  expect(auditLog).toBeDefined();
+  expect(auditLog.userId).toBe("user-B");
+  expect(auditLog.channel).toBe("telegram-test");
+  expect(auditLog.ok).toBe(false);
+  expect(auditLog.reason).toBe("forbidden");
+
+  consoleLogSpy.mockRestore();
+});
+
+// ============================================================
+// C7: channel length clamp at 256 characters in audit
+// ============================================================
+
+test("C7: send_notification forbidden with >256 char channel → audit channel clamped to 256", async () => {
+  const auth: AuthCtx = { userId: "user-C7", scopes: [] };
+  const consoleLogSpy = spyOn(console, "log");
+
+  const handler = buildNoScopeHandler(auth);
+  const longChannel = "x".repeat(300);
+  const result = await handler({ channel: longChannel, content: { text: "hi" } });
+
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toBe("Forbidden: missing scope dovecote:notify");
+
+  const logCalls = consoleLogSpy.mock.calls
+    .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
+    .map((call) => JSON.parse(call[0]));
+  const auditLog = logCalls.find((log: any) => log.event === "notify.send");
+
+  expect(auditLog).toBeDefined();
+  expect(auditLog.channel).toBe(longChannel.slice(0, 256));
+  expect(auditLog.channel.length).toBe(256);
+
+  consoleLogSpy.mockRestore();
+});
+
+// ============================================================
+// C2: scope-pass behavior unchanged — no notify.send audit
+// ============================================================
+
+test("C2: send_notification scope-pass, unknown channel → isError but no notify.send audit", async () => {
+  // Env with no channel configuration so any channel is unknown
+  const kv = new MockKV();
+  const env: Env = {
+    OAUTH_KV: kv as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test",
+  };
+  const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"] };
+  const ctx = createMockExecutionCtx(auth) as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  let capturedHandler: any = null;
+  const mockServer = {
+    tool: mock((_name: string, _description: string, _schema: any, handler: any) => {
+      capturedHandler = handler;
+    }),
+  };
+  registerSendNotificationTool(mockServer as any, env, auth, ctx);
+
+  const result = await capturedHandler({ channel: "discord-x", content: { text: "hello" } });
+
+  // Should fail but NOT due to scope guard — due to unknown channel
+  expect(result.isError).toBe(true);
+  const text: string = result.content[0].text;
+  expect(text.includes("Failed to send") || text.includes("Unknown channel")).toBe(true);
+  // Must NOT be the scope-guard message
+  expect(text).not.toBe("Forbidden: missing scope dovecote:notify");
+
+  // Must NOT have any notify.send audit
+  const logCalls = consoleLogSpy.mock.calls
+    .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
+    .map((call) => JSON.parse(call[0]));
+  const auditLog = logCalls.find((log: any) => log.event === "notify.send");
+  expect(auditLog).toBeUndefined();
+
+  consoleLogSpy.mockRestore();
+});
+
+test("C2: send_notification scope-pass with stub channel → success, no notify.send audit", async () => {
+  // Use a real Discord channel in env and mock globalThis.fetch to return success
+  const webhookUrl = "https://discord.com/api/webhooks/999/stubtoken";
+  const kv = new MockKV();
+  const env: Env = {
+    OAUTH_KV: kv as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test",
+    DISCORD_INSTANCES: JSON.stringify([{ id: "stub", webhookUrl }]),
+  };
+  const auth: AuthCtx = { userId: "user-stub", scopes: ["dovecote:notify"] };
+  const ctx = createMockExecutionCtx(auth) as any;
+
+  // Mock fetch to return a Discord-like success response
+  const mockFetch = mock((_url: string, _options?: any) => {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ id: "msg-999", content: "hello stub", channel_id: "ch-1" }),
+        { status: 200 }
+      )
+    );
+  });
+  globalThis.fetch = mockFetch as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  let capturedHandler: any = null;
+  const mockServer = {
+    tool: mock((_name: string, _description: string, _schema: any, handler: any) => {
+      capturedHandler = handler;
+    }),
+  };
+  registerSendNotificationTool(mockServer as any, env, auth, ctx);
+
+  const result = await capturedHandler({ channel: "discord-stub", content: { text: "hello stub" } });
+
+  expect(result.isError).toBeUndefined();
+  const parsed = JSON.parse(result.content[0].text);
+  expect(parsed.channel).toBe("discord-stub");
+  expect(parsed.messageId).toBeDefined();
+
+  // Must NOT have any notify.send audit
+  const logCalls = consoleLogSpy.mock.calls
+    .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
+    .map((call) => JSON.parse(call[0]));
+  const auditLog = logCalls.find((log: any) => log.event === "notify.send");
+  expect(auditLog).toBeUndefined();
+
+  consoleLogSpy.mockRestore();
 });

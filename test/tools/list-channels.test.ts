@@ -1,4 +1,4 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect, mock, spyOn } from "bun:test";
 import { registerListChannelsTool } from "../../src/tools/list-channels.js";
 import type { Env } from "../../src/types.js";
 import type { AuthCtx } from "../../src/auth/ctx.js";
@@ -90,4 +90,76 @@ test("list_channels: empty env returns empty array", async () => {
   const channels = JSON.parse(result.content[0].text);
   expect(Array.isArray(channels)).toBe(true);
   expect(channels.length).toBe(0);
+});
+
+// ============================================================
+// C3: list_channels scope-fail rejection without audit
+// ============================================================
+
+test("C3: list_channels forbidden (user-C, scopes=[]) → isError, no notify.* audit", async () => {
+  const kv = new MockKV();
+  const env: Env = {
+    OAUTH_KV: kv as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test",
+    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
+    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "bot:token", chatId: "123" }]),
+  };
+  const auth: AuthCtx = { userId: "user-C", scopes: [] };
+  const ctx = createMockExecutionCtx(auth) as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  let capturedHandler: any = null;
+  const mockServer = {
+    tool: mock((_name: string, _description: string, _schema: any, handler: any) => {
+      capturedHandler = handler;
+    }),
+  };
+  registerListChannelsTool(mockServer as any, env, auth, ctx);
+
+  const result = await capturedHandler({});
+
+  expect(result.isError).toBe(true);
+  expect(result.content[0].text).toBe("Forbidden: missing scope dovecote:notify");
+
+  // Must NOT have any notify.* audit
+  const logCalls = consoleLogSpy.mock.calls
+    .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
+    .map((call) => JSON.parse(call[0]));
+  const notifyAudit = logCalls.find((log: any) => typeof log.event === "string" && log.event.startsWith("notify."));
+  expect(notifyAudit).toBeUndefined();
+
+  consoleLogSpy.mockRestore();
+});
+
+// ============================================================
+// C4: list_channels scope-pass behavior unchanged
+// ============================================================
+
+test("C4: list_channels scope-pass with discord stub → isError undefined, length=1, id=discord-test", async () => {
+  const kv = new MockKV();
+  const env: Env = {
+    OAUTH_KV: kv as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test",
+    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
+  };
+  const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"] };
+  const ctx = createMockExecutionCtx(auth) as any;
+
+  let capturedHandler: any = null;
+  const mockServer = {
+    tool: mock((_name: string, _description: string, _schema: any, handler: any) => {
+      capturedHandler = handler;
+    }),
+  };
+  registerListChannelsTool(mockServer as any, env, auth, ctx);
+
+  const result = await capturedHandler({});
+
+  expect(result.isError).toBeUndefined();
+  const channels = JSON.parse(result.content[0].text);
+  expect(channels).toHaveLength(1);
+  expect(channels[0].id).toBe("discord-test");
 });

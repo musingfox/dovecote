@@ -8,7 +8,8 @@ export type AuditEvent =
   | { event: "authorize"; userId: string; ok: boolean; reason?: string }
   | { event: "env.read"; userId: string; profile: string; ok: boolean; reason?: string }
   | { event: "admin.revoke"; grantId: string; ok: boolean; reason?: string }
-  | { event: "admin.bootstrap"; clientName: string; ok: boolean; reason?: string };
+  | { event: "admin.bootstrap"; clientName: string; ok: boolean; reason?: string }
+  | { event: "notify.send"; userId: string; channel: string; ok: boolean; reason?: string };
 
 /**
  * Write audit event to console log and KV store

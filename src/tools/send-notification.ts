@@ -5,12 +5,13 @@ import type { Env } from "../types.js";
 import type { AuthCtx } from "../auth/ctx.js";
 import { sendToChannel } from "../channels/registry.js";
 import { messageContentSchema } from "../channels/schemas.js";
+import { writeAudit } from "../auth/audit.js";
 
 export function registerSendNotificationTool(
   server: McpServer,
   env: Env,
-  _auth: AuthCtx,
-  _ctx: ExecutionContext
+  auth: AuthCtx,
+  ctx: ExecutionContext
 ): void {
   // @ts-expect-error - zod peer dependency type conflict with MCP SDK
   server.tool(
@@ -21,6 +22,25 @@ export function registerSendNotificationTool(
       content: messageContentSchema.describe("Message content: supply text, embed, or both. Channels that support embed (e.g. Telegram) will render it as formatted HTML."),
     },
     async ({ channel, content }) => {
+      if (!auth.scopes.includes("dovecote:notify")) {
+        writeAudit(env, ctx, {
+          event: "notify.send",
+          userId: auth.userId,
+          channel: channel.slice(0, 256),
+          ok: false,
+          reason: "forbidden",
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Forbidden: missing scope dovecote:notify",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const result = await sendToChannel(channel, content, env);
       if (result.success) {
         const response: Record<string, unknown> = {
