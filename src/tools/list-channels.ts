@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
 import type { AuthCtx } from "../auth/ctx.js";
-import { getChannelConfigs } from "../channels/registry.js";
+import { listChannels } from "../services/channels.js";
+import { ScopeError } from "../services/errors.js";
 
 export function registerListChannelsTool(
   server: McpServer,
@@ -15,27 +16,30 @@ export function registerListChannelsTool(
     "List all available notification channels",
     {},
     async () => {
-      if (!auth.scopes.includes("dovecote:notify")) {
+      try {
+        const channels = listChannels(env, auth);
         return {
           content: [
             {
               type: "text",
-              text: "Forbidden: missing scope dovecote:notify",
+              text: JSON.stringify(channels, null, 2),
             },
           ],
-          isError: true,
         };
+      } catch (err) {
+        if (err instanceof ScopeError) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Forbidden: missing scope ${err.requiredScope}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw err;
       }
-
-      const channels = getChannelConfigs(env);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(channels, null, 2),
-          },
-        ],
-      };
     }
   );
 }

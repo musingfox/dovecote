@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
 import type { AuthCtx } from "../auth/ctx.js";
-import { sendToChannel } from "../channels/registry.js";
 import { messageContentSchema } from "../channels/schemas.js";
-import { writeAudit } from "../auth/audit.js";
+import { sendNotification } from "../services/notifications.js";
+import { ScopeError } from "../services/errors.js";
 
 export function registerSendNotificationTool(
   server: McpServer,
@@ -22,52 +22,48 @@ export function registerSendNotificationTool(
       content: messageContentSchema.describe("Message content: supply text, embed, or both. Channels that support embed (e.g. Telegram) will render it as formatted HTML."),
     },
     async ({ channel, content }) => {
-      if (!auth.scopes.includes("dovecote:notify")) {
-        writeAudit(env, ctx, {
-          event: "notify.send",
-          userId: auth.userId,
-          channel: channel.slice(0, 256),
-          ok: false,
-          reason: "forbidden",
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Forbidden: missing scope dovecote:notify",
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      const result = await sendToChannel(channel, content, env);
-      if (result.success) {
-        const response: Record<string, unknown> = {
-          channel,
-          messageId: result.messageId,
-        };
-        if (result.detail) {
-          response.detail = result.detail;
+      try {
+        const result = await sendNotification(env, auth, ctx, { channel, content });
+        if (result.success) {
+          const response: Record<string, unknown> = {
+            channel,
+            messageId: result.messageId,
+          };
+          if (result.detail) {
+            response.detail = result.detail;
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(response),
+              },
+            ],
+          };
         }
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(response),
+              text: `Failed to send to ${channel}: ${result.error}`,
             },
           ],
+          isError: true,
         };
+      } catch (err) {
+        if (err instanceof ScopeError) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Forbidden: missing scope ${err.requiredScope}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw err;
       }
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Failed to send to ${channel}: ${result.error}`,
-          },
-        ],
-        isError: true,
-      };
     }
   );
 }
