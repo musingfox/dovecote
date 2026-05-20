@@ -13,7 +13,6 @@ export function registerSendNotificationTool(
   auth: AuthCtx,
   ctx: ExecutionContext
 ): void {
-  // @ts-expect-error - zod peer dependency type conflict with MCP SDK
   server.tool(
     "send_notification",
     "Send a notification message (text, embed, or both) to a channel",
