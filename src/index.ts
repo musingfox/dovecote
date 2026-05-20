@@ -1,36 +1,49 @@
+import { Hono } from "hono";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import apiApp from "./api.js";
 import authorizeApp from "./auth/authorize.js";
 import { SCOPES_SUPPORTED } from "./auth/scopes.js";
+import { bearerMiddleware } from "./auth/bearer.js";
 import type { Env } from "./types.js";
 
-/**
- * Main OAuth Provider configuration
- * Wraps the MCP API with OAuth 2.1 + PKCE + DCR support
- */
-export default new OAuthProvider<Env>({
-  // API handler wrapping - the library expects an object with a fetch method
+const oauthProvider = new OAuthProvider<Env>({
   apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
   apiRoute: "/mcp",
-
-  // Authorization UI handler
   defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) },
-
-  // OAuth endpoints
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
-
-  // Scopes
   scopesSupported: [...SCOPES_SUPPORTED],
-
-  // Token TTLs
   accessTokenTTL: 3600,
   refreshTokenTTL: 2592000,
-
-  // Security: disallow plain PKCE (OAuth 2.1 compliance)
   allowPlainPKCE: false,
-
-  // DCR closed: disallow public client registration
   disallowPublicClientRegistration: true,
 });
+
+const app = new Hono<{ Bindings: Env }>();
+
+app.get("/health", (c) =>
+  c.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+  }),
+);
+
+app.use("/v1/*", bearerMiddleware);
+
+const oauthPaths = [
+  "/mcp",
+  "/authorize",
+  "/token",
+  "/register",
+  "/.well-known/oauth-authorization-server",
+  "/.well-known/oauth-protected-resource",
+  "/admin/revoke",
+  "/admin/bootstrap-client",
+];
+
+for (const path of oauthPaths) {
+  app.all(path, (c) => oauthProvider.fetch(c.req.raw, c.env, c.executionCtx));
+}
+
+export default app;

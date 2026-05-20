@@ -1,0 +1,49 @@
+import { test, expect } from "bun:test";
+import app from "../src/index.js";
+
+const mockEnv = {
+  OAUTH_PROVIDER: {},
+} as any;
+const mockCtx = {} as any;
+
+test("Contract B: GET /health returns 200 with status and timestamp", async () => {
+  const req = new Request("http://localhost/health");
+  const res = await app.fetch(req, mockEnv, mockCtx);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.status).toBe("ok");
+  expect(typeof body.timestamp).toBe("string");
+  expect(new Date(body.timestamp).getTime()).not.toBeNaN();
+});
+
+test("Contract D: /v1/* returns 401 fail-closed", async () => {
+  const req1 = new Request("http://localhost/v1/foo");
+  const res1 = await app.fetch(req1, mockEnv, mockCtx);
+  expect(res1.status).toBe(401);
+  expect(await res1.json()).toEqual({
+    error: "unauthorized",
+    error_description: "bearer middleware not yet implemented",
+  });
+
+  const req2 = new Request("http://localhost/v1/notify", {
+    headers: { Authorization: "Bearer some-token" },
+  });
+  const res2 = await app.fetch(req2, mockEnv, mockCtx);
+  expect(res2.status).toBe(401);
+  expect(await res2.json()).toEqual({
+    error: "unauthorized",
+    error_description: "bearer middleware not yet implemented",
+  });
+});
+
+test("Contract E: Unknown paths return 404", async () => {
+  const req = new Request("http://localhost/unknown-path");
+  const res = await app.fetch(req, mockEnv, mockCtx);
+  expect(res.status).toBe(404);
+});
+
+test("Contract A: app.fetch signature is compatible", async () => {
+  const req = new Request("http://localhost/health");
+  const res = await app.fetch(req, mockEnv, mockCtx);
+  expect(res).toBeInstanceOf(Response);
+});
