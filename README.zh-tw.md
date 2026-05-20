@@ -94,6 +94,9 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    - `OAUTH_PASSWORD` — `/authorize` 頁面要求輸入的密碼（Claude.ai OAuth 流程）
    - `COOKIE_ENCRYPTION_KEY` — CSRF cookie 的 HMAC 金鑰（base64、32 bytes）
 
+   選用（admin scope）：
+   - `OAUTH_ADMIN_PASSWORD` — 當 client 請求 `dovecote:admin` scope 時所需的獨立密碼。若未設定此 secret 且有 admin scope 請求，authorize 端點會回傳 503。一般 `OAUTH_PASSWORD` 不會作為 admin 請求的備選。
+
    選用（通知頻道，JSON 陣列）：
    - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
    - `DISCORD_INSTANCES` — `[{"id":"default","webhookUrl":"..."}]`
@@ -174,6 +177,7 @@ dovecote 實作多層防禦安全控制：
 - **基於 Scope 的存取控制**：
   - `dovecote:notify` – 透過已設定通道發送通知
   - `dovecote:env:read` – **高權限**：從 KV 儲存讀取環境設定檔。授予時需謹慎。
+  - `dovecote:admin` – **Admin 權限**：執行 admin 等級操作。需要 `OAUTH_ADMIN_PASSWORD`（獨立於 `OAUTH_PASSWORD`）。任何含有 `dovecote:admin` 的授權請求（即使混合其他 scope）均驗證 admin 密碼；一般密碼不被接受。若 `OAUTH_ADMIN_PASSWORD` 未設定，端點立即回傳 503，不存在 silent fallback。
 
 ### 漏洞通報
 

@@ -80,5 +80,16 @@ else
   fi
 fi
 
+# Optional: OAUTH_ADMIN_PASSWORD (required only when granting dovecote:admin scope)
+if [[ -n "${OAUTH_ADMIN_PASSWORD:-}" ]]; then
+  echo "Setting OAUTH_ADMIN_PASSWORD..."
+  echo "$OAUTH_ADMIN_PASSWORD" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} OAUTH_ADMIN_PASSWORD
+else
+  read -p "Enter OAUTH_ADMIN_PASSWORD (optional, required only when granting dovecote:admin scope, press Enter to skip): " OAUTH_ADMIN_PASSWORD
+  if [[ -n "$OAUTH_ADMIN_PASSWORD" ]]; then
+    echo "$OAUTH_ADMIN_PASSWORD" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} OAUTH_ADMIN_PASSWORD
+  fi
+fi
+
 echo ""
 echo "Secrets set successfully!"

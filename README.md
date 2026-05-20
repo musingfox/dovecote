@@ -96,6 +96,9 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    - `OAUTH_PASSWORD` — password shown on the `/authorize` page (Claude.ai OAuth flow)
    - `COOKIE_ENCRYPTION_KEY` — HMAC key for the CSRF cookie (base64, 32 bytes)
 
+   Optional (admin scope):
+   - `OAUTH_ADMIN_PASSWORD` — separate password required when a client requests the `dovecote:admin` scope. If this secret is not configured and an admin scope is requested, the authorize endpoint returns 503. Regular `OAUTH_PASSWORD` is never used as a fallback for admin requests.
+
    Optional (notification channels, JSON arrays):
    - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
    - `DISCORD_INSTANCES` — `[{"id":"default","webhookUrl":"..."}]`
@@ -176,6 +179,7 @@ dovecote implements defense-in-depth security controls:
 - **Scope-Based Access Control**:
   - `dovecote:notify` – Send notifications via configured channels
   - `dovecote:env:read` – **High privilege**: Read environment profiles from KV storage. Grant with caution.
+  - `dovecote:admin` – **Admin privilege**: Execute admin-level operations. Requires `OAUTH_ADMIN_PASSWORD` (separate from `OAUTH_PASSWORD`). Any authorization request containing `dovecote:admin` (even mixed with other scopes) is validated against the admin password; the regular password is not accepted. If `OAUTH_ADMIN_PASSWORD` is not configured, the endpoint returns 503 immediately — there is no silent fallback.
 
 ### Vulnerability Reporting
 

@@ -80,22 +80,32 @@ app.post("/authorize", async (c) => {
     return c.text("Forbidden: Invalid CSRF token", 403);
   }
 
-  // Parse form data
   const formData = await c.req.formData();
   const password = formData.get("password");
 
-  // Validate password (timing-safe)
-  if (typeof password !== "string" || !timingSafeEqual(password, c.env.OAUTH_PASSWORD)) {
-    return c.text("Forbidden: Invalid password", 403);
+  const requestedScopes: string[] = (formData.get("scope") as string)?.split(" ") || [];
+  const isAdminRequest = requestedScopes.includes("dovecote:admin");
+
+  if (isAdminRequest) {
+    if (!c.env.OAUTH_ADMIN_PASSWORD) {
+      console.error("OAUTH_ADMIN_PASSWORD not configured; admin authorization unavailable");
+      return c.json({ error: "admin authorization not configured" }, 503);
+    }
+    if (typeof password !== "string" || !timingSafeEqual(password, c.env.OAUTH_ADMIN_PASSWORD)) {
+      return c.text("Forbidden: Invalid password", 403);
+    }
+  } else {
+    if (typeof password !== "string" || !timingSafeEqual(password, c.env.OAUTH_PASSWORD)) {
+      return c.text("Forbidden: Invalid password", 403);
+    }
   }
 
-  // Reconstruct AuthRequest from form fields
   const authRequest: AuthRequest = {
     responseType: formData.get("response_type") as string,
     clientId: formData.get("client_id") as string,
     redirectUri: formData.get("redirect_uri") as string,
     state: formData.get("state") as string,
-    scope: (formData.get("scope") as string)?.split(" ") || [],
+    scope: requestedScopes,
     codeChallenge: (formData.get("code_challenge") as string) || undefined,
     codeChallengeMethod: (formData.get("code_challenge_method") as string) || undefined,
   };
@@ -108,8 +118,7 @@ app.post("/authorize", async (c) => {
 
   try {
     // Filter requested scopes to only supported ones
-    const requestedScopes = authRequest.scope ?? [];
-    const effectiveScopes = requestedScopes.filter((s) =>
+    const effectiveScopes = (authRequest.scope ?? []).filter((s) =>
       (SCOPES_SUPPORTED as readonly string[]).includes(s)
     );
 
