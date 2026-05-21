@@ -15,9 +15,11 @@
     "test:integration": "bun test --path-ignore-patterns \"\" test/integration/",
     "typecheck": "tsc --noEmit",
     "prepare": "lefthook install || true",
-    "mutation": "bunx stryker run"
+    "mutation": "bunx stryker run",
+    "openapi:gen": "bun scripts/generate-openapi.mjs"
   },
   "devDependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@cloudflare/workers-types": "^4.20260410.1",
     "@stryker-mutator/core": "^9.6.1",
     "@types/bun": "latest",

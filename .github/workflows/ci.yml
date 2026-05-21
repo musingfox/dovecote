@@ -28,6 +28,26 @@ jobs:
       - name: Run typecheck
         run: bun run typecheck
 
+  openapi-drift:
+    name: OpenAPI drift gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Regenerate openapi.json
+        run: bun run openapi:gen
+
+      - name: Fail if openapi.json drifted
+        run: git diff --exit-code openapi.json || (echo "openapi.json is out of date — run 'bun run openapi:gen' locally and commit the result" && exit 1)
+
   test:
     name: Test + Coverage
     runs-on: ubuntu-latest

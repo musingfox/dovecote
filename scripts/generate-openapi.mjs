@@ -1,0 +1,233 @@
+#!/usr/bin/env bun
+// Build-time OpenAPI 3.0 generator for dovecote /v1 routes.
+// Run via `bun run openapi:gen` — emits `openapi.json` at repo root.
+import { OpenApiGeneratorV3, OpenAPIRegistry, extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import { z } from "zod";
+import { parseArgs } from "node:util";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  messageContentSchema,
+  notifyRequestSchema as _notifyRequestSchema,
+  sendResultSchema as _sendResultSchema,
+  channelConfigSchema as _channelConfigSchema,
+  channelsListResponseSchema as _channelsListResponseSchema,
+} from "../src/contracts/notifications.ts";
+import {
+  profileNameSchema,
+  envReadResponseSchema as _envReadResponseSchema,
+} from "../src/contracts/env.ts";
+import {
+  tokenIssueRequestSchema,
+  tokenIssueResponseSchema as _tokenIssueResponseSchema,
+  tokenRevokeResponseSchema as _tokenRevokeResponseSchema,
+} from "../src/contracts/tokens.ts";
+import { errorEnvelopeSchema as _errorEnvelopeSchema } from "../src/contracts/errors.ts";
+import { healthResponseSchema as _healthResponseSchema } from "../src/contracts/health.ts";
+import { MIN_CLIENT_VERSION } from "../src/version.ts";
+
+extendZodWithOpenApi(z);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const repoRoot = resolve(__dirname, "..");
+
+const { values } = parseArgs({
+  options: {
+    out: { type: "string" },
+  },
+  allowPositionals: false,
+});
+
+const outPath = values.out ? resolve(values.out) : resolve(repoRoot, "openapi.json");
+
+const registry = new OpenAPIRegistry();
+
+// OpenAPI annotations applied here (not in src/contracts) so production bundle
+// stays free of extendZodWithOpenApi.
+const errorEnvelopeSchema = _errorEnvelopeSchema.openapi("ErrorEnvelope");
+
+const errorResponse = (description) => ({
+  description,
+  content: { "application/json": { schema: errorEnvelopeSchema } },
+});
+
+const notifyRequestSchema = _notifyRequestSchema.openapi("NotifyRequest");
+
+const profilePathSchema = profileNameSchema.openapi({
+  param: { name: "profile", in: "path" },
+  example: "dev",
+});
+
+const tokenIdPathSchema = z.string().min(1).openapi({
+  param: { name: "tokenId", in: "path" },
+  example: "tkn_01HZ...",
+});
+
+const tokenIssueRequestOpenapiSchema = tokenIssueRequestSchema.openapi("TokenIssueRequest");
+
+const sendResultSchema = _sendResultSchema.openapi("SendResult");
+const channelConfigSchema = _channelConfigSchema.openapi("ChannelConfig");
+// Rebuild channelsListSchema so its array element references the named
+// ChannelConfig component (the source schema in src/contracts is annotation-free).
+const channelsListSchema = z.object({
+  channels: z.array(channelConfigSchema),
+}).openapi("ChannelsList");
+const envReadResponseSchema = _envReadResponseSchema.openapi("EnvReadResponse");
+const tokenIssueResponseSchema = _tokenIssueResponseSchema.openapi("TokenIssueResponse");
+const revokeResponseSchema = _tokenRevokeResponseSchema.openapi("RevokeResponse");
+const healthResponseSchema = _healthResponseSchema.openapi("HealthResponse");
+
+const jsonOk = (schema, description = "ok") => ({
+  description,
+  content: { "application/json": { schema } },
+});
+
+// --- Common error responses for /v1 routes ---
+const commonAuthErrors = {
+  401: errorResponse("Missing or invalid Authorization header"),
+  403: errorResponse("Insufficient scope for this resource"),
+  500: errorResponse("Internal server error"),
+};
+
+const writeValidationErrors = {
+  400: errorResponse("Request body failed zod validation"),
+};
+
+const notFoundError = {
+  404: errorResponse("Resource not found"),
+};
+
+const adminRateLimitErrors = {
+  429: errorResponse("Rate limit exceeded — Retry-After header indicates retry window"),
+  503: errorResponse("Admin token revocation pressure circuit open"),
+};
+
+// --- Route registrations ---
+registry.registerPath({
+  method: "post",
+  path: "/v1/notify",
+  description: "Send a notification to the configured channel. Requires scope `dovecote:notify`.",
+  request: {
+    body: { content: { "application/json": { schema: notifyRequestSchema } } },
+  },
+  responses: {
+    200: jsonOk(sendResultSchema, "Notification dispatched"),
+    ...writeValidationErrors,
+    ...commonAuthErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/v1/channels",
+  description: "List configured notification channels. Requires scope `dovecote:read`.",
+  responses: {
+    200: jsonOk(channelsListSchema, "Channels listed"),
+    ...commonAuthErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/v1/env/{profile}",
+  description: "Read an env profile value. Requires scope `dovecote:env:read`.",
+  request: {
+    params: z.object({ profile: profilePathSchema }),
+  },
+  responses: {
+    200: jsonOk(envReadResponseSchema, "Env profile resolved"),
+    ...notFoundError,
+    ...commonAuthErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/v1/tokens",
+  description: "Issue a new API token. Requires scope `dovecote:admin`.",
+  request: {
+    body: { content: { "application/json": { schema: tokenIssueRequestOpenapiSchema } } },
+  },
+  responses: {
+    201: jsonOk(tokenIssueResponseSchema, "Token issued"),
+    ...writeValidationErrors,
+    ...commonAuthErrors,
+    ...adminRateLimitErrors,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/v1/tokens/{tokenId}",
+  description: "Revoke an API token. Requires scope `dovecote:admin`.",
+  request: {
+    params: z.object({ tokenId: tokenIdPathSchema }),
+  },
+  responses: {
+    200: jsonOk(revokeResponseSchema, "Token revoked"),
+    ...notFoundError,
+    ...commonAuthErrors,
+    ...adminRateLimitErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/health",
+  description: "Public health probe — returns service status and minimum client version.",
+  responses: {
+    200: jsonOk(healthResponseSchema, "Service healthy"),
+  },
+});
+
+// --- Generate ---
+const generator = new OpenApiGeneratorV3(registry.definitions);
+const doc = generator.generateDocument({
+  openapi: "3.0.0",
+  info: {
+    title: "dovecote",
+    version: MIN_CLIENT_VERSION,
+  },
+});
+
+// --- Required schema verification (exit non-zero if any missing) ---
+const requiredPaths = [
+  "/v1/notify",
+  "/v1/channels",
+  "/v1/env/{profile}",
+  "/v1/tokens",
+  "/v1/tokens/{tokenId}",
+  "/health",
+];
+const emittedPaths = Object.keys(doc.paths ?? {});
+const missing = requiredPaths.filter((p) => !emittedPaths.includes(p));
+if (missing.length > 0) {
+  console.error(`openapi:gen — missing required paths: ${missing.join(", ")}`);
+  process.exit(1);
+}
+
+const requiredSchemas = [
+  "ErrorEnvelope",
+  "NotifyRequest",
+  "SendResult",
+  "ChannelConfig",
+  "ChannelsList",
+  "EnvReadResponse",
+  "TokenIssueRequest",
+  "TokenIssueResponse",
+  "RevokeResponse",
+  "HealthResponse",
+];
+const emittedSchemas = Object.keys(doc.components?.schemas ?? {});
+const missingSchemas = requiredSchemas.filter((s) => !emittedSchemas.includes(s));
+if (missingSchemas.length > 0) {
+  console.error(`openapi:gen — missing required component schemas: ${missingSchemas.join(", ")}`);
+  process.exit(1);
+}
+
+// --- Write deterministic output ---
+const serialized = JSON.stringify(doc, null, 2) + "\n";
+await Bun.write(outPath, serialized);
+console.log(`openapi:gen — wrote ${outPath} (${emittedPaths.length} paths, ${emittedSchemas.length} schemas)`);
