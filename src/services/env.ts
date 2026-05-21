@@ -17,6 +17,11 @@ export async function readEnv(
       userId: auth.userId,
       profile,
       ok: false,
+      reason: "forbidden",
+      authMethod: auth.authMethod,
+      ip: auth.ip,
+      scope: "dovecote:env:read",
+      ...(auth.tokenId ? { tokenId: auth.tokenId } : {}),
     });
     throw new ScopeError("dovecote:env:read");
   }
@@ -32,6 +37,10 @@ export async function readEnv(
       profile,
       ok: false,
       reason: msg,
+      authMethod: auth.authMethod,
+      ip: auth.ip,
+      scope: "dovecote:env:read",
+      ...(auth.tokenId ? { tokenId: auth.tokenId } : {}),
     });
     throw new UpstreamError(msg);
   }
@@ -42,6 +51,10 @@ export async function readEnv(
       userId: auth.userId,
       profile,
       ok: false,
+      authMethod: auth.authMethod,
+      ip: auth.ip,
+      scope: "dovecote:env:read",
+      ...(auth.tokenId ? { tokenId: auth.tokenId } : {}),
     });
     throw new NotFoundError(`Profile "${profile}" not found`);
   }
@@ -51,6 +64,10 @@ export async function readEnv(
     userId: auth.userId,
     profile,
     ok: true,
+    authMethod: auth.authMethod,
+    ip: auth.ip,
+    scope: "dovecote:env:read",
+    ...(auth.tokenId ? { tokenId: auth.tokenId } : {}),
   });
 
   return value;

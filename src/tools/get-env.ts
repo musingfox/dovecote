@@ -5,6 +5,7 @@ import type { Env } from "../types.js";
 import type { AuthCtx } from "../auth/ctx.js";
 import { readEnv } from "../services/env.js";
 import { ScopeError, NotFoundError, UpstreamError } from "../services/errors.js";
+import { profileNameSchema } from "../contracts/env.js";
 
 export function registerGetEnvTool(
   server: McpServer,
@@ -16,11 +17,7 @@ export function registerGetEnvTool(
     "get_env",
     "Read environment profile from KV storage (requires dovecote:env:read scope)",
     {
-      profile: z
-        .string()
-        .min(1)
-        .regex(/^[a-zA-Z0-9_-]+$/, "Profile must match /^[a-zA-Z0-9_-]+$/")
-        .describe("Environment profile name"),
+      profile: profileNameSchema.describe("Environment profile name"),
     },
     async ({ profile }) => {
       try {

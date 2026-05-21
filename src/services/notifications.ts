@@ -19,6 +19,10 @@ export async function sendNotification(
       channel: channel.slice(0, 256),
       ok: false,
       reason: "forbidden",
+      authMethod: auth.authMethod,
+      ip: auth.ip,
+      scope: "dovecote:notify",
+      ...(auth.tokenId ? { tokenId: auth.tokenId } : {}),
     });
     throw new ScopeError("dovecote:notify");
   }

@@ -15,6 +15,8 @@ test("get_env forbidden when missing dovecote:env:read scope", async () => {
   const auth: AuthCtx = {
     userId: "user-123",
     scopes: ["dovecote:notify"],
+    authMethod: "oauth",
+    ip: "unknown",
   };
   const ctx = createMockExecutionCtx(auth) as any;
 
@@ -55,6 +57,8 @@ test("get_env forbidden for anonymous user", async () => {
   const auth: AuthCtx = {
     userId: "anonymous",
     scopes: [],
+    authMethod: "oauth",
+    ip: "unknown",
   };
   const ctx = createMockExecutionCtx(auth) as any;
 
@@ -95,6 +99,8 @@ test("get_env returns value when profile exists", async () => {
   const auth: AuthCtx = {
     userId: "user-456",
     scopes: ["dovecote:env:read"],
+    authMethod: "oauth",
+    ip: "unknown",
   };
   const ctx = createMockExecutionCtx(auth) as any;
 
@@ -136,6 +142,8 @@ test("get_env returns not found when profile does not exist", async () => {
   const auth: AuthCtx = {
     userId: "user-789",
     scopes: ["dovecote:env:read"],
+    authMethod: "oauth",
+    ip: "unknown",
   };
   const ctx = createMockExecutionCtx(auth) as any;
 
@@ -177,6 +185,8 @@ test("get_env returns empty string when profile is empty", async () => {
   const auth: AuthCtx = {
     userId: "user-empty",
     scopes: ["dovecote:env:read"],
+    authMethod: "oauth",
+    ip: "unknown",
   };
   const ctx = createMockExecutionCtx(auth) as any;
 
@@ -212,7 +222,7 @@ test("get_env schema rejects profile names that could cross KV prefix boundaries
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
   };
-  const auth: AuthCtx = { userId: "u", scopes: ["dovecote:env:read"] };
+  const auth: AuthCtx = { userId: "u", scopes: ["dovecote:env:read"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
 
   let capturedSchema: any = null;

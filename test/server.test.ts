@@ -12,10 +12,10 @@ const mockEnv: Env = {
 
 describe("MCP Server Factory", () => {
   it("createMCPServer returns McpServer instance with correct metadata (operator auth)", () => {
-    const auth = { userId: "op", scopes: ["dovecote:notify"] };
+    const auth: typeof ANONYMOUS = { userId: "op", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
     const ctx = createMockExecutionCtx({ userId: "op", scopes: ["dovecote:notify"] });
 
-    const server = createMCPServer(mockEnv, auth, ctx as any);
+    const server = createMCPServer(mockEnv, auth as any, ctx as any);
 
     expect((server as any).server._serverInfo.name).toBe("dovecote-mcp-server");
     expect((server as any).server._serverInfo.version).toBe("1.0.0");

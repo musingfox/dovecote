@@ -27,7 +27,7 @@ function captureHandler(env: Env): (args?: unknown) => Promise<any> {
       capturedHandler = handler;
     }),
   };
-  const auth: AuthCtx = { userId: "user-1", scopes: ["dovecote:notify"] };
+  const auth: AuthCtx = { userId: "user-1", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
   registerListChannelsTool(mockServer as any, env, auth, ctx);
   if (!capturedHandler) throw new Error("handler was not captured");
@@ -105,7 +105,7 @@ test("C3: list_channels forbidden (user-C, scopes=[]) → isError, no notify.* a
     DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
     TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "bot:token", chatId: "123" }]),
   };
-  const auth: AuthCtx = { userId: "user-C", scopes: [] };
+  const auth: AuthCtx = { userId: "user-C", scopes: [], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
 
   const consoleLogSpy = spyOn(console, "log");
@@ -145,7 +145,7 @@ test("C4: list_channels scope-pass with discord stub → isError undefined, leng
     COOKIE_ENCRYPTION_KEY: "test",
     DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
   };
-  const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"] };
+  const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
 
   let capturedHandler: any = null;

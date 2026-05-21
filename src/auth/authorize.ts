@@ -128,7 +128,12 @@ app.post("/authorize", async (c) => {
       userId: "operator",
       scope: effectiveScopes,
       metadata: { label: "operator" },
-      props: { userId: "operator", scopes: effectiveScopes },
+      props: {
+        userId: "operator",
+        scopes: effectiveScopes,
+        authMethod: "oauth",
+        ip: c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown",
+      },
     });
 
     // Emit audit event on success
@@ -150,6 +155,9 @@ app.post("/authorize", async (c) => {
       event: "authorize",
       userId: "operator",
       ok: true,
+      authMethod: "none",
+      ip: c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown",
+      scope: effectiveScopes.join(" "),
     });
 
     // Redirect to callback URL
@@ -200,6 +208,9 @@ app.post("/admin/revoke", async (c) => {
       grantId: "",
       ok: false,
       reason: "rate_limited",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "rate limited" }, 429, {
@@ -228,6 +239,9 @@ app.post("/admin/revoke", async (c) => {
       grantId: "",
       ok: false,
       reason: "auth_failed",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "unauthorized" }, 401);
@@ -253,6 +267,9 @@ app.post("/admin/revoke", async (c) => {
       grantId: "",
       ok: false,
       reason: "auth_failed",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "unauthorized" }, 401);
@@ -295,6 +312,9 @@ app.post("/admin/revoke", async (c) => {
       grantId,
       ok: false,
       reason: "provider_error",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "revoke failed" }, 500);
@@ -305,6 +325,9 @@ app.post("/admin/revoke", async (c) => {
     event: "admin.revoke",
     grantId,
     ok: true,
+    authMethod: "admin_token",
+    ip,
+    scope: "dovecote:admin",
   });
 
   return c.json({ ok: true, grantId }, 200);
@@ -344,6 +367,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       clientName: "",
       ok: false,
       reason: "rate_limited",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "rate limited" }, 429, {
@@ -372,6 +398,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       clientName: "",
       ok: false,
       reason: "auth_failed",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "unauthorized" }, 401);
@@ -397,6 +426,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       clientName: "",
       ok: false,
       reason: "auth_failed",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "unauthorized" }, 401);
@@ -425,6 +457,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       clientName: "",
       ok: false,
       reason: "invalid_json",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "Invalid JSON" }, 400);
@@ -450,6 +485,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       clientName: "",
       ok: false,
       reason: "invalid_body",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: validation.error }, 400);
@@ -483,6 +521,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       event: "admin.bootstrap",
       clientName,
       ok: true,
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ client_id: result.clientId }, 200);
@@ -492,6 +533,9 @@ app.post("/admin/bootstrap-client", async (c) => {
       clientName,
       ok: false,
       reason: "provider_error",
+      authMethod: "admin_token",
+      ip,
+      scope: "dovecote:admin",
     });
 
     return c.json({ error: "bootstrap failed" }, 500);

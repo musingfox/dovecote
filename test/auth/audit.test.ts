@@ -31,6 +31,9 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
     event: "authorize",
     userId: "operator",
     ok: true,
+    authMethod: "none",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
   });
 
   // Wait for promises
@@ -43,6 +46,9 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
   expect(loggedData.event).toBe("authorize");
   expect(loggedData.userId).toBe("operator");
   expect(loggedData.ok).toBe(true);
+  expect(loggedData.authMethod).toBe("none");
+  expect(loggedData.ip).toBe("1.2.3.4");
+  expect(loggedData.scope).toBe("dovecote:notify");
   expect(typeof loggedData.ts).toBe("number");
 
   // Assert waitUntil called once
@@ -97,6 +103,9 @@ test("writeAudit failure tolerance - KV.put rejects", async () => {
       event: "authorize",
       userId: "operator",
       ok: true,
+      authMethod: "none",
+      ip: "1.2.3.4",
+      scope: "dovecote:notify",
     });
   }).not.toThrow();
 
@@ -105,6 +114,181 @@ test("writeAudit failure tolerance - KV.put rejects", async () => {
 
   // Console log should still have happened
   expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+
+  consoleLogSpy.mockRestore();
+});
+
+test("writeAudit sanitizes free-text fields (reason with newline)", async () => {
+  const mockKV = new MockKV();
+  const promises: Promise<any>[] = [];
+
+  const env: Env = {
+    OAUTH_KV: mockKV as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  };
+
+  const ctx = {
+    waitUntil: (p: Promise<any>) => {
+      promises.push(p);
+    },
+    passThroughOnException: () => {},
+  } as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  // Call writeAudit with a reason containing a literal newline
+  writeAudit(env, ctx, {
+    event: "authorize",
+    userId: "operator",
+    ok: false,
+    reason: "line1\nline2",
+    authMethod: "none",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  // Wait for promises
+  await Promise.all(promises);
+
+  // Get the logged JSON - use the last call which is this test's event
+  const loggedString = consoleLogSpy.mock.calls[consoleLogSpy.mock.calls.length - 1]![0] as string;
+  const parsed = JSON.parse(loggedString);
+
+  // The reason should have the newline escaped as \n (not a literal newline)
+  expect(parsed.reason).toBe("line1\\nline2");
+  // Verify no literal newline in the raw logged string
+  expect(parsed.reason.includes("\n")).toBe(false);
+
+  consoleLogSpy.mockRestore();
+});
+
+test("writeAudit sanitizes reason with ANSI escape codes", async () => {
+  const mockKV = new MockKV();
+  const promises: Promise<any>[] = [];
+
+  const env: Env = {
+    OAUTH_KV: mockKV as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  };
+
+  const ctx = {
+    waitUntil: (p: Promise<any>) => {
+      promises.push(p);
+    },
+    passThroughOnException: () => {},
+  } as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  // Call writeAudit with a reason containing ESC character
+  const reasonWithEsc = "red\x1B[31m";
+  writeAudit(env, ctx, {
+    event: "authorize",
+    userId: "operator",
+    ok: false,
+    reason: reasonWithEsc,
+    authMethod: "none",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  // Wait for promises
+  await Promise.all(promises);
+
+  // Get the logged JSON - use the last call which is this test's event
+  const loggedString = consoleLogSpy.mock.calls[consoleLogSpy.mock.calls.length - 1]![0] as string;
+  const parsed = JSON.parse(loggedString);
+
+  // The ESC should be escaped as \u001b - it appears in the middle of the string
+  expect(parsed.reason).toBe("red\\u001b[31m");
+
+  consoleLogSpy.mockRestore();
+});
+
+test("writeAudit sanitizes channel field with newline", async () => {
+  const mockKV = new MockKV();
+  const promises: Promise<any>[] = [];
+
+  const env: Env = {
+    OAUTH_KV: mockKV as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  };
+
+  const ctx = {
+    waitUntil: (p: Promise<any>) => {
+      promises.push(p);
+    },
+    passThroughOnException: () => {},
+  } as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  // Call writeAudit with a channel containing a literal newline
+  writeAudit(env, ctx, {
+    event: "notify.send",
+    userId: "operator",
+    channel: "chan-1\nfoo",
+    ok: true,
+    authMethod: "none",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  // Wait for promises
+  await Promise.all(promises);
+
+  // Get the logged JSON - use the last call which is this test's event
+  const loggedString = consoleLogSpy.mock.calls[consoleLogSpy.mock.calls.length - 1]![0] as string;
+  const parsed = JSON.parse(loggedString);
+
+  // The channel should have the newline escaped as \n
+  expect(parsed.channel).toBe("chan-1\\nfoo");
+
+  consoleLogSpy.mockRestore();
+});
+
+test("writeAudit does not sanitize userId (structured field, not free-text)", async () => {
+  const mockKV = new MockKV();
+  const promises: Promise<any>[] = [];
+
+  const env: Env = {
+    OAUTH_KV: mockKV as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  };
+
+  const ctx = {
+    waitUntil: (p: Promise<any>) => {
+      promises.push(p);
+    },
+    passThroughOnException: () => {},
+  } as any;
+
+  const consoleLogSpy = spyOn(console, "log");
+
+  // Call writeAudit with a userId containing a newline (edge case)
+  writeAudit(env, ctx, {
+    event: "authorize",
+    userId: "user\nid",
+    ok: true,
+    authMethod: "none",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  // Wait for promises
+  await Promise.all(promises);
+
+  // Get the logged JSON - use the last call which is this test's event
+  const loggedString = consoleLogSpy.mock.calls[consoleLogSpy.mock.calls.length - 1]![0] as string;
+  const parsed = JSON.parse(loggedString);
+
+  // userId is NOT sanitized (it's a structured field, not in FREE_TEXT_FIELDS)
+  // This is intentional - extractAuth already validates userId format
+  expect(parsed.userId).toBe("user\nid");
 
   consoleLogSpy.mockRestore();
 });

@@ -18,6 +18,8 @@ test("get_env with valid scope logs env.read audit event with ok:true", async ()
   const auth: AuthCtx = {
     userId: "user-123",
     scopes: ["dovecote:env:read"],
+    authMethod: "oauth",
+    ip: "unknown",
   };
 
   const ctx = createMockExecutionCtx();
@@ -54,6 +56,9 @@ test("get_env with valid scope logs env.read audit event with ok:true", async ()
     userId: "user-123",
     profile: "prod",
     ok: true,
+    authMethod: "oauth",
+    ip: "unknown",
+    scope: "dovecote:env:read",
   });
   expect(auditEntry.ts).toBeTypeOf("number");
 });
@@ -71,6 +76,8 @@ test("get_env without scope logs env.read audit event with ok:false", async () =
   const auth: AuthCtx = {
     userId: "user-456",
     scopes: [],
+    authMethod: "oauth",
+    ip: "unknown",
   };
 
   const ctx = createMockExecutionCtx();
@@ -104,6 +111,9 @@ test("get_env without scope logs env.read audit event with ok:false", async () =
     userId: "user-456",
     profile: "prod",
     ok: false,
+    authMethod: "oauth",
+    ip: "unknown",
+    scope: "dovecote:env:read",
   });
   expect(auditEntry.ts).toBeTypeOf("number");
 });
@@ -120,6 +130,8 @@ test("get_env for nonexistent profile logs env.read audit event with ok:false", 
   const auth: AuthCtx = {
     userId: "user-789",
     scopes: ["dovecote:env:read"],
+    authMethod: "oauth",
+    ip: "unknown",
   };
 
   const ctx = createMockExecutionCtx();
@@ -153,6 +165,9 @@ test("get_env for nonexistent profile logs env.read audit event with ok:false", 
     userId: "user-789",
     profile: "nonexistent",
     ok: false,
+    authMethod: "oauth",
+    ip: "unknown",
+    scope: "dovecote:env:read",
   });
   expect(auditEntry.ts).toBeTypeOf("number");
 });

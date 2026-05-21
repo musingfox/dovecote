@@ -22,7 +22,7 @@ function captureHandler(env: Env): (args: any) => Promise<any> {
       capturedHandler = handler;
     }),
   };
-  const auth: AuthCtx = { userId: "user-1", scopes: ["dovecote:notify"] };
+  const auth: AuthCtx = { userId: "user-1", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
   registerSendNotificationTool(mockServer as any, env, auth, ctx);
   if (!capturedHandler) throw new Error("handler was not captured");
@@ -110,7 +110,7 @@ function buildNoScopeHandler(auth: AuthCtx): (args: any) => Promise<any> {
 }
 
 test("C1: send_notification forbidden (user-A, scopes=[], discord-test) → isError + audit", async () => {
-  const auth: AuthCtx = { userId: "user-A", scopes: [] };
+  const auth: AuthCtx = { userId: "user-A", scopes: [], authMethod: "oauth", ip: "unknown" };
   const consoleLogSpy = spyOn(console, "log");
 
   const handler = buildNoScopeHandler(auth);
@@ -134,7 +134,7 @@ test("C1: send_notification forbidden (user-A, scopes=[], discord-test) → isEr
 });
 
 test("C1: send_notification forbidden (user-B, scopes=[dovecote:env:read], telegram-test) → isError + audit", async () => {
-  const auth: AuthCtx = { userId: "user-B", scopes: ["dovecote:env:read"] };
+  const auth: AuthCtx = { userId: "user-B", scopes: ["dovecote:env:read"], authMethod: "oauth", ip: "unknown" };
   const consoleLogSpy = spyOn(console, "log");
 
   const handler = buildNoScopeHandler(auth);
@@ -162,7 +162,7 @@ test("C1: send_notification forbidden (user-B, scopes=[dovecote:env:read], teleg
 // ============================================================
 
 test("C7: send_notification forbidden with >256 char channel → audit channel clamped to 256", async () => {
-  const auth: AuthCtx = { userId: "user-C7", scopes: [] };
+  const auth: AuthCtx = { userId: "user-C7", scopes: [], authMethod: "oauth", ip: "unknown" };
   const consoleLogSpy = spyOn(console, "log");
 
   const handler = buildNoScopeHandler(auth);
@@ -196,7 +196,7 @@ test("C2: send_notification scope-pass, unknown channel → isError but no notif
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
   };
-  const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"] };
+  const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
 
   const consoleLogSpy = spyOn(console, "log");
@@ -238,7 +238,7 @@ test("C2: send_notification scope-pass with stub channel → success, no notify.
     COOKIE_ENCRYPTION_KEY: "test",
     DISCORD_INSTANCES: JSON.stringify([{ id: "stub", webhookUrl }]),
   };
-  const auth: AuthCtx = { userId: "user-stub", scopes: ["dovecote:notify"] };
+  const auth: AuthCtx = { userId: "user-stub", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
 
   // Mock fetch to return a Discord-like success response

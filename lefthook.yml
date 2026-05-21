@@ -9,3 +9,10 @@ pre-commit:
           echo "Empty props:{} found in src/auth/** — populate with {userId, scopes}"
           exit 1
         fi
+    no-audit-string-concat:
+      glob: "src/**/*.ts"
+      run: |
+        if rg -n 'writeAudit\([^)]*\+\s*[a-zA-Z_"`'\'']' {staged_files} ; then
+          echo "String concatenation inside writeAudit payload — pass raw fields; writeAudit sanitizes."
+          exit 1
+        fi

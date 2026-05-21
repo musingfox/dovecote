@@ -1,4 +1,4 @@
-import { MiddlewareHandler } from "hono";
+import type { MiddlewareHandler } from "hono";
 import type { Env } from "../types.js";
 
 export const bearerMiddleware: MiddlewareHandler<{ Bindings: Env }> = async (c) => {

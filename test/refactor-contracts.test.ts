@@ -10,7 +10,7 @@ test("Contract B: GET /health returns 200 with status and timestamp", async () =
   const req = new Request("http://localhost/health");
   const res = await app.fetch(req, mockEnv, mockCtx);
   expect(res.status).toBe(200);
-  const body = await res.json();
+  const body = (await res.json()) as any;
   expect(body.status).toBe("ok");
   expect(typeof body.timestamp).toBe("string");
   expect(new Date(body.timestamp).getTime()).not.toBeNaN();
@@ -20,7 +20,8 @@ test("Contract D: /v1/* returns 401 fail-closed", async () => {
   const req1 = new Request("http://localhost/v1/foo");
   const res1 = await app.fetch(req1, mockEnv, mockCtx);
   expect(res1.status).toBe(401);
-  expect(await res1.json()).toEqual({
+  const body1 = (await res1.json()) as any;
+  expect(body1).toEqual({
     error: "unauthorized",
     error_description: "bearer middleware not yet implemented",
   });
@@ -30,7 +31,8 @@ test("Contract D: /v1/* returns 401 fail-closed", async () => {
   });
   const res2 = await app.fetch(req2, mockEnv, mockCtx);
   expect(res2.status).toBe(401);
-  expect(await res2.json()).toEqual({
+  const body2 = (await res2.json()) as any;
+  expect(body2).toEqual({
     error: "unauthorized",
     error_description: "bearer middleware not yet implemented",
   });
