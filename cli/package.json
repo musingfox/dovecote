@@ -1,0 +1,17 @@
+{
+  "name": "@dovecote/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "dovecote": "./dist/cli.js"
+  },
+  "scripts": {
+    "test": "bun test",
+    "build": "bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/dovecote",
+    "typecheck": "tsc --noEmit"
+  },
+  "overrides": {
+    "zod": "3.25.76"
+  }
+}

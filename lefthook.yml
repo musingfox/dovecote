@@ -16,3 +16,10 @@ pre-commit:
           echo "String concatenation inside writeAudit payload — pass raw fields; writeAudit sanitizes."
           exit 1
         fi
+    no-bun-api-in-src:
+      glob: "src/**/*.ts"
+      run: |
+        if rg -n '\bBun\.' {staged_files} ; then
+          echo "Bun.* API found in src/** — worker module must stay portable; move Bun-specific code to cli/ or scripts/."
+          exit 1
+        fi

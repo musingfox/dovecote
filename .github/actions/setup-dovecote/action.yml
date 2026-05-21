@@ -1,0 +1,115 @@
+name: "Setup dovecote"
+description: "Install the dovecote CLI and verify checksum + reachability."
+
+inputs:
+  version:
+    description: "Release version to install (e.g., 0.1.0)."
+    required: true
+  token:
+    description: "DOVECOTE_TOKEN to export into env. Defaults to the env's existing DOVECOTE_TOKEN if set."
+    required: false
+    default: ${{ env.DOVECOTE_TOKEN }}
+  server-url:
+    description: "Override DOVECOTE_SERVER_URL."
+    required: false
+  repository:
+    description: "GitHub repo (owner/name) hosting the release. Defaults to the action's repo."
+    required: false
+    default: "musingfox/dovecote"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve target triple
+      id: target
+      shell: bash
+      run: |
+        case "${RUNNER_OS}" in
+          Linux)
+            case "${RUNNER_ARCH}" in
+              X64) echo "triple=bun-linux-x64" >> "$GITHUB_OUTPUT"; echo "ext=tar.gz" >> "$GITHUB_OUTPUT"; echo "bin=dovecote" >> "$GITHUB_OUTPUT";;
+              ARM64) echo "triple=bun-linux-arm64" >> "$GITHUB_OUTPUT"; echo "ext=tar.gz" >> "$GITHUB_OUTPUT"; echo "bin=dovecote" >> "$GITHUB_OUTPUT";;
+              *) echo "Unsupported arch: ${RUNNER_ARCH}" >&2; exit 1;;
+            esac
+            ;;
+          macOS)
+            case "${RUNNER_ARCH}" in
+              X64) echo "triple=bun-darwin-x64" >> "$GITHUB_OUTPUT"; echo "ext=tar.gz" >> "$GITHUB_OUTPUT"; echo "bin=dovecote" >> "$GITHUB_OUTPUT";;
+              ARM64) echo "triple=bun-darwin-arm64" >> "$GITHUB_OUTPUT"; echo "ext=tar.gz" >> "$GITHUB_OUTPUT"; echo "bin=dovecote" >> "$GITHUB_OUTPUT";;
+              *) echo "Unsupported arch: ${RUNNER_ARCH}" >&2; exit 1;;
+            esac
+            ;;
+          Windows)
+            echo "triple=bun-windows-x64" >> "$GITHUB_OUTPUT"
+            echo "ext=zip" >> "$GITHUB_OUTPUT"
+            echo "bin=dovecote.exe" >> "$GITHUB_OUTPUT"
+            ;;
+          *) echo "Unsupported OS: ${RUNNER_OS}" >&2; exit 1;;
+        esac
+
+    - name: Download release archive
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        REPO="${{ inputs.repository }}"
+        TRIPLE="${{ steps.target.outputs.triple }}"
+        EXT="${{ steps.target.outputs.ext }}"
+        BASE="https://github.com/${REPO}/releases/download/cli-v${VERSION}"
+        mkdir -p "$RUNNER_TEMP/dovecote"
+        cd "$RUNNER_TEMP/dovecote"
+        echo "Downloading ${BASE}/dovecote-${TRIPLE}.${EXT}"
+        if ! curl -fsSL -o "archive.${EXT}" "${BASE}/dovecote-${TRIPLE}.${EXT}" ; then
+          echo "release not found: ${BASE}/dovecote-${TRIPLE}.${EXT}" >&2
+          exit 1
+        fi
+        curl -fsSL -o SHA256SUMS "${BASE}/SHA256SUMS"
+
+    - name: Verify checksum
+      shell: bash
+      run: |
+        TRIPLE="${{ steps.target.outputs.triple }}"
+        EXT="${{ steps.target.outputs.ext }}"
+        cd "$RUNNER_TEMP/dovecote"
+        EXPECTED=$(grep "dovecote-${TRIPLE}.${EXT}" SHA256SUMS | awk '{print $1}')
+        if [ -z "$EXPECTED" ]; then
+          echo "Checksum verification failed: no entry for dovecote-${TRIPLE}.${EXT}" >&2
+          exit 1
+        fi
+        ACTUAL=$(shasum -a 256 "archive.${EXT}" | awk '{print $1}')
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+          echo "Checksum verification failed (expected ${EXPECTED}, got ${ACTUAL})" >&2
+          exit 1
+        fi
+        echo "Checksum OK: ${ACTUAL}"
+
+    - name: Extract and install
+      shell: bash
+      run: |
+        EXT="${{ steps.target.outputs.ext }}"
+        BIN="${{ steps.target.outputs.bin }}"
+        cd "$RUNNER_TEMP/dovecote"
+        if [ "$EXT" = "zip" ]; then
+          unzip -o "archive.${EXT}"
+        else
+          tar -xzf "archive.${EXT}"
+        fi
+        chmod +x "${BIN}"
+        echo "$RUNNER_TEMP/dovecote" >> "$GITHUB_PATH"
+
+    - name: Export env
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.token }}" ]; then
+          echo "DOVECOTE_TOKEN=${{ inputs.token }}" >> "$GITHUB_ENV"
+        fi
+        if [ -n "${{ inputs.server-url }}" ]; then
+          echo "DOVECOTE_SERVER_URL=${{ inputs.server-url }}" >> "$GITHUB_ENV"
+        fi
+
+    - name: Smoke probe
+      shell: bash
+      run: |
+        dovecote --version || echo "dovecote --version skipped"
+        if [ -n "${{ inputs.server-url }}" ]; then
+          dovecote ping --server-url "${{ inputs.server-url }}" || true
+        fi

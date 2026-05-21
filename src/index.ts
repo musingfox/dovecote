@@ -1,13 +1,20 @@
 import { Hono } from "hono";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import type { OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import apiApp from "./api.js";
 import authorizeApp from "./auth/authorize.js";
 import { SCOPES_SUPPORTED } from "./auth/scopes.js";
 import { bearerMiddleware } from "./auth/bearer.js";
 import { getHealthResponse } from "./version.js";
 import type { Env } from "./types.js";
+import {
+  createAuthExchangeApp,
+  makeDefaultOAuthUnwrapper,
+} from "./auth-exchange.js";
+import { issueToken } from "./auth/api-token.js";
+import { checkRateLimit } from "./auth/rate-limit.js";
 
-const oauthProvider = new OAuthProvider<Env>({
+const oauthOptions: OAuthProviderOptions<Env> = {
   apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
   apiRoute: "/mcp",
   defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) },
@@ -19,11 +26,22 @@ const oauthProvider = new OAuthProvider<Env>({
   refreshTokenTTL: 2592000,
   allowPlainPKCE: false,
   disallowPublicClientRegistration: true,
-});
+};
+
+const oauthProvider = new OAuthProvider<Env>(oauthOptions);
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/health", (c) => c.json(getHealthResponse()));
+
+// Carve-out: /v1/auth/exchange validates an OAuth bearer (not dvct_*),
+// so it must run BEFORE the /v1/* bearer middleware.
+const authExchangeApp = createAuthExchangeApp({
+  issueToken,
+  checkRateLimit,
+  unwrapOAuthToken: makeDefaultOAuthUnwrapper(oauthOptions),
+});
+app.route("/", authExchangeApp);
 
 app.use("/v1/*", bearerMiddleware);
 

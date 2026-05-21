@@ -27,4 +27,5 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
+  "exclude": ["cli", "node_modules", "dist-test"]
 }

@@ -22,6 +22,8 @@ import {
   tokenIssueRequestSchema,
   tokenIssueResponseSchema as _tokenIssueResponseSchema,
   tokenRevokeResponseSchema as _tokenRevokeResponseSchema,
+  tokenExchangeRequestSchema as _tokenExchangeRequestSchema,
+  tokenRenewRequestSchema as _tokenRenewRequestSchema,
 } from "../src/contracts/tokens.ts";
 import { errorEnvelopeSchema as _errorEnvelopeSchema } from "../src/contracts/errors.ts";
 import { healthResponseSchema as _healthResponseSchema } from "../src/contracts/health.ts";
@@ -66,6 +68,8 @@ const tokenIdPathSchema = z.string().min(1).openapi({
 });
 
 const tokenIssueRequestOpenapiSchema = tokenIssueRequestSchema.openapi("TokenIssueRequest");
+const tokenExchangeRequestOpenapiSchema = _tokenExchangeRequestSchema.openapi("TokenExchangeRequest");
+const tokenRenewRequestOpenapiSchema = _tokenRenewRequestSchema.openapi("TokenRenewRequest");
 
 const sendResultSchema = _sendResultSchema.openapi("SendResult");
 const channelConfigSchema = _channelConfigSchema.openapi("ChannelConfig");
@@ -174,6 +178,40 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "post",
+  path: "/v1/auth/exchange",
+  description:
+    "Exchange an OAuth bearer (with dovecote:admin scope) for a dvct_* runtime token.",
+  request: {
+    body: { content: { "application/json": { schema: tokenExchangeRequestOpenapiSchema } } },
+  },
+  responses: {
+    201: jsonOk(tokenIssueResponseSchema, "Token issued"),
+    ...writeValidationErrors,
+    ...commonAuthErrors,
+    ...adminRateLimitErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/v1/tokens/{tokenId}/renew",
+  description:
+    "Renew a dvct_* token. Self-renew (own tokenId) requires no admin scope; admin can renew any tokenId.",
+  request: {
+    params: z.object({ tokenId: tokenIdPathSchema }),
+    body: { content: { "application/json": { schema: tokenRenewRequestOpenapiSchema } } },
+  },
+  responses: {
+    201: jsonOk(tokenIssueResponseSchema, "Token renewed"),
+    ...writeValidationErrors,
+    ...commonAuthErrors,
+    ...notFoundError,
+    ...adminRateLimitErrors,
+  },
+});
+
+registry.registerPath({
   method: "get",
   path: "/health",
   description: "Public health probe — returns service status and minimum client version.",
@@ -199,6 +237,8 @@ const requiredPaths = [
   "/v1/env/{profile}",
   "/v1/tokens",
   "/v1/tokens/{tokenId}",
+  "/v1/tokens/{tokenId}/renew",
+  "/v1/auth/exchange",
   "/health",
 ];
 const emittedPaths = Object.keys(doc.paths ?? {});
@@ -217,6 +257,8 @@ const requiredSchemas = [
   "EnvReadResponse",
   "TokenIssueRequest",
   "TokenIssueResponse",
+  "TokenExchangeRequest",
+  "TokenRenewRequest",
   "RevokeResponse",
   "HealthResponse",
 ];

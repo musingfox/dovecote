@@ -9,14 +9,22 @@ import { readEnv as _readEnv } from "./services/env.js";
 import { ScopeError, NotFoundError, UpstreamError } from "./services/errors.js";
 import { messageContentSchema } from "./contracts/notifications.js";
 import { profileNameSchema } from "./contracts/env.js";
-import { tokenIssueRequestSchema } from "./contracts/tokens.js";
+import {
+  tokenIssueRequestSchema,
+  tokenRenewRequestSchema,
+  expiresInToSeconds,
+} from "./contracts/tokens.js";
 import {
   issueToken as _issueToken,
   revokeToken as _revokeToken,
+  getTokenMetadataByTokenId as _getTokenMetadataByTokenId,
+  deleteTokenEntries as _deleteTokenEntries,
   InvalidScopeError,
   MissingPepperError,
+  KVWriteError,
   type IssueResult,
   type RevokeResult,
+  type TokenMetadata as ApiTokenMetadata,
 } from "./auth/api-token.js";
 import { checkRateLimit as _checkRateLimit, type RateLimitResult } from "./auth/rate-limit.js";
 import { writeAudit } from "./auth/audit.js";
@@ -39,7 +47,7 @@ export type V1Services = {
     args: { profile: string }
   ) => Promise<string>;
   issueToken: (
-    params: { userId: string; scopes: string[]; label?: string },
+    params: { userId: string; scopes: string[]; label?: string; ttlSeconds?: number },
     env: Env
   ) => Promise<IssueResult>;
   revokeToken: (
@@ -51,6 +59,14 @@ export type V1Services = {
     ip: string,
     namespace: string
   ) => Promise<RateLimitResult>;
+  getTokenMetadataByTokenId?: (
+    tokenId: string,
+    env: Env
+  ) => Promise<ApiTokenMetadata | null>;
+  deleteTokenEntries?: (
+    meta: ApiTokenMetadata,
+    env: Env
+  ) => Promise<void>;
 };
 
 // Error mapping helper
@@ -237,8 +253,9 @@ export function createV1App(services: V1Services) {
     const body = parsed.data;
 
     try {
+      const ttlSeconds = body.expiresIn ? expiresInToSeconds(body.expiresIn) : undefined;
       const result = await services.issueToken(
-        { userId: body.userId, scopes: body.scopes, label: body.label },
+        { userId: body.userId, scopes: body.scopes, label: body.label, ttlSeconds },
         env
       );
       writeAudit(env, ctx, {
@@ -255,6 +272,7 @@ export function createV1App(services: V1Services) {
         {
           token: result.token,
           tokenId: result.tokenId,
+          userId: body.userId,
           scopes: body.scopes,
           expiresAt: result.expiresAt,
           ...(body.label ? { label: body.label } : {}),
@@ -297,6 +315,170 @@ export function createV1App(services: V1Services) {
         ok: false,
         reason: "internal_error",
         userId: body.userId,
+        authMethod: auth.authMethod,
+        ip,
+        scope,
+      });
+      return c.json(
+        { error: "internal_error", error_description: "internal error" },
+        500
+      );
+    }
+  });
+
+  // POST /v1/tokens/:tokenId/renew — self-renew or admin-rotate (C-Server-2)
+  v1.post("/tokens/:tokenId/renew", async (c) => {
+    const auth = c.get("auth");
+    const env = c.env;
+    const ctx = c.executionCtx as ExecutionContext;
+    const ip = auth.ip;
+    const scope = auth.scopes.join(" ");
+    const tokenId = c.req.param("tokenId");
+
+    // Authorization: self OR admin
+    const isSelf = auth.tokenId !== undefined && auth.tokenId === tokenId;
+    const isAdmin = auth.scopes.includes("dovecote:admin");
+    if (!isSelf && !isAdmin) {
+      writeAudit(env, ctx, {
+        event: "token.issue",
+        ok: false,
+        reason: "forbidden",
+        tokenId,
+        authMethod: auth.authMethod,
+        ip,
+        scope,
+      });
+      return c.json(
+        { error: "forbidden", error_description: "Cannot renew another token without dovecote:admin" },
+        403
+      );
+    }
+
+    // Rate limit
+    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "tokens");
+    if (!rl.allowed) {
+      writeAudit(env, ctx, {
+        event: "token.issue",
+        ok: false,
+        reason: "rate_limited",
+        tokenId,
+        authMethod: auth.authMethod,
+        ip,
+        scope,
+      });
+      return c.json(
+        { error: "rate_limited", error_description: "Too many requests" },
+        429,
+        { "Retry-After": "60" }
+      );
+    }
+
+    // Parse body (optional)
+    let rawBody: unknown = {};
+    try {
+      const text = await c.req.text();
+      if (text.length > 0) rawBody = JSON.parse(text);
+    } catch {
+      return c.json(
+        { error: "invalid_request", error_description: "Invalid JSON body" },
+        400
+      );
+    }
+    const parsed = tokenRenewRequestSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.message || "Invalid request";
+      return c.json({ error: "invalid_request", error_description: msg }, 400);
+    }
+    const body = parsed.data;
+
+    // Read old metadata
+    const getMeta =
+      services.getTokenMetadataByTokenId ?? _getTokenMetadataByTokenId;
+    const oldMeta = await getMeta(tokenId, env);
+    if (!oldMeta) {
+      writeAudit(env, ctx, {
+        event: "token.issue",
+        ok: false,
+        reason: "not_found",
+        tokenId,
+        authMethod: auth.authMethod,
+        ip,
+        scope,
+      });
+      return c.json(
+        { error: "not_found", error_description: "Token not found" },
+        404
+      );
+    }
+
+    try {
+      const ttlSeconds = body.expiresIn
+        ? expiresInToSeconds(body.expiresIn)
+        : undefined;
+      const result = await services.issueToken(
+        {
+          userId: oldMeta.userId,
+          scopes: oldMeta.scopes,
+          label: oldMeta.label,
+          ttlSeconds,
+        },
+        env
+      );
+
+      // RACE-SAFE ORDER: new keys persisted (inside issueToken) BEFORE deleting old.
+      const deleteFn = services.deleteTokenEntries ?? _deleteTokenEntries;
+      try {
+        await deleteFn(oldMeta, env);
+      } catch {
+        // Old-key delete failure does not break the response — new token is valid.
+      }
+
+      writeAudit(env, ctx, {
+        event: "token.issue",
+        ok: true,
+        userId: oldMeta.userId,
+        tokenId: result.tokenId,
+        scopes: oldMeta.scopes,
+        authMethod: auth.authMethod,
+        ip,
+        scope,
+      });
+
+      return c.json(
+        {
+          token: result.token,
+          tokenId: result.tokenId,
+          userId: oldMeta.userId,
+          scopes: oldMeta.scopes,
+          expiresAt: result.expiresAt,
+          ...(oldMeta.label ? { label: oldMeta.label } : {}),
+        },
+        201
+      );
+    } catch (err) {
+      if (err instanceof InvalidScopeError) {
+        return c.json(
+          { error: "invalid_request", error_description: err.message },
+          400
+        );
+      }
+      if (err instanceof MissingPepperError) {
+        return c.json(
+          { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
+          503
+        );
+      }
+      if (err instanceof KVWriteError) {
+        return c.json(
+          { error: "internal_error", error_description: "internal error" },
+          500
+        );
+      }
+      writeAudit(env, ctx, {
+        event: "token.issue",
+        ok: false,
+        reason: "internal_error",
+        tokenId,
         authMethod: auth.authMethod,
         ip,
         scope,
@@ -398,6 +580,8 @@ const v1 = createV1App({
   issueToken: _issueToken,
   revokeToken: _revokeToken,
   checkRateLimit: _checkRateLimit,
+  getTokenMetadataByTokenId: _getTokenMetadataByTokenId,
+  deleteTokenEntries: _deleteTokenEntries,
 });
 
 export default v1;

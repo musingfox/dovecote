@@ -329,6 +329,37 @@ export async function verifyToken(
 }
 
 /**
+ * Read a token's metadata by tokenId. Returns null if absent.
+ * Used by the renew handler to copy userId/scopes/label into the new token.
+ */
+export async function getTokenMetadataByTokenId(
+  tokenId: string,
+  env: Env
+): Promise<TokenMetadata | null> {
+  const kvKey = KV_NAMESPACE + tokenId;
+  const raw = await env.OAUTH_KV.get(kvKey, "json");
+  if (!raw) return null;
+  return raw as TokenMetadata;
+}
+
+/**
+ * Delete only the old token entries (apitoken:<id> + apitoken_hash:<hash>),
+ * given the previously fetched metadata. Caller is responsible for ordering
+ * (e.g., renew should persist new keys via issueToken BEFORE calling this).
+ */
+export async function deleteTokenEntries(
+  meta: TokenMetadata,
+  env: Env
+): Promise<void> {
+  try {
+    await env.OAUTH_KV.delete(KV_NAMESPACE + meta.tokenId);
+    await env.OAUTH_KV.delete(KV_HASH_NAMESPACE + meta.hash);
+  } catch (e) {
+    throw new KVWriteError(`Failed to delete old token: ${(e as Error).message}`);
+  }
+}
+
+/**
  * Revoke a token by tokenId.
  * 
  * @param params - Revocation parameters

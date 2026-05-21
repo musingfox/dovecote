@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { tokenMetadataSchema } from "../../src/contracts/tokens.js";
+import {
+  tokenMetadataSchema,
+  tokenIssueRequestSchema,
+  tokenIssueResponseSchema,
+  tokenExchangeRequestSchema,
+  tokenRenewRequestSchema,
+  expiresInToSeconds,
+} from "../../src/contracts/tokens.js";
 
 test("B1: tokenMetadataSchema describes a stored API token record", () => {
   // Valid: minimal token record
@@ -69,6 +76,72 @@ test("B1: tokenMetadataSchema describes a stored API token record", () => {
     expiresAt: 2,
   });
   expect(result7.success).toBe(true);
+});
+
+test("C-Server-3: tokenIssueRequestSchema accepts optional expiresIn enum", () => {
+  // No expiresIn → ok, undefined
+  const r1 = tokenIssueRequestSchema.safeParse({
+    userId: "op",
+    scopes: ["dovecote:notify"],
+  });
+  expect(r1.success).toBe(true);
+  if (r1.success) expect(r1.data.expiresIn).toBeUndefined();
+
+  // Valid expiresIn=7d
+  const r2 = tokenIssueRequestSchema.safeParse({
+    userId: "op",
+    scopes: ["dovecote:notify"],
+    expiresIn: "7d",
+  });
+  expect(r2.success).toBe(true);
+  if (r2.success) expect(r2.data.expiresIn).toBe("7d");
+
+  // Invalid value
+  const r3 = tokenIssueRequestSchema.safeParse({
+    userId: "op",
+    scopes: ["dovecote:notify"],
+    expiresIn: "30days",
+  });
+  expect(r3.success).toBe(false);
+});
+
+test("C-Server-3: expiresInToSeconds maps each enum value", () => {
+  expect(expiresInToSeconds("7d")).toBe(604_800);
+  expect(expiresInToSeconds("30d")).toBe(2_592_000);
+  expect(expiresInToSeconds("60d")).toBe(5_184_000);
+  expect(expiresInToSeconds("90d")).toBe(7_776_000);
+});
+
+test("C-Server-3: tokenExchangeRequestSchema and tokenRenewRequestSchema accept empty", () => {
+  expect(tokenExchangeRequestSchema.safeParse({}).success).toBe(true);
+  expect(tokenRenewRequestSchema.safeParse({}).success).toBe(true);
+  expect(
+    tokenExchangeRequestSchema.safeParse({ expiresIn: "90d", label: "x" }).success
+  ).toBe(true);
+  expect(
+    tokenRenewRequestSchema.safeParse({ expiresIn: "bogus" }).success
+  ).toBe(false);
+});
+
+test("Fix #1: tokenIssueResponseSchema requires userId", () => {
+  const ok = tokenIssueResponseSchema.safeParse({
+    token: "dvct_x",
+    tokenId: "t_1",
+    userId: "operator",
+    scopes: ["dovecote:notify"],
+    expiresAt: 1_700_000_000_000,
+  });
+  expect(ok.success).toBe(true);
+  if (ok.success) expect(ok.data.userId).toBe("operator");
+
+  // Missing userId → fails
+  const missing = tokenIssueResponseSchema.safeParse({
+    token: "dvct_x",
+    tokenId: "t_1",
+    scopes: ["dovecote:notify"],
+    expiresAt: 1_700_000_000_000,
+  });
+  expect(missing.success).toBe(false);
 });
 
 test("B1: TokenMetadata type is exported", () => {

@@ -231,6 +231,9 @@
           "tokenId": {
             "type": "string"
           },
+          "userId": {
+            "type": "string"
+          },
           "scopes": {
             "type": "array",
             "items": {
@@ -247,6 +250,7 @@
         "required": [
           "token",
           "tokenId",
+          "userId",
           "scopes",
           "expiresAt"
         ]
@@ -268,6 +272,15 @@
           "label": {
             "type": "string",
             "maxLength": 64
+          },
+          "expiresIn": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "60d",
+              "90d"
+            ]
           }
         },
         "required": [
@@ -293,6 +306,38 @@
           "tokenId",
           "notice"
         ]
+      },
+      "TokenExchangeRequest": {
+        "type": "object",
+        "properties": {
+          "expiresIn": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "60d",
+              "90d"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "TokenRenewRequest": {
+        "type": "object",
+        "properties": {
+          "expiresIn": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "60d",
+              "90d"
+            ]
+          }
+        }
       },
       "HealthResponse": {
         "type": "object",
@@ -608,6 +653,200 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RevokeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Authorization header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope for this resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — Retry-After header indicates retry window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Admin token revocation pressure circuit open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/exchange": {
+      "post": {
+        "description": "Exchange an OAuth bearer (with dovecote:admin scope) for a dvct_* runtime token.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body failed zod validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Authorization header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope for this resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — Retry-After header indicates retry window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Admin token revocation pressure circuit open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tokens/{tokenId}/renew": {
+      "post": {
+        "description": "Renew a dvct_* token. Self-renew (own tokenId) requires no admin scope; admin can renew any tokenId.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "tkn_01HZ..."
+            },
+            "required": true,
+            "name": "tokenId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRenewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token renewed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body failed zod validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
             }

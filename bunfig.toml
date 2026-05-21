@@ -1,6 +1,6 @@
 [test]
 preload = ["./test/preload.ts"]
-pathIgnorePatterns = ["test/e2e/**", "test/integration/**"]
+pathIgnorePatterns = ["test/e2e/**", "test/integration/**", "cli/**"]
 # Coverage thresholds are NOT enforced here — Bun 1.3.13 silently ignores
 # `coverageThreshold`. Single source of truth: scripts/check-coverage.mjs
 # (line 0.85 / function 0.75, parses lcov.info).

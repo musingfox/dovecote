@@ -141,6 +141,36 @@ When adding a connector on Claude.ai, fill in the MCP endpoint URL **including t
    bun test:e2e:remote
    ```
 
+## CLI
+
+The dovecote CLI ships as a standalone binary for 5 platforms; releases are tagged `cli-v<semver>` and published as GitHub Releases with a `SHA256SUMS` sidecar.
+
+### Install in a GitHub Actions workflow
+
+```yaml
+- uses: musingfox/dovecote/.github/actions/setup-dovecote@v1
+  with:
+    version: 0.1.0
+    server-url: https://dovecote.your-subdomain.workers.dev
+  env:
+    DOVECOTE_TOKEN: ${{ secrets.DOVECOTE_TOKEN }}
+
+- run: dovecote notify ops --text "deploy complete"
+```
+
+### Local install
+
+Download the archive for your platform from the [latest release](https://github.com/musingfox/dovecote/releases), verify the SHA256, extract, and place the binary on your `PATH`. Then run:
+
+```bash
+export DOVECOTE_CLIENT_ID=<id from POST /admin/bootstrap-client>
+dovecote auth login --server-url https://dovecote.your-subdomain.workers.dev
+dovecote ping
+dovecote notify ops --text "hello from cli"
+```
+
+The runtime token is stored under `$XDG_CONFIG_HOME/dovecote/config.json` (mode 0600). The CLI auto-renews tokens that have <14 days remaining on every request.
+
 ## Testing
 
 ### Local E2E Tests

@@ -126,6 +126,7 @@ test("C2.5.a - POST /v1/tokens success with admin scope returns 201 + token + au
   const body = (await res.json()) as any;
   expect(body.token).toMatch(/^dvct_/);
   expect(body.tokenId).toBe("tid_xyz");
+  expect(body.userId).toBe("u1");
   expect(body.scopes).toEqual(["dovecote:notify"]);
   expect(body.expiresAt).toBe(1_700_000_000_000);
   expect(body.label).toBe("ci");

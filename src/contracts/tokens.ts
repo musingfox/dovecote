@@ -11,16 +11,51 @@ export const tokenMetadataSchema = z.object({
 export type TokenMetadata = z.infer<typeof tokenMetadataSchema>;
 
 // PR-E: POST /v1/tokens request body (C2.5.a)
+// Phase 3.x: extended with optional expiresIn enum (C-Server-3).
+export const expiresInSchema = z.enum(["7d", "30d", "60d", "90d"]);
+export type ExpiresIn = z.infer<typeof expiresInSchema>;
+
 export const tokenIssueRequestSchema = z.object({
   userId: z.string().min(1),
   scopes: z.array(z.string()).min(1),
   label: z.string().max(64).optional(),
+  expiresIn: expiresInSchema.optional(),
 });
 export type TokenIssueRequest = z.infer<typeof tokenIssueRequestSchema>;
+
+// POST /v1/auth/exchange request body — both fields optional.
+export const tokenExchangeRequestSchema = z.object({
+  expiresIn: expiresInSchema.optional(),
+  label: z.string().max(64).optional(),
+});
+export type TokenExchangeRequest = z.infer<typeof tokenExchangeRequestSchema>;
+
+// POST /v1/tokens/:id/renew request body.
+export const tokenRenewRequestSchema = z.object({
+  expiresIn: expiresInSchema.optional(),
+});
+export type TokenRenewRequest = z.infer<typeof tokenRenewRequestSchema>;
+
+/**
+ * Map an expiresIn enum value to TTL seconds.
+ */
+export function expiresInToSeconds(value: ExpiresIn): number {
+  switch (value) {
+    case "7d":
+      return 604_800;
+    case "30d":
+      return 2_592_000;
+    case "60d":
+      return 5_184_000;
+    case "90d":
+      return 7_776_000;
+  }
+}
 
 export const tokenIssueResponseSchema = z.object({
   token: z.string(),
   tokenId: z.string(),
+  userId: z.string(),
   scopes: z.array(z.string()),
   expiresAt: z.number(),
   label: z.string().optional(),
