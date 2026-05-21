@@ -7,23 +7,10 @@ const mockEnv: Env = {
   OAUTH_KV: {} as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  HMAC_PEPPER: "test-pepper",
   TELEGRAM_INSTANCES: undefined,
   DISCORD_INSTANCES: undefined,
 };
-
-test("GET /health returns 200 with status ok", async () => {
-  const req = new Request("https://example.com/health");
-  const ctx = createMockExecutionCtx(null);
-  const res = await apiApp.fetch(req, mockEnv, ctx as any);
-
-  expect(res.status).toBe(200);
-
-  const json = await res.json() as { status: string; timestamp: string };
-  expect(json.status).toBe("ok");
-  expect(json.timestamp).toBeTruthy();
-  // Verify timestamp is ISO8601 format
-  expect(() => new Date(json.timestamp)).not.toThrow();
-});
 
 test("POST /mcp with MCP initialize returns 200", async () => {
   const initializeRequest = {

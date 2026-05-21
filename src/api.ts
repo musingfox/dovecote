@@ -18,14 +18,6 @@ app.use(
   })
 );
 
-// Health endpoint
-app.get("/health", (c) => {
-  return c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  });
-});
-
 // MCP transport endpoint - stateless mode
 app.post("/mcp", async (c) => {
   // Extract auth from ExecutionContext (fail-closed)

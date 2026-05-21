@@ -4,6 +4,7 @@ import apiApp from "./api.js";
 import authorizeApp from "./auth/authorize.js";
 import { SCOPES_SUPPORTED } from "./auth/scopes.js";
 import { bearerMiddleware } from "./auth/bearer.js";
+import { getHealthResponse } from "./version.js";
 import type { Env } from "./types.js";
 
 const oauthProvider = new OAuthProvider<Env>({
@@ -22,14 +23,12 @@ const oauthProvider = new OAuthProvider<Env>({
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.get("/health", (c) =>
-  c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  }),
-);
+app.get("/health", (c) => c.json(getHealthResponse()));
 
 app.use("/v1/*", bearerMiddleware);
+
+import v1App from "./api-v1.js";
+app.route("/v1", v1App);
 
 const oauthPaths = [
   "/mcp",
