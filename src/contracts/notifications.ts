@@ -38,3 +38,32 @@ export const messageContentSchema = z.object({
 
 export type DiscordEmbed = z.infer<typeof discordEmbedSchema>;
 export type MessageContent = z.infer<typeof messageContentSchema>;
+
+export const notifyRequestSchema = z.object({
+  channel: z.string(),
+  content: messageContentSchema,
+});
+export type NotifyRequest = z.infer<typeof notifyRequestSchema>;
+
+export const sendResultSchema = z.object({
+  success: z.boolean(),
+  channel: z.string(),
+  messageId: z.string().optional(),
+  detail: z.object({
+    text: z.string().optional(),
+    chatId: z.string().optional(),
+  }).optional(),
+  error: z.string().optional(),
+});
+export type SendResultContract = z.infer<typeof sendResultSchema>;
+
+export const channelConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  enabled: z.boolean(),
+  service: z.string(),
+});
+export const channelsListResponseSchema = z.object({
+  channels: z.array(channelConfigSchema),
+});
+export type ChannelsListResponse = z.infer<typeof channelsListResponseSchema>;
