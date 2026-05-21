@@ -9,6 +9,7 @@ const mockEnv: Env = {
   OAUTH_KV: new MockKV() as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+  HMAC_PEPPER: "test-pepper",
   TELEGRAM_INSTANCES: undefined,
   DISCORD_INSTANCES: undefined,
   ADMIN_REVOKE_TOKEN: "admin-token-123",

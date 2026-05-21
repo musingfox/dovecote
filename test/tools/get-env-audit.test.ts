@@ -13,6 +13,7 @@ test("get_env with valid scope logs env.read audit event with ok:true", async ()
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const auth: AuthCtx = {
@@ -71,6 +72,7 @@ test("get_env without scope logs env.read audit event with ok:false", async () =
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const auth: AuthCtx = {
@@ -125,6 +127,7 @@ test("get_env for nonexistent profile logs env.read audit event with ok:false", 
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const auth: AuthCtx = {

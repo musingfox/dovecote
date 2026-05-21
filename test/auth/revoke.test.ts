@@ -46,6 +46,7 @@ test("admin revoke: success with valid token and grantId", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -103,6 +104,7 @@ test("admin revoke: wrong token returns 401", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -152,6 +154,7 @@ test("admin revoke: missing Authorization header returns 401", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -192,6 +195,7 @@ test("admin revoke: malformed Authorization (Basic xxx) returns 401", async () =
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -233,6 +237,7 @@ test("admin revoke: token unset returns 503", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     // ADMIN_REVOKE_TOKEN not set
     OAUTH_PROVIDER: mockProvider,
   };
@@ -281,6 +286,7 @@ test("admin revoke: rate limited after 5 requests returns 429", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -349,6 +355,7 @@ test("admin revoke: invalid body (regex) returns 400", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -390,6 +397,7 @@ test("admin revoke: invalid JSON returns 400", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -431,6 +439,7 @@ test("admin revoke: missing grantId field returns 400", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -474,6 +483,7 @@ test("admin revoke: provider error returns 500", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -527,6 +537,7 @@ test("admin revoke: IP fallback to 'unknown' when CF-Connecting-IP missing", asy
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };
@@ -572,6 +583,7 @@ test("admin revoke: GET request returns 404", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test-pass",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
   };

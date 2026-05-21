@@ -8,6 +8,7 @@ const mockEnv: Env = {
   OAUTH_KV: {} as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  HMAC_PEPPER: "test-pepper",
 };
 
 describe("MCP Server Factory", () => {

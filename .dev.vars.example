@@ -11,6 +11,9 @@ OAUTH_ADMIN_PASSWORD=
 # Cookie encryption key (generate with: openssl rand -base64 32)
 COOKIE_ENCRYPTION_KEY=
 
+# HMAC pepper for API token hashing (generate with: openssl rand -base64 32)
+HMAC_PEPPER=your-32-character-hmac-pepper-here
+
 # Telegram Instances (JSON array)
 # Each instance must have: id (lowercase alphanumeric with dashes), botToken, chatId
 TELEGRAM_INSTANCES=[{"id":"default","botToken":"123456789:ABCdefGHIjklMNOpqrsTUVwxyz","chatId":"123456789"}]

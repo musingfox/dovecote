@@ -11,6 +11,7 @@ test("get_env forbidden when missing dovecote:env:read scope", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = {
     userId: "user-123",
@@ -53,6 +54,7 @@ test("get_env forbidden for anonymous user", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = {
     userId: "anonymous",
@@ -95,6 +97,7 @@ test("get_env returns value when profile exists", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = {
     userId: "user-456",
@@ -138,6 +141,7 @@ test("get_env returns not found when profile does not exist", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = {
     userId: "user-789",
@@ -181,6 +185,7 @@ test("get_env returns empty string when profile is empty", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = {
     userId: "user-empty",
@@ -221,6 +226,7 @@ test("get_env schema rejects profile names that could cross KV prefix boundaries
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = { userId: "u", scopes: ["dovecote:env:read"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;

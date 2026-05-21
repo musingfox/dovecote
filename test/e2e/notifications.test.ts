@@ -10,6 +10,7 @@ const oauthDefaults = {
   OAUTH_KV: new MockKV() as any,
   OAUTH_PASSWORD: "test-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
+  HMAC_PEPPER: "test-pepper",
   ADMIN_REVOKE_TOKEN: "admin-test-token",
   ENABLE_CLIENT_BOOTSTRAP: "1",
 };

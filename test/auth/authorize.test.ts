@@ -51,6 +51,7 @@ const mockEnv: AuthEnv = {
   OAUTH_PASSWORD: "correct-password",
   OAUTH_ADMIN_PASSWORD: "admin-password",
   COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+  HMAC_PEPPER: "test-pepper",
   OAUTH_PROVIDER: mockOAuthProvider,
   TELEGRAM_INSTANCES: undefined,
   DISCORD_INSTANCES: undefined,

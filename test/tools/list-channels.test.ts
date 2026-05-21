@@ -11,6 +11,7 @@ function buildEnvWithChannels(): Env {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([
       { id: "main", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
     ]),
@@ -82,6 +83,7 @@ test("list_channels: empty env returns empty array", async () => {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const handler = captureHandler(env);
 
@@ -102,6 +104,7 @@ test("C3: list_channels forbidden (user-C, scopes=[]) → isError, no notify.* a
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
     TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "bot:token", chatId: "123" }]),
   };
@@ -143,6 +146,7 @@ test("C4: list_channels scope-pass with discord stub → isError undefined, leng
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
   };
   const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };

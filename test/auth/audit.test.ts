@@ -11,6 +11,7 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
     OAUTH_KV: mockKV as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const ctx = {
@@ -86,6 +87,7 @@ test("writeAudit failure tolerance - KV.put rejects", async () => {
     OAUTH_KV: mockKV as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const ctx = {
@@ -126,6 +128,7 @@ test("writeAudit sanitizes free-text fields (reason with newline)", async () => 
     OAUTH_KV: mockKV as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const ctx = {
@@ -171,6 +174,7 @@ test("writeAudit sanitizes reason with ANSI escape codes", async () => {
     OAUTH_KV: mockKV as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const ctx = {
@@ -215,6 +219,7 @@ test("writeAudit sanitizes channel field with newline", async () => {
     OAUTH_KV: mockKV as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const ctx = {
@@ -258,6 +263,7 @@ test("writeAudit does not sanitize userId (structured field, not free-text)", as
     OAUTH_KV: mockKV as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
+    HMAC_PEPPER: "test-pepper",
   };
 
   const ctx = {

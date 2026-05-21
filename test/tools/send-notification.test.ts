@@ -11,6 +11,7 @@ function buildEnvWithDiscord(webhookUrl: string): Env {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([{ id: "main", webhookUrl }]),
   };
 }
@@ -96,6 +97,7 @@ function buildNoScopeHandler(auth: AuthCtx): (args: any) => Promise<any> {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const ctx = createMockExecutionCtx(auth) as any;
   let capturedHandler: any = null;
@@ -195,6 +197,7 @@ test("C2: send_notification scope-pass, unknown channel → isError but no notif
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
@@ -236,6 +239,7 @@ test("C2: send_notification scope-pass with stub channel → success, no notify.
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
     COOKIE_ENCRYPTION_KEY: "test",
+    HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([{ id: "stub", webhookUrl }]),
   };
   const auth: AuthCtx = { userId: "user-stub", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
