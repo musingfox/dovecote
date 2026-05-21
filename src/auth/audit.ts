@@ -23,12 +23,14 @@ export type AuditEvent =
   | (AuditCommon & { event: "admin.bootstrap"; clientName: string; tokenId?: string })
   // Send notification
   | (AuditCommon & { event: "notify.send"; userId: string; channel: string })
-  // Issue a new API token (NEW)
-  | (AuditCommon & { event: "token.issue"; userId: string; tokenId: string; scopes: string[] })
-  // Revoke an API token (NEW)
-  | (AuditCommon & { event: "token.revoke"; tokenId: string })
-  // Use an API token on a route (NEW)
-  | (AuditCommon & { event: "token.use"; tokenId: string; route: string });
+  // Issue a new API token (NEW) — userId/tokenId/scopes optional on failure paths
+  // (e.g., 403 before reading body, 429 before issuing) per PR-E
+  | (AuditCommon & { event: "token.issue"; userId?: string; tokenId?: string; scopes?: string[] })
+  // Revoke an API token (NEW) — tokenId optional on failure paths per PR-E
+  | (AuditCommon & { event: "token.revoke"; tokenId?: string })
+  // Use an API token on a route (NEW). On failure branches the tokenId/route may be absent
+  // because the request is rejected before identification (missing header, malformed bearer).
+  | (AuditCommon & { event: "token.use"; route?: string; userId?: string });
 
 /**
  * Common fields on all audit event variants

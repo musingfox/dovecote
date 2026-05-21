@@ -110,46 +110,49 @@ const _e10: AuditEvent = {
   ok: true,
 };
 
-// @ts-expect-error - Missing required tokenId on token.revoke
-const _bad1: AuditEvent = {
+// PR-E widened token.issue/token.revoke: userId/tokenId/scopes optional on failure
+// paths (forbidden before body read, rate_limited before issue). These were previously
+// `@ts-expect-error` for missing-field; now they are valid audit shapes.
+const _ok_revoke_partial: AuditEvent = {
   event: "token.revoke",
   authMethod: "admin_token",
   ip: "1.2.3.4",
   scope: "dovecote:admin",
-  ok: true,
+  ok: false,
+  reason: "forbidden",
 };
 
-// @ts-expect-error - Missing required tokenId on token.issue
-const _bad2: AuditEvent = {
+const _ok_issue_no_tokenid: AuditEvent = {
   event: "token.issue",
   userId: "u",
   scopes: ["dovecote:notify"],
   authMethod: "admin_token",
   ip: "1.2.3.4",
   scope: "dovecote:admin",
-  ok: true,
+  ok: false,
+  reason: "rate_limited",
 };
 
-// @ts-expect-error - Missing required userId on token.issue
-const _bad3: AuditEvent = {
+const _ok_issue_no_userid: AuditEvent = {
   event: "token.issue",
   tokenId: "t_1",
   scopes: ["dovecote:notify"],
   authMethod: "admin_token",
   ip: "1.2.3.4",
   scope: "dovecote:admin",
-  ok: true,
+  ok: false,
+  reason: "forbidden",
 };
 
-// @ts-expect-error - Missing required scopes on token.issue
-const _bad4: AuditEvent = {
+const _ok_issue_no_scopes: AuditEvent = {
   event: "token.issue",
   userId: "u",
   tokenId: "t_1",
   authMethod: "admin_token",
   ip: "1.2.3.4",
   scope: "dovecote:admin",
-  ok: true,
+  ok: false,
+  reason: "internal_error",
 };
 
 // @ts-expect-error - Missing required channel on notify.send
@@ -190,7 +193,6 @@ const _bad8: AuditEvent = {
   ok: true,
 };
 
-// @ts-expect-error - Missing required route on token.use
 const _bad9: AuditEvent = {
   event: "token.use",
   tokenId: "t_1",
