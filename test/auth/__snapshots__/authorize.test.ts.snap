@@ -53,6 +53,7 @@ exports[`GET /authorize HTML snapshot for dovecote:notify: dovecote:notify 1`] =
       font-weight: 500;
       color: #333;
     }
+    input[type="text"],
     input[type="password"] {
       width: 100%;
       padding: 10px;
@@ -101,8 +102,11 @@ exports[`GET /authorize HTML snapshot for dovecote:notify: dovecote:notify 1`] =
       <input type="hidden" name="code_challenge_method" value="S256">
       
 
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required autofocus autocomplete="username">
+
       <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required autofocus>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
 
       <button type="submit">Authorize</button>
     </form>
@@ -164,6 +168,7 @@ exports[`GET /authorize HTML snapshot for dovecote:env:read: dovecote:env:read 1
       font-weight: 500;
       color: #333;
     }
+    input[type="text"],
     input[type="password"] {
       width: 100%;
       padding: 10px;
@@ -212,8 +217,11 @@ exports[`GET /authorize HTML snapshot for dovecote:env:read: dovecote:env:read 1
       <input type="hidden" name="code_challenge_method" value="S256">
       
 
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required autofocus autocomplete="username">
+
       <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required autofocus>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
 
       <button type="submit">Authorize</button>
     </form>
@@ -275,6 +283,7 @@ exports[`GET /authorize HTML snapshot for both scopes: both-scopes 1`] = `
       font-weight: 500;
       color: #333;
     }
+    input[type="text"],
     input[type="password"] {
       width: 100%;
       padding: 10px;
@@ -327,8 +336,11 @@ exports[`GET /authorize HTML snapshot for both scopes: both-scopes 1`] = `
       <input type="hidden" name="code_challenge_method" value="S256">
       
 
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required autofocus autocomplete="username">
+
       <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required autofocus>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
 
       <button type="submit">Authorize</button>
     </form>

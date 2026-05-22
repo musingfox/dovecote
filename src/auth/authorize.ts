@@ -8,6 +8,7 @@ import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
+import { resolveUserId } from "./resolve-user.js";
 
 // Extend Env to include the OAUTH_PROVIDER helper
 interface AuthEnv extends Env {
@@ -81,23 +82,40 @@ app.post("/authorize", async (c) => {
   }
 
   const formData = await c.req.formData();
+  const username = formData.get("username");
   const password = formData.get("password");
 
-  const requestedScopes: string[] = (formData.get("scope") as string)?.split(" ") || [];
-  const isAdminRequest = requestedScopes.includes("dovecote:admin");
+  if (typeof username !== "string" || username.length === 0) {
+    return c.text("Forbidden: Invalid credentials", 403);
+  }
+  if (typeof password !== "string") {
+    return c.text("Forbidden: Invalid credentials", 403);
+  }
 
-  if (isAdminRequest) {
-    if (!c.env.OAUTH_ADMIN_PASSWORD) {
-      console.error("OAUTH_ADMIN_PASSWORD not configured; admin authorization unavailable");
-      return c.json({ error: "admin authorization not configured" }, 503);
-    }
-    if (typeof password !== "string" || !timingSafeEqual(password, c.env.OAUTH_ADMIN_PASSWORD)) {
-      return c.text("Forbidden: Invalid password", 403);
-    }
-  } else {
-    if (typeof password !== "string" || !timingSafeEqual(password, c.env.OAUTH_PASSWORD)) {
-      return c.text("Forbidden: Invalid password", 403);
-    }
+  const requestedScopes: string[] = (formData.get("scope") as string)?.split(" ") || [];
+
+  // Resolve user via the seam (Contract H → Contract A)
+  const authed = await resolveUserId(
+    { kind: "form", username, password },
+    c.env,
+  );
+  if (!authed) {
+    return c.text("Forbidden: Invalid credentials", 403);
+  }
+
+  // Filter requested scopes to only supported ones AND only those granted to the user
+  const userScopeSet = new Set(authed.scopes);
+  const effectiveScopes = requestedScopes
+    .filter((s) => (SCOPES_SUPPORTED as readonly string[]).includes(s))
+    .filter((s) => userScopeSet.has(s));
+
+  // If the user requested any scope they don't have → reject
+  const requestedSupported = requestedScopes.filter((s) =>
+    (SCOPES_SUPPORTED as readonly string[]).includes(s),
+  );
+  const missingScopes = requestedSupported.filter((s) => !userScopeSet.has(s));
+  if (missingScopes.length > 0) {
+    return c.text("Forbidden: Insufficient scope", 403);
   }
 
   const authRequest: AuthRequest = {
@@ -117,19 +135,14 @@ app.post("/authorize", async (c) => {
   }
 
   try {
-    // Filter requested scopes to only supported ones
-    const effectiveScopes = (authRequest.scope ?? []).filter((s) =>
-      (SCOPES_SUPPORTED as readonly string[]).includes(s)
-    );
-
     // Complete authorization
     const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
       request: authRequest,
-      userId: "operator",
+      userId: authed.userId,
       scope: effectiveScopes,
-      metadata: { label: "operator" },
+      metadata: { label: authed.userId },
       props: {
-        userId: "operator",
+        userId: authed.userId,
         scopes: effectiveScopes,
         authMethod: "oauth",
         ip: c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown",
@@ -153,7 +166,7 @@ app.post("/authorize", async (c) => {
 
     writeAudit(c.env, ctx, {
       event: "authorize",
-      userId: "operator",
+      userId: authed.userId,
       ok: true,
       authMethod: "none",
       ip: c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown",
@@ -288,7 +301,7 @@ app.post("/admin/revoke", async (c) => {
     return c.json({ error: validation.error }, 400);
   }
 
-  const { grantId } = validation.data!;
+  const { grantId, userId } = validation.data!;
 
   // Shim ExecutionContext for revokeGrant and audit
   let ctx: ExecutionContext;
@@ -303,9 +316,9 @@ app.post("/admin/revoke", async (c) => {
     } as any;
   }
 
-  // C.5: Revoke grant via provider
+  // C.5: Revoke grant via provider (now per-user)
   try {
-    await c.env.OAUTH_PROVIDER.revokeGrant(grantId, "operator");
+    await c.env.OAUTH_PROVIDER.revokeGrant(grantId, userId);
   } catch (error) {
     writeAudit(c.env, ctx, {
       event: "admin.revoke",
@@ -605,6 +618,7 @@ function renderAuthorizationForm(authRequest: AuthRequest, csrfToken: string): s
       font-weight: 500;
       color: #333;
     }
+    input[type="text"],
     input[type="password"] {
       width: 100%;
       padding: 10px;
@@ -662,8 +676,11 @@ function renderAuthorizationForm(authRequest: AuthRequest, csrfToken: string): s
       ${authRequest.codeChallengeMethod ? `<input type="hidden" name="code_challenge_method" value="${escapeHtml(authRequest.codeChallengeMethod)}">` : ""}
       ${authRequest.resource ? `<input type="hidden" name="resource" value="${escapeHtml(typeof authRequest.resource === "string" ? authRequest.resource : authRequest.resource[0] ?? "")}">` : ""}
 
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required autofocus autocomplete="username">
+
       <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required autofocus>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
 
       <button type="submit">Authorize</button>
     </form>
