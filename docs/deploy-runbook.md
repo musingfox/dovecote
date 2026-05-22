@@ -25,6 +25,80 @@ Before deploying to production:
    - `ADMIN_REVOKE_TOKEN`
    - Channel-specific credentials (if using notifications)
 
+## Seeding Users
+
+dovecote authenticates users against KV records keyed by `user:<username>`.
+The legacy single-`OAUTH_PASSWORD` deployment (one operator account, full
+scope set) still works for back-compat, but new deployments should seed
+explicit users so per-user scope, audit trail, and revoke can be reasoned
+about cleanly.
+
+### 1. Seed a user via `scripts/seed-user.mjs`
+
+The helper hashes the password with PBKDF2-SHA256 (100k iterations, fresh
+random salt) using `HMAC_PEPPER` as a server-side secret. The output is a
+single-line `wrangler kv key put` command, ready to paste:
+
+```bash
+node scripts/seed-user.mjs \
+  --username alice \
+  --password "$ALICE_PASSWORD" \
+  --scopes dovecote:notify,dovecote:env:read \
+  --pepper "$HMAC_PEPPER"
+```
+
+Pipe that to a shell to actually apply it:
+
+```bash
+eval "$(node scripts/seed-user.mjs --username alice --password "$ALICE_PASSWORD" --scopes dovecote:notify --pepper "$HMAC_PEPPER")"
+```
+
+Username charset: lowercase letters, digits, `.`, `_`, `-`, 1–64 chars.
+Anything else is rejected client-side (script exits non-zero) and
+server-side (the `/authorize` form returns 403 without a KV read).
+
+### 2. Available scopes
+
+- `dovecote:notify` – send notifications
+- `dovecote:env:read` – read env profile
+- `dovecote:admin` – admin actions (revoke, bootstrap)
+
+A user can only successfully complete an `/authorize` request for scopes
+listed in their KV record. Requesting a scope the user lacks → 403
+Insufficient scope.
+
+### 3. Legacy single-operator deployments
+
+If `OAUTH_PASSWORD` is set and no KV `user:<name>` record matches the
+submitted username, the server falls back to a single legacy operator
+account:
+
+- Default username: `operator` (override via `LEGACY_OPERATOR_USERNAME`)
+- Password: `OAUTH_PASSWORD`
+- Granted scopes: all (`dovecote:notify`, `dovecote:env:read`, `dovecote:admin`)
+
+This back-compat path lets existing single-tenant installs keep working.
+To retire it, seed real users into KV and unset `OAUTH_PASSWORD`.
+
+### 4. `OAUTH_ADMIN_PASSWORD` retirement
+
+The previous dual-password admin gate (`OAUTH_ADMIN_PASSWORD`) is
+**removed**: admin authority is now expressed by the per-user
+`dovecote:admin` scope in the KV record. The `OAUTH_ADMIN_PASSWORD` env
+is no longer read by the server. Remove it from your worker config when
+convenient:
+
+```bash
+wrangler secret delete OAUTH_ADMIN_PASSWORD
+```
+
+### 5. Required envs for the new auth path
+
+- `HMAC_PEPPER` (required) – password hashing pepper; if missing or empty,
+  password verify throws and authentication fails closed.
+- `OAUTH_PASSWORD` (optional) – legacy fallback only.
+- `LEGACY_OPERATOR_USERNAME` (optional) – override legacy username default.
+
 ## First-Time Client Provisioning
 
 For the initial OAuth client setup, use this flip-switch deployment sequence (DP3):
