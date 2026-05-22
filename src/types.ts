@@ -10,6 +10,7 @@ export interface Env {
   OAUTH_ADMIN_PASSWORD?: string;
   HMAC_PEPPER: string;
   ENABLE_CLIENT_BOOTSTRAP?: string;
+  LEGACY_OPERATOR_USERNAME?: string;
 }
 
 export interface ChannelConfig {
