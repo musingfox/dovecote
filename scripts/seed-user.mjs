@@ -27,7 +27,7 @@ const SCOPES_SUPPORTED = [
 const ITERATIONS = 100_000;
 const KEY_LENGTH_BYTES = 32;
 const SALT_LENGTH_BYTES = 16;
-const USERNAME_REGEX = /^[a-z0-9._-]{1,64}$/;
+const USERNAME_REGEX = /^[a-z0-9_-]{1,64}$/;
 
 function parseArgs(argv) {
   const out = {};
@@ -63,7 +63,7 @@ if (!username || typeof username !== "string") {
   die("missing required --username");
 }
 if (!USERNAME_REGEX.test(username)) {
-  die(`invalid username "${username}": must match [a-z0-9._-]{1,64}`);
+  die(`invalid username "${username}": must match [a-z0-9_-]{1,64}`);
 }
 if (!password || typeof password !== "string") {
   die("missing required --password");

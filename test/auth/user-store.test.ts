@@ -68,6 +68,23 @@ test("readUserRecord: returns null when KV key missing", async () => {
   expect(got).toBeNull();
 });
 
+test("readUserRecord: dot in username → null with no KV read", async () => {
+  const kv = new MockKV();
+  let reads = 0;
+  const wrappedKv = {
+    ...kv,
+    get: async (...args: any[]) => {
+      reads++;
+      return (kv as any).get(...args);
+    },
+  };
+  const env = makeEnv(wrappedKv as any);
+
+  const got = await readUserRecord("alice.doe", env);
+  expect(got).toBeNull();
+  expect(reads).toBe(0);
+});
+
 test("normalizeUsername: lowercases valid username", () => {
   expect(normalizeUsername("Alice")).toBe("alice");
 });
@@ -82,4 +99,8 @@ test("normalizeUsername: rejects empty string", () => {
 
 test("normalizeUsername: rejects whitespace", () => {
   expect(normalizeUsername("al ice")).toBeNull();
+});
+
+test("normalizeUsername: rejects dot", () => {
+  expect(normalizeUsername("alice.doe")).toBeNull();
 });

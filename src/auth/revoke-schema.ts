@@ -6,12 +6,12 @@ import { z } from "zod";
  * - `grantId` must match the OAuth provider library format: base64url
  *   alphanumeric (A-Za-z0-9_-), minimum 16 chars.
  * - `userId` must match the same conservative charset enforced by the user
- *   store (lowercase letters, digits, dot, underscore, dash; 1–64 chars).
+ *   store (lowercase letters, digits, underscore, dash; 1–64 chars).
  *   This is the user whose grant is being revoked.
  */
 const revokeBodySchema = z.object({
   grantId: z.string().regex(/^[A-Za-z0-9_-]{16,}$/),
-  userId: z.string().regex(/^[a-z0-9._-]{1,64}$/),
+  userId: z.string().regex(/^[a-z0-9_-]{1,64}$/),
 });
 
 export type ValidationResult =

@@ -10,7 +10,7 @@ Before deploying to production:
    ```bash
    bun test
    ```
-   Ensure all tests pass (current baseline: 229 pass / 1 skip / 0 fail).
+   Ensure all tests pass (current baseline: 461 pass / 0 fail).
 
 2. **Verify Wrangler authentication**:
    ```bash
@@ -53,9 +53,16 @@ Pipe that to a shell to actually apply it:
 eval "$(node scripts/seed-user.mjs --username alice --password "$ALICE_PASSWORD" --scopes dovecote:notify --pepper "$HMAC_PEPPER")"
 ```
 
-Username charset: lowercase letters, digits, `.`, `_`, `-`, 1–64 chars.
+Username charset: lowercase letters, digits, `_`, `-`, 1–64 chars.
 Anything else is rejected client-side (script exits non-zero) and
 server-side (the `/authorize` form returns 403 without a KV read).
+
+> **Migration tip**: KV-seeded users receive ONLY the scopes listed in
+> `--scopes`. The legacy operator inherited the full set
+> (`dovecote:notify`, `dovecote:env:read`, `dovecote:admin`). When seeding
+> a replacement user, remember to enumerate every scope your existing
+> workflows depend on — otherwise tokens issued to that user will be
+> rejected at scope-check time.
 
 ### 2. Available scopes
 

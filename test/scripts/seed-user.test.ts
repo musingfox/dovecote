@@ -70,6 +70,17 @@ test("seed-user: invalid charset username AL:ICE → stderr, exit 1", async () =
   expect(result.stderr.length).toBeGreaterThan(0);
 });
 
+test("seed-user: dot in username alice.doe → stderr, exit 1", async () => {
+  const result = await runScript([
+    "--username", "alice.doe",
+    "--password", "x",
+    "--scopes", "dovecote:notify",
+    "--pepper", "test-pepper",
+  ]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr.length).toBeGreaterThan(0);
+});
+
 test("seed-user: cross-validate — server verifyPassword accepts script-generated hash", async () => {
   const PEPPER = "cross-validate-pepper";
   const PASSWORD = "hunter2-cross-check";

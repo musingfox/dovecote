@@ -3,14 +3,14 @@
  *
  * Records live under `user:<lowercased-username>`. Usernames are normalized
  * via lowercasing, and must match a conservative charset
- * (`[a-z0-9._-]`, length 1-64) before any KV read — this prevents
+ * (`[a-z0-9_-]`, length 1-64) before any KV read — this prevents
  * attacker-controlled keys from probing arbitrary KV entries.
  */
 
 import type { Env } from "../types.js";
 import type { PasswordRecord } from "./password.js";
 
-const USERNAME_REGEX = /^[a-z0-9._-]{1,64}$/;
+const USERNAME_REGEX = /^[a-z0-9_-]{1,64}$/;
 
 export interface UserRecord {
   username: string;

@@ -7,7 +7,6 @@ export interface Env {
   OAUTH_PASSWORD: string;
   COOKIE_ENCRYPTION_KEY: string;
   ADMIN_REVOKE_TOKEN?: string;
-  OAUTH_ADMIN_PASSWORD?: string;
   HMAC_PEPPER: string;
   ENABLE_CLIENT_BOOTSTRAP?: string;
   LEGACY_OPERATOR_USERNAME?: string;

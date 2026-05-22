@@ -128,3 +128,21 @@ test("authenticate: empty KV + no legacy match + ghost → null", async () => {
   );
   expect(got).toBeNull();
 });
+
+test("authenticate: alice seeded in KV, operator still authenticates via legacy", async () => {
+  // Back-compat: KV has user:alice but no user:operator. Submitting operator
+  // with the legacy password should still succeed via the legacy fallback,
+  // because the KV lookup for user:operator misses and OAUTH_PASSWORD is set.
+  const kv = new MockKV();
+  await seedUser(kv, "alice", "alice-pass", ["dovecote:notify"]);
+  const env = makeEnv(kv, { OAUTH_PASSWORD: "legacy" });
+
+  const got = await authenticateUserCredentials(
+    { submittedUsername: "operator", submittedPassword: "legacy" },
+    env,
+  );
+  expect(got).toEqual({
+    userId: "operator",
+    scopes: [...SCOPES_SUPPORTED],
+  });
+});
