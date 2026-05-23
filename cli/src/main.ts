@@ -41,6 +41,9 @@ Commands:
   env get <profile>   Read an env profile from the server
   tokens create       Mint a new dvct_* token
   tokens list         Show locally-stored tokens
+                      --remote               query server for live token list
+                      --user=<userId>        (with --remote) filter by user
+                      --all                  (with --remote, admin only) list all users
   tokens revoke <id>  Revoke a token by id
   ping                Probe server reachability + version
 

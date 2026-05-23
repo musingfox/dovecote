@@ -301,3 +301,276 @@ test("tokens revoke 403 → exit 6", async () => {
   });
   expect(code).toBe(ExitCode.FORBIDDEN);
 });
+
+// ============================================================
+// tokens list --remote / --all / --user  (Phase 4.3 / C-CLI-RemoteList)
+// ============================================================
+
+test("tokens list --remote prints expected format from stub fetch", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  let capturedUrl = "";
+  const out: string[] = [];
+  const code = await runMain({
+    argv: ["tokens", "list", "--remote"],
+    env: { HOME: "/no" },
+    stdout: (s) => out.push(s),
+    stderr: () => {},
+    configPath: cfgPath,
+    fetchImpl: makeFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          tokens: [
+            {
+              tokenId: "tid_remote",
+              userId: "alice",
+              scopes: ["dovecote:notify"],
+              createdAt: 1_700_000_000_000,
+              expiresAt: 1_800_000_000_000,
+              label: "ci",
+            },
+          ],
+          truncated: false,
+        }),
+        { status: 200 }
+      );
+    }),
+  });
+  expect(code).toBe(ExitCode.OK);
+  expect(capturedUrl).toBe("https://srv/v1/tokens");
+  const joined = out.join("");
+  expect(joined).toContain("tid_remote");
+  expect(joined).toContain("alice");
+  expect(joined).toContain("ci");
+});
+
+test("tokens list --remote --json emits JSON", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  const out: string[] = [];
+  const code = await runMain({
+    argv: ["tokens", "list", "--remote", "--json"],
+    env: { HOME: "/no" },
+    stdout: (s) => out.push(s),
+    stderr: () => {},
+    configPath: cfgPath,
+    fetchImpl: makeFetch(() =>
+      new Response(
+        JSON.stringify({
+          tokens: [
+            {
+              tokenId: "tid_remote",
+              userId: "alice",
+              scopes: ["dovecote:notify"],
+              createdAt: 1,
+              expiresAt: 2,
+            },
+          ],
+          truncated: false,
+        }),
+        { status: 200 }
+      )
+    ),
+  });
+  expect(code).toBe(ExitCode.OK);
+  const parsed = JSON.parse(out.join(""));
+  expect(Array.isArray(parsed)).toBe(true);
+  expect(parsed[0].tokenId).toBe("tid_remote");
+});
+
+test("tokens list --remote --user=bob hits ?userId=bob", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  let capturedUrl = "";
+  const code = await runMain({
+    argv: ["tokens", "list", "--remote", "--user=bob"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: () => {},
+    configPath: cfgPath,
+    fetchImpl: makeFetch((url) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({ tokens: [], truncated: false }),
+        { status: 200 }
+      );
+    }),
+  });
+  expect(code).toBe(ExitCode.OK);
+  expect(capturedUrl).toBe("https://srv/v1/tokens?userId=bob");
+});
+
+test("tokens list --remote --all --user=bob → USAGE, no fetch", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  let called = false;
+  const code = await runMain({
+    argv: ["tokens", "list", "--remote", "--all", "--user=bob"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: () => {},
+    configPath: cfgPath,
+    fetchImpl: makeFetch(() => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    }),
+  });
+  expect(code).toBe(ExitCode.USAGE);
+  expect(called).toBe(false);
+});
+
+test("tokens list --user=bob (without --remote) → USAGE", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  const code = await runMain({
+    argv: ["tokens", "list", "--user=bob"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: () => {},
+    configPath: cfgPath,
+  });
+  expect(code).toBe(ExitCode.USAGE);
+});
+
+test("tokens list --remote stub 403 → FORBIDDEN exit", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  const code = await runMain({
+    argv: ["tokens", "list", "--remote", "--user=bob"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: () => {},
+    configPath: cfgPath,
+    fetchImpl: makeFetch(() =>
+      new Response(
+        JSON.stringify({ error: "forbidden", error_description: "nope" }),
+        { status: 403 }
+      )
+    ),
+  });
+  expect(code).toBe(ExitCode.FORBIDDEN);
+});
+
+test("tokens list --remote truncated:true → stderr warning", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        {
+          tokenId: "tid_a",
+          token: "dvct_a",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: futureExpiry(),
+        },
+      ],
+    },
+    cfgPath
+  );
+  const err: string[] = [];
+  const code = await runMain({
+    argv: ["tokens", "list", "--remote", "--json"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: (s) => err.push(s),
+    configPath: cfgPath,
+    fetchImpl: makeFetch(() =>
+      new Response(
+        JSON.stringify({
+          tokens: [
+            {
+              tokenId: "t",
+              userId: "u",
+              scopes: [],
+              createdAt: 1,
+              expiresAt: 2,
+            },
+          ],
+          truncated: true,
+        }),
+        { status: 200 }
+      )
+    ),
+  });
+  expect(code).toBe(ExitCode.OK);
+  expect(err.join("")).toContain("truncated");
+});
