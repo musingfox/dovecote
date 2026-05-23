@@ -30,6 +30,14 @@ export const tokenExchangeRequestSchema = z.object({
 });
 export type TokenExchangeRequest = z.infer<typeof tokenExchangeRequestSchema>;
 
+// POST /v1/auth/exchange-oidc request body — `id_token` is mandatory.
+export const tokenExchangeOidcRequestSchema = z.object({
+  id_token: z.string().min(1),
+  expiresIn: expiresInSchema.optional(),
+  label: z.string().max(64).optional(),
+});
+export type TokenExchangeOidcRequest = z.infer<typeof tokenExchangeOidcRequestSchema>;
+
 // POST /v1/tokens/:id/renew request body.
 export const tokenRenewRequestSchema = z.object({
   expiresIn: expiresInSchema.optional(),

@@ -10,6 +10,13 @@ export interface Env {
   HMAC_PEPPER: string;
   ENABLE_CLIENT_BOOTSTRAP?: string;
   LEGACY_OPERATOR_USERNAME?: string;
+  /**
+   * JSON array of OIDC issuer configs trusted by POST /v1/auth/exchange-oidc.
+   * Each entry: `{issuer, jwks_uri, audience, subClaim?}`. Unset/malformed → 503.
+   */
+  OIDC_ISSUERS?: string;
+  /** Clock-skew tolerance (seconds) for OIDC iat/exp validation. Default 60. */
+  OIDC_CLOCK_TOLERANCE_SEC?: string;
 }
 
 export interface ChannelConfig {
