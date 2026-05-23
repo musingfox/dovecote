@@ -111,8 +111,12 @@ export async function verifyPassword(
   if (!pepper) {
     throw new MissingPepperError();
   }
+  // Defense-in-depth (C-PasswordRejectsOidcAlgo): any non-PBKDF2 record
+  // (e.g. an OIDC-provisioned `algo:"oidc"` placeholder) must NOT authenticate
+  // via the form-credential path. Return false rather than throw so the
+  // form login handler closes the door silently without a 500.
   if (record.algo !== "pbkdf2-sha256") {
-    throw new UnsupportedAlgorithmError(record.algo);
+    return false;
   }
   const salt = base64ToBytes(record.salt);
   const expected = base64ToBytes(record.hash);

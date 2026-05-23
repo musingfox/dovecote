@@ -3,7 +3,6 @@ import {
   hashPassword,
   verifyPassword,
   MissingPepperError,
-  UnsupportedAlgorithmError,
 } from "../../src/auth/password.js";
 
 test("hashPassword returns record with algo/iterations/salt/hash", async () => {
@@ -38,15 +37,27 @@ test("verifyPassword returns false for different pepper", async () => {
   expect(await verifyPassword("hunter2", "different-pep", record)).toBe(false);
 });
 
-test("verifyPassword throws on unsupported algorithm", async () => {
-  await expect(
-    verifyPassword("hunter2", "pep", {
-      algo: "bcrypt" as any,
-      iterations: 10,
-      salt: "AAAA",
-      hash: "AAAA",
-    }),
-  ).rejects.toBeInstanceOf(UnsupportedAlgorithmError);
+// C-PasswordRejectsOidcAlgo: any non-PBKDF2 record must return false without
+// throwing — the form login handler relies on this to silently refuse
+// OIDC-provisioned accounts (`algo:"oidc"` placeholder records).
+test("verifyPassword returns false for unsupported algorithm (no throw)", async () => {
+  const got = await verifyPassword("hunter2", "pep", {
+    algo: "bcrypt" as any,
+    iterations: 10,
+    salt: "AAAA",
+    hash: "AAAA",
+  });
+  expect(got).toBe(false);
+});
+
+test("verifyPassword returns false for algo:\"oidc\" placeholder record", async () => {
+  const got = await verifyPassword("anything", "pep", {
+    algo: "oidc" as any,
+    iterations: 0,
+    salt: "",
+    hash: "",
+  });
+  expect(got).toBe(false);
 });
 
 test("hashPassword throws MissingPepperError on empty pepper", async () => {
