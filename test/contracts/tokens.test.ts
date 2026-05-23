@@ -5,6 +5,7 @@ import {
   tokenIssueResponseSchema,
   tokenExchangeRequestSchema,
   tokenRenewRequestSchema,
+  tokenListResponseSchema,
   expiresInToSeconds,
 } from "../../src/contracts/tokens.js";
 
@@ -142,6 +143,63 @@ test("Fix #1: tokenIssueResponseSchema requires userId", () => {
     expiresAt: 1_700_000_000_000,
   });
   expect(missing.success).toBe(false);
+});
+
+test("C-Schema-ListResponse: tokenListResponseSchema parses minimal valid", () => {
+  const r = tokenListResponseSchema.safeParse({
+    tokens: [
+      {
+        tokenId: "t_1",
+        userId: "alice",
+        scopes: ["dovecote:notify"],
+        createdAt: 1_700_000_000_000,
+        expiresAt: 1_800_000_000_000,
+      },
+    ],
+    truncated: false,
+  });
+  expect(r.success).toBe(true);
+});
+
+test("C-Schema-ListResponse: tokenListResponseSchema parses empty list", () => {
+  const r = tokenListResponseSchema.safeParse({ tokens: [], truncated: false });
+  expect(r.success).toBe(true);
+});
+
+test("C-Schema-ListResponse: tokenListResponseSchema rejects entry with hash (strict)", () => {
+  const r = tokenListResponseSchema.safeParse({
+    tokens: [
+      {
+        tokenId: "t_1",
+        userId: "alice",
+        scopes: ["dovecote:notify"],
+        createdAt: 1,
+        expiresAt: 2,
+        hash: "sha256:leak",
+      },
+    ],
+    truncated: false,
+  });
+  expect(r.success).toBe(false);
+});
+
+test("C-Schema-ListResponse: tokenListResponseSchema rejects missing required fields", () => {
+  // Missing truncated
+  const r1 = tokenListResponseSchema.safeParse({ tokens: [] });
+  expect(r1.success).toBe(false);
+  // Token missing userId
+  const r2 = tokenListResponseSchema.safeParse({
+    tokens: [
+      {
+        tokenId: "t",
+        scopes: [],
+        createdAt: 1,
+        expiresAt: 2,
+      },
+    ],
+    truncated: false,
+  });
+  expect(r2.success).toBe(false);
 });
 
 test("B1: TokenMetadata type is exported", () => {

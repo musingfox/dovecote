@@ -202,6 +202,40 @@ const _bad9: AuditEvent = {
   ok: true,
 };
 
+// Phase 4.3 / C-Schema-Audit-List: token.list (success with count + truncated)
+const _list_ok: AuditEvent = {
+  event: "token.list",
+  count: 3,
+  truncated: false,
+  authMethod: "api_token",
+  ip: "1.2.3.4",
+  scope: "dovecote:notify",
+  ok: true,
+};
+
+// token.list forbidden path — userIdFilter, no count
+const _list_forbidden: AuditEvent = {
+  event: "token.list",
+  userIdFilter: "bob",
+  authMethod: "api_token",
+  ip: "1.2.3.4",
+  scope: "dovecote:notify",
+  ok: false,
+  reason: "forbidden",
+};
+
+// token.list admin filter
+const _list_admin_filter: AuditEvent = {
+  event: "token.list",
+  userIdFilter: "alice",
+  count: 5,
+  truncated: false,
+  authMethod: "admin_token",
+  ip: "1.2.3.4",
+  scope: "dovecote:admin",
+  ok: true,
+};
+
 // @ts-expect-error - Missing required ip on all events
 const _bad10: AuditEvent = {
   event: "authorize",

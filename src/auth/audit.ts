@@ -30,7 +30,16 @@ export type AuditEvent =
   | (AuditCommon & { event: "token.revoke"; tokenId?: string })
   // Use an API token on a route (NEW). On failure branches the tokenId/route may be absent
   // because the request is rejected before identification (missing header, malformed bearer).
-  | (AuditCommon & { event: "token.use"; route?: string; userId?: string });
+  | (AuditCommon & { event: "token.use"; route?: string; userId?: string })
+  // List API tokens (Phase 4.3 / C-Schema-Audit-List). `userIdFilter` records
+  // the `?userId=` query that was passed (forbidden / admin filter / self no-op).
+  // On success `count` and `truncated` describe the result set.
+  | (AuditCommon & {
+      event: "token.list";
+      userIdFilter?: string;
+      count?: number;
+      truncated?: boolean;
+    });
 
 /**
  * Common fields on all audit event variants

@@ -298,3 +298,68 @@ test("writeAudit does not sanitize userId (structured field, not free-text)", as
 
   consoleLogSpy.mockRestore();
 });
+
+test("C-Schema-Audit-List: token.list ok writes count + truncated", async () => {
+  const mockKV = new MockKV();
+  const promises: Promise<any>[] = [];
+  const env: Env = {
+    OAUTH_KV: mockKV as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "k",
+    HMAC_PEPPER: "p",
+  };
+  const ctx = {
+    waitUntil: (p: Promise<any>) => promises.push(p),
+    passThroughOnException: () => {},
+  } as any;
+  const consoleLogSpy = spyOn(console, "log");
+
+  writeAudit(env, ctx, {
+    event: "token.list",
+    ok: true,
+    count: 3,
+    truncated: false,
+    authMethod: "api_token",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  await Promise.all(promises);
+  const last = consoleLogSpy.mock.calls[consoleLogSpy.mock.calls.length - 1]![0] as string;
+  expect(last).toContain('"event":"token.list"');
+  expect(last).toContain('"count":3');
+  expect(last).toContain('"truncated":false');
+  consoleLogSpy.mockRestore();
+});
+
+test("C-Schema-Audit-List: token.list forbidden records userIdFilter + reason", async () => {
+  const mockKV = new MockKV();
+  const promises: Promise<any>[] = [];
+  const env: Env = {
+    OAUTH_KV: mockKV as any,
+    OAUTH_PASSWORD: "test",
+    COOKIE_ENCRYPTION_KEY: "k",
+    HMAC_PEPPER: "p",
+  };
+  const ctx = {
+    waitUntil: (p: Promise<any>) => promises.push(p),
+    passThroughOnException: () => {},
+  } as any;
+  const consoleLogSpy = spyOn(console, "log");
+
+  writeAudit(env, ctx, {
+    event: "token.list",
+    ok: false,
+    reason: "forbidden",
+    userIdFilter: "bob",
+    authMethod: "api_token",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  await Promise.all(promises);
+  const last = consoleLogSpy.mock.calls[consoleLogSpy.mock.calls.length - 1]![0] as string;
+  expect(last).toContain('"reason":"forbidden"');
+  expect(last).toContain('"userIdFilter":"bob"');
+  consoleLogSpy.mockRestore();
+});

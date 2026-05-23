@@ -68,3 +68,23 @@ export const tokenRevokeResponseSchema = z.object({
   notice: z.string(),
 });
 export type TokenRevokeResponse = z.infer<typeof tokenRevokeResponseSchema>;
+
+// GET /v1/tokens — list response (Phase 4.3 / C-Schema-ListResponse).
+// The per-entry object is `.strict()` to guarantee `hash` and `token` never
+// leak via response shape drift.
+export const tokenListResponseSchema = z.object({
+  tokens: z.array(
+    z
+      .object({
+        tokenId: z.string(),
+        userId: z.string(),
+        scopes: z.array(z.string()),
+        createdAt: z.number().int(),
+        expiresAt: z.number().int(),
+        label: z.string().optional(),
+      })
+      .strict()
+  ),
+  truncated: z.boolean(),
+});
+export type TokenListResponse = z.infer<typeof tokenListResponseSchema>;
