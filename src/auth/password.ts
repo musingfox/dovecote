@@ -103,10 +103,23 @@ function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+/**
+ * Input shape for `verifyPassword`. Wider than `PasswordRecord` so that
+ * callers can pass a `UserRecord` (whose `algo` may be the placeholder
+ * `"oidc"` marker) without a cast — the function refuses any non-pbkdf2
+ * algo by returning `false`. See C-PasswordRejectsOidcAlgo.
+ */
+export interface VerifyPasswordRecord {
+  algo: string;
+  iterations: number;
+  salt: string;
+  hash: string;
+}
+
 export async function verifyPassword(
   password: string,
   pepper: string,
-  record: PasswordRecord,
+  record: VerifyPasswordRecord,
 ): Promise<boolean> {
   if (!pepper) {
     throw new MissingPepperError();

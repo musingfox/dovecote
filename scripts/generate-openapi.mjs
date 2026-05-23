@@ -23,6 +23,7 @@ import {
   tokenIssueResponseSchema as _tokenIssueResponseSchema,
   tokenRevokeResponseSchema as _tokenRevokeResponseSchema,
   tokenExchangeRequestSchema as _tokenExchangeRequestSchema,
+  tokenExchangeOidcRequestSchema as _tokenExchangeOidcRequestSchema,
   tokenRenewRequestSchema as _tokenRenewRequestSchema,
   tokenListResponseSchema as _tokenListResponseSchema,
 } from "../src/contracts/tokens.ts";
@@ -70,6 +71,7 @@ const tokenIdPathSchema = z.string().min(1).openapi({
 
 const tokenIssueRequestOpenapiSchema = tokenIssueRequestSchema.openapi("TokenIssueRequest");
 const tokenExchangeRequestOpenapiSchema = _tokenExchangeRequestSchema.openapi("TokenExchangeRequest");
+const tokenExchangeOidcRequestOpenapiSchema = _tokenExchangeOidcRequestSchema.openapi("TokenExchangeOidcRequest");
 const tokenRenewRequestOpenapiSchema = _tokenRenewRequestSchema.openapi("TokenRenewRequest");
 
 const sendResultSchema = _sendResultSchema.openapi("SendResult");
@@ -210,6 +212,32 @@ registry.registerPath({
   },
 });
 
+// Phase 4.3 OIDC carve-out (ADR 0001). Note the responses: this endpoint does
+// NOT include a 403 in commonAuthErrors because there is no admin-scope gate
+// here — the OIDC verify primitive returns 401 (untrusted_issuer /
+// bad_signature / etc.) but never 403. We mirror commonAuthErrors's other
+// entries (401, 500) explicitly.
+registry.registerPath({
+  method: "post",
+  path: "/v1/auth/exchange-oidc",
+  description:
+    "Exchange an OIDC id_token (from an allow-listed issuer) for a dvct_* runtime token. New subjects are auto-provisioned with scope `dovecote:notify`.",
+  request: {
+    body: { content: { "application/json": { schema: tokenExchangeOidcRequestOpenapiSchema } } },
+  },
+  responses: {
+    201: jsonOk(tokenIssueResponseSchema, "Token issued"),
+    ...writeValidationErrors,
+    401: errorResponse(
+      "id_token failed verification (untrusted_issuer / bad_signature / bad_audience / expired_token / iat_skew / malformed_token / untrusted_subject)",
+    ),
+    403: errorResponse("Reserved — not currently returned by this endpoint"),
+    429: errorResponse("Rate limit exceeded — Retry-After header indicates retry window"),
+    500: errorResponse("Internal server error (e.g. KV write failure during auto-provision)"),
+    503: errorResponse("Misconfigured — HMAC_PEPPER or OIDC_ISSUERS missing"),
+  },
+});
+
 registry.registerPath({
   method: "post",
   path: "/v1/tokens/{tokenId}/renew",
@@ -256,6 +284,7 @@ const requiredPaths = [
   "/v1/tokens/{tokenId}",
   "/v1/tokens/{tokenId}/renew",
   "/v1/auth/exchange",
+  "/v1/auth/exchange-oidc",
   "/health",
 ];
 const emittedPaths = Object.keys(doc.paths ?? {});
@@ -275,6 +304,7 @@ const requiredSchemas = [
   "TokenIssueRequest",
   "TokenIssueResponse",
   "TokenExchangeRequest",
+  "TokenExchangeOidcRequest",
   "TokenRenewRequest",
   "TokenListResponse",
   "RevokeResponse",

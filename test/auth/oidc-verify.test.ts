@@ -34,7 +34,7 @@ beforeAll(async () => {
 async function signIdToken(
   payload: Record<string, unknown>,
   opts: {
-    privateKey?: jose.KeyLike;
+    privateKey?: CryptoKey;
     iat?: number;
     exp?: number;
   } = {},

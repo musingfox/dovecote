@@ -374,6 +374,31 @@
           }
         }
       },
+      "TokenExchangeOidcRequest": {
+        "type": "object",
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expiresIn": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "60d",
+              "90d"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id_token"
+        ]
+      },
       "TokenRenewRequest": {
         "type": "object",
         "properties": {
@@ -919,6 +944,92 @@
           },
           "503": {
             "description": "Admin token revocation pressure circuit open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/exchange-oidc": {
+      "post": {
+        "description": "Exchange an OIDC id_token (from an allow-listed issuer) for a dvct_* runtime token. New subjects are auto-provisioned with scope `dovecote:notify`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeOidcRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body failed zod validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "id_token failed verification (untrusted_issuer / bad_signature / bad_audience / expired_token / iat_skew / malformed_token / untrusted_subject)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Reserved — not currently returned by this endpoint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — Retry-After header indicates retry window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error (e.g. KV write failure during auto-provision)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Misconfigured — HMAC_PEPPER or OIDC_ISSUERS missing",
             "content": {
               "application/json": {
                 "schema": {
