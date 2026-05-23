@@ -3,10 +3,13 @@ import {
   issueToken,
   verifyToken,
   revokeToken,
+  deleteTokenEntries,
+  getTokenMetadataByTokenId,
   InvalidScopeError,
   MissingPepperError,
   KVWriteError,
   TOKEN_PREFIX,
+  KV_USER_NAMESPACE,
   DEFAULT_TTL_SECONDS,
   MAX_TTL_SECONDS,
 } from "../../src/auth/api-token";
@@ -84,9 +87,10 @@ test("C2.2.a-1: Issue token with valid scopes and label", async () => {
   // Verify expiresAt is in MILLISECONDS (now + 7776000000)
   expect(result.expiresAt).toBe(now + 7776000000);
 
-  // Verify KV has the token metadata
+  // Verify KV has the token metadata (3 entries per token after C-Index-Issue:
+  // apitoken:<id>, apitoken_hash:<hash>, apitoken_user:<uid>:<id>)
   const store = (env.OAUTH_KV as unknown as MockKV).getStore();
-  expect(store.size).toBe(2); // apitoken:<id> and apitoken_hash:<hash>
+  expect(store.size).toBe(3);
 
   // Find the metadata entry
   let metadata: TokenMetadata | null = null;
@@ -730,4 +734,74 @@ test("C2.2.d-1: TypeScript compiles with HMAC_PEPPER in Env", async () => {
   };
 
   expect(typeof handler).toBe("function");
+});
+
+// ============================================================
+// C-Index-Issue / C-Index-Delete — apitoken_user:<uid>:<id> index
+// ============================================================
+
+test("C-Index-Issue: issueToken writes apitoken_user:<uid>:<id> index", async () => {
+  const env = createEnv("test-pepper-32-characters-long");
+  const result = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  const indexKey = KV_USER_NAMESPACE + "alice:" + result.tokenId;
+  const indexValue = await env.OAUTH_KV.get(indexKey);
+  expect(indexValue).toBe("");
+});
+
+test("C-Index-Issue: KV.list prefix scan finds the issued token", async () => {
+  const env = createEnv("test-pepper-32-characters-long");
+  const result = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  const listed = await env.OAUTH_KV.list({ prefix: KV_USER_NAMESPACE + "alice:" });
+  const names = (listed.keys as { name: string }[]).map((k) => k.name);
+  expect(names).toContain(KV_USER_NAMESPACE + "alice:" + result.tokenId);
+});
+
+test("C-Index-Issue: renew path — new tokenId index exists, old removed", async () => {
+  const env = createEnv("test-pepper-32-characters-long");
+
+  // Issue bob's original token
+  const original = await issueToken({ userId: "bob", scopes: ["dovecote:notify"] }, env);
+
+  // Simulate admin renewing bob's token: issue new + delete old (api-v1 ordering)
+  const oldMeta = await getTokenMetadataByTokenId(original.tokenId, env);
+  expect(oldMeta).not.toBeNull();
+
+  const replacement = await issueToken(
+    { userId: "bob", scopes: ["dovecote:notify"] },
+    env
+  );
+  await deleteTokenEntries(oldMeta!, env);
+
+  const oldIndexKey = KV_USER_NAMESPACE + "bob:" + original.tokenId;
+  const newIndexKey = KV_USER_NAMESPACE + "bob:" + replacement.tokenId;
+  expect(await env.OAUTH_KV.get(oldIndexKey)).toBeNull();
+  expect(await env.OAUTH_KV.get(newIndexKey)).toBe("");
+});
+
+test("C-Index-Delete: revokeToken removes apitoken_user:<uid>:<id>", async () => {
+  const env = createEnv("test-pepper-32-characters-long");
+  const result = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  const indexKey = KV_USER_NAMESPACE + "alice:" + result.tokenId;
+  expect(await env.OAUTH_KV.get(indexKey)).toBe("");
+  await revokeToken({ tokenId: result.tokenId, env }, env);
+  expect(await env.OAUTH_KV.get(indexKey)).toBeNull();
+});
+
+test("C-Index-Delete: deleteTokenEntries removes apitoken_user:<uid>:<id>", async () => {
+  const env = createEnv("test-pepper-32-characters-long");
+  const result = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  const meta = await getTokenMetadataByTokenId(result.tokenId, env);
+  await deleteTokenEntries(meta!, env);
+  const indexKey = KV_USER_NAMESPACE + "alice:" + result.tokenId;
+  expect(await env.OAUTH_KV.get(indexKey)).toBeNull();
+});
+
+test("C-Index-Delete: revoke pre-backfill token (no index) returns revoked:true, no error", async () => {
+  const env = createEnv("test-pepper-32-characters-long");
+  // Issue then manually erase the index to simulate pre-backfill state
+  const result = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  await env.OAUTH_KV.delete(KV_USER_NAMESPACE + "alice:" + result.tokenId);
+  // Now revoke — should still succeed
+  const revoke = await revokeToken({ tokenId: result.tokenId, env }, env);
+  expect(revoke.revoked).toBe(true);
 });

@@ -38,6 +38,16 @@ export const KV_NAMESPACE = "apitoken:";
 export const KV_HASH_NAMESPACE = "apitoken_hash:";
 
 /**
+ * KV namespace prefix for per-user token-id index. Layout:
+ *   apitoken_user:<userId>:<tokenId> -> ""
+ *
+ * Enables O(scan) per-user listing via `KV.list({prefix:"apitoken_user:<userId>:"})`
+ * without scanning the entire `apitoken:` namespace. Index values are empty —
+ * the canonical metadata still lives at `apitoken:<tokenId>`.
+ */
+export const KV_USER_NAMESPACE = "apitoken_user:";
+
+/**
  * Error: any scope is not in SCOPES_SUPPORTED
  */
 export class InvalidScopeError extends Error {
@@ -243,11 +253,18 @@ export async function issueToken(
   const kvKeyTokenId = KV_NAMESPACE + tokenId;
   const kvKeyHash = KV_HASH_NAMESPACE + hash;
 
+  // Per-user index entry: apitoken_user:<userId>:<tokenId> -> "" (empty value).
+  // Same TTL — expires alongside the canonical record so the index stays in sync.
+  const kvKeyUserIndex = KV_USER_NAMESPACE + params.userId + ":" + tokenId;
+
   try {
     await env.OAUTH_KV.put(kvKeyTokenId, JSON.stringify(metadata), {
       expirationTtl: ttlSeconds,
     });
     await env.OAUTH_KV.put(kvKeyHash, JSON.stringify(metadata), {
+      expirationTtl: ttlSeconds,
+    });
+    await env.OAUTH_KV.put(kvKeyUserIndex, "", {
       expirationTtl: ttlSeconds,
     });
   } catch (e) {
@@ -354,6 +371,9 @@ export async function deleteTokenEntries(
   try {
     await env.OAUTH_KV.delete(KV_NAMESPACE + meta.tokenId);
     await env.OAUTH_KV.delete(KV_HASH_NAMESPACE + meta.hash);
+    // Best-effort delete of the per-user index. KV.delete is a no-op when the
+    // key is absent (e.g., pre-backfill token), so no extra existence check.
+    await env.OAUTH_KV.delete(KV_USER_NAMESPACE + meta.userId + ":" + meta.tokenId);
   } catch (e) {
     throw new KVWriteError(`Failed to delete old token: ${(e as Error).message}`);
   }
@@ -385,11 +405,14 @@ export async function revokeToken(
 
   const metadata = metadataStr as TokenMetadata;
   const kvKeyHashValue = KV_HASH_NAMESPACE + metadata.hash;
+  const kvKeyUserIndex = KV_USER_NAMESPACE + metadata.userId + ":" + metadata.tokenId;
 
-  // Delete both keys
+  // Delete all three keys. The per-user index delete is best-effort (no-op when
+  // the key is absent on pre-backfill tokens) — KV.delete swallows missing keys.
   try {
     await env.OAUTH_KV.delete(kvKeyTokenId);
     await env.OAUTH_KV.delete(kvKeyHashValue);
+    await env.OAUTH_KV.delete(kvKeyUserIndex);
   } catch (e) {
     throw new KVWriteError(`Failed to delete token from KV: ${(e as Error).message}`);
   }
