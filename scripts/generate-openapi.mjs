@@ -24,6 +24,7 @@ import {
   tokenRevokeResponseSchema as _tokenRevokeResponseSchema,
   tokenExchangeRequestSchema as _tokenExchangeRequestSchema,
   tokenRenewRequestSchema as _tokenRenewRequestSchema,
+  tokenListResponseSchema as _tokenListResponseSchema,
 } from "../src/contracts/tokens.ts";
 import { errorEnvelopeSchema as _errorEnvelopeSchema } from "../src/contracts/errors.ts";
 import { healthResponseSchema as _healthResponseSchema } from "../src/contracts/health.ts";
@@ -81,6 +82,7 @@ const channelsListSchema = z.object({
 const envReadResponseSchema = _envReadResponseSchema.openapi("EnvReadResponse");
 const tokenIssueResponseSchema = _tokenIssueResponseSchema.openapi("TokenIssueResponse");
 const revokeResponseSchema = _tokenRevokeResponseSchema.openapi("RevokeResponse");
+const tokenListResponseSchema = _tokenListResponseSchema.openapi("TokenListResponse");
 const healthResponseSchema = _healthResponseSchema.openapi("HealthResponse");
 
 const jsonOk = (schema, description = "ok") => ({
@@ -144,6 +146,21 @@ registry.registerPath({
     200: jsonOk(envReadResponseSchema, "Env profile resolved"),
     ...notFoundError,
     ...commonAuthErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/v1/tokens",
+  description:
+    "List API tokens. Non-admin callers see their own tokens; admin callers can pass `?userId=` to filter or omit it for all-users listing. Results are sorted by `createdAt` descending, capped at 1000 entries with `truncated:true` when more exist.",
+  request: {
+    query: z.object({ userId: z.string().optional() }),
+  },
+  responses: {
+    200: jsonOk(tokenListResponseSchema, "Tokens listed"),
+    ...commonAuthErrors,
+    ...adminRateLimitErrors,
   },
 });
 
@@ -259,6 +276,7 @@ const requiredSchemas = [
   "TokenIssueResponse",
   "TokenExchangeRequest",
   "TokenRenewRequest",
+  "TokenListResponse",
   "RevokeResponse",
   "HealthResponse",
 ];

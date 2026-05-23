@@ -38,3 +38,14 @@ test("each /v1 path defines 401 + 403 responses", async () => {
     }
   }
 });
+
+test("C-OpenAPI-Registration: GET /v1/tokens registered with TokenListResponse", async () => {
+  const spec = await Bun.file("openapi.json").json();
+  expect(spec.paths["/v1/tokens"]).toHaveProperty("get");
+  const op = spec.paths["/v1/tokens"].get;
+  expect(op.responses).toHaveProperty("200");
+  expect(op.responses["200"].content["application/json"].schema.$ref).toContain(
+    "TokenListResponse"
+  );
+  expect(spec.components.schemas).toHaveProperty("TokenListResponse");
+});
