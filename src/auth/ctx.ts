@@ -9,12 +9,12 @@ import type { ExecutionContext } from "@cloudflare/workers-types";
 const AuthCtxSchema = z.object({
   userId: z.string(),
   scopes: z.array(z.string()),
-  authMethod: z.enum(["oauth", "api_token", "admin_token", "none"]).optional(),
+  authMethod: z.enum(["oauth", "api_token", "admin_token", "oidc", "none"]).optional(),
   ip: z.string().optional(),
   tokenId: z.string().optional(),
 });
 
-export type AuthMethod = "oauth" | "api_token" | "admin_token" | "none";
+export type AuthMethod = "oauth" | "api_token" | "admin_token" | "oidc" | "none";
 
 /**
  * AuthCtx type with required authMethod and ip at the type level.

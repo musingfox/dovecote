@@ -59,3 +59,26 @@ test("extractAuth with malformed userId (number instead of string)", () => {
   const result = extractAuth(ctx);
   expect(result).toEqual(ANONYMOUS);
 });
+
+// C-AuthMethod-OidcWidening: enum admits "oidc" so OIDC-issued contexts
+// don't get silently coerced to the default "oauth".
+test("extractAuth admits authMethod=\"oidc\" without coercion", () => {
+  const ctx = {
+    props: {
+      userId: "u",
+      scopes: [],
+      authMethod: "oidc",
+      ip: "1.2.3.4",
+    },
+    waitUntil: () => {},
+    passThroughOnException: () => {},
+  } as any;
+
+  const result = extractAuth(ctx);
+  expect(result).toEqual({
+    userId: "u",
+    scopes: [],
+    authMethod: "oidc",
+    ip: "1.2.3.4",
+  });
+});
