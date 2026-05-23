@@ -188,7 +188,29 @@ export function createAuthExchangeOidcApp(services: ExchangeOidcServices) {
       );
     }
 
-    // --- 4. Resolve userId (auto-provision on first login) ---
+    // --- 4. Rate limit (namespace "oidc") ---
+    // Runs AFTER verify (so untrusted tokens don't consume budget) but BEFORE
+    // resolveUserId (so KV `user:<id>` auto-provisioning writes are gated and
+    // a flood of valid-but-novel `sub` claims cannot amplify KV writes).
+    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "oidc");
+    if (!rl.allowed) {
+      writeAudit(env, ctx, {
+        event: "auth.exchange.oidc",
+        ok: false,
+        reason: "rate_limited",
+        issuer: outcome.issuer,
+        authMethod: "oidc",
+        ip,
+        scope: "",
+      });
+      return c.json(
+        { error: "rate_limited", error_description: "Too many requests" },
+        429,
+        { "Retry-After": "60" },
+      );
+    }
+
+    // --- 5. Resolve userId (auto-provision on first login) ---
     let user: AuthenticatedUser | null;
     try {
       user = await resolve(
@@ -226,26 +248,6 @@ export function createAuthExchangeOidcApp(services: ExchangeOidcServices) {
       return c.json(
         { error: "unauthorized", error_description: "untrusted_subject" },
         401,
-      );
-    }
-
-    // --- 5. Rate limit (namespace "oidc") ---
-    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "oidc");
-    if (!rl.allowed) {
-      writeAudit(env, ctx, {
-        event: "auth.exchange.oidc",
-        ok: false,
-        reason: "rate_limited",
-        userId: user.userId,
-        issuer: outcome.issuer,
-        authMethod: "oidc",
-        ip,
-        scope: user.scopes.join(" "),
-      });
-      return c.json(
-        { error: "rate_limited", error_description: "Too many requests" },
-        429,
-        { "Retry-After": "60" },
       );
     }
 

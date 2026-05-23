@@ -237,6 +237,43 @@ test("C-Endpoint-ExchangeOidc: 429 + Retry-After:60 when rate limited", async ()
   // Rate-limit namespace must be "oidc"
   const call = (services.checkRateLimit as any).mock.calls[0];
   expect(call[2]).toBe("oidc");
+  // Rate-limit gate runs BEFORE resolveUserId so KV `user:<id>` auto-provision
+  // writes cannot be amplified by a flood of valid id_tokens.
+  expect(services.resolveUserId).toHaveBeenCalledTimes(0);
+});
+
+test("C-Endpoint-ExchangeOidc: 429 for brand-new sub does NOT auto-provision (KV-write amplification closed)", async () => {
+  // Valid id_token for a brand-new `sub`, but rate-limit gate denies.
+  // Expectation: resolveUserId must NOT be called — proves the auto-provision
+  // KV write is gated by the rate-limit, closing the amplification vector.
+  const { app, services } = buildApp(
+    makeServices({
+      verifyOidcIdToken: async () => ({
+        kind: "ok",
+        issuer: ISSUER,
+        subClaim: "novel_sub_xyz",
+        claims: { sub: "novel_sub_xyz" },
+      }),
+      checkRateLimit: async () => ({ allowed: false, current: 999, retryAfter: 60 }),
+      // If invoked, this would auto-provision a fresh user — that's the bug.
+      resolveUserId: async () => ({
+        userId: "novel_sub_xyz",
+        scopes: ["dovecote:notify"],
+      }),
+    }),
+  );
+  const env = buildEnv();
+  const res = await app.fetch(req({ id_token: validIdToken }), env, createExecCtx());
+  expect(res.status).toBe(429);
+  expect(res.headers.get("Retry-After")).toBe("60");
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("rate_limited");
+  // Hard invariant: resolveUserId must not have been called.
+  expect((services.resolveUserId as any).mock.calls.length).toBe(0);
+  // Verify still ran (cheap rejection path requires verify-first).
+  expect(services.verifyOidcIdToken).toHaveBeenCalledTimes(1);
+  // Token must not have been issued.
+  expect(services.issueToken).toHaveBeenCalledTimes(0);
 });
 
 // --- 503 misconfigured ---------------------------------------------------
