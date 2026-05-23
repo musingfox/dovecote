@@ -39,6 +39,14 @@ export type AuditEvent =
       userIdFilter?: string;
       count?: number;
       truncated?: boolean;
+    })
+  // Exchange an OIDC id_token for a dvct_* runtime token. `issuer` is the
+  // claimed `iss` from the id_token (sanitised; see FREE_TEXT_FIELDS).
+  | (AuditCommon & {
+      event: "auth.exchange.oidc";
+      userId?: string;
+      tokenId?: string;
+      issuer?: string;
     });
 
 /**
@@ -57,7 +65,7 @@ type AuditCommon = {
  * Free text fields that should be JSON-stringified (double-escaped)
  * to prevent log injection via newlines/escape sequences
  */
-const FREE_TEXT_FIELDS = ["reason", "channel", "profile", "clientName", "route"] as const;
+const FREE_TEXT_FIELDS = ["reason", "channel", "profile", "clientName", "route", "issuer"] as const;
 
 /**
  * Write audit event to console log and KV store
