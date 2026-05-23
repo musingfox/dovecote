@@ -12,9 +12,16 @@ import type { PasswordRecord } from "./password.js";
 
 const USERNAME_REGEX = /^[a-z0-9_-]{1,64}$/;
 
+/**
+ * Algorithm marker for a stored user record. PBKDF2 is the password-based
+ * arm; `"oidc"` is a placeholder marker for users provisioned via the OIDC
+ * exchange (no password material — `salt`/`hash`/`iterations` are empty).
+ */
+export type UserRecordAlgo = PasswordRecord["algo"] | "oidc";
+
 export interface UserRecord {
   username: string;
-  algo: PasswordRecord["algo"];
+  algo: UserRecordAlgo;
   iterations: number;
   salt: string;
   hash: string;
