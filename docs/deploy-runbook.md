@@ -245,6 +245,28 @@ Current observability: Manual inspection via `wrangler tail` for token-related e
 
 Future: Will add explicit failure tracking for refresh token rotation flows.
 
+## Backfilling apitoken_user: index
+
+Phase 4.3 added a per-user token index (`apitoken_user:<userId>:<tokenId>`)
+enabling fast self-listing via `GET /v1/tokens`. Tokens issued before this
+phase exist only at `apitoken:<tokenId>` and need a one-shot backfill so
+they show up in the self-list path. (Admin-all listing always scans
+`apitoken:` directly and therefore works without backfill.)
+
+```bash
+# 1. Preview which index keys would be written (default, non-mutating):
+bun scripts/backfill-apitoken-user-index.mjs --dry-run
+
+# 2. Apply the writes:
+bun scripts/backfill-apitoken-user-index.mjs --apply
+```
+
+Final stdout is a JSON line of the form:
+`{"scanned":N,"wouldWrite":W,"written":X,"skipped":S,"errored":E,"mode":"apply"}`
+
+The script is idempotent — re-running `--apply` is safe and will not double
+any state. Exit code 2 indicates wrangler was not on PATH.
+
 ## Related Documentation
 
 - [Client Bootstrap Guide](./client-bootstrap.md) – Detailed OAuth client setup instructions
