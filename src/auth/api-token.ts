@@ -405,16 +405,20 @@ export async function listUserTokens(
   const indexPrefix = KV_USER_NAMESPACE + userId + ":";
   const listed = await env.OAUTH_KV.list({ prefix: indexPrefix, limit: LIST_LIMIT });
   const indexKeys = (listed.keys as { name: string }[]).map((k) => k.name);
-  const summaries: PublicTokenSummary[] = [];
-  for (const indexKey of indexKeys) {
-    const tokenId = indexKey.slice(indexPrefix.length);
-    const meta = (await env.OAUTH_KV.get(KV_NAMESPACE + tokenId, "json")) as
-      | TokenMetadata
-      | null;
-    if (!meta) continue;
-    if (meta.expiresAt <= now) continue;
-    summaries.push(toSummary(meta));
-  }
+  // Parallelize KV.get across all index entries. CF Workers KV permits
+  // concurrent reads; individual `get` rejection propagates and surfaces as
+  // KVWriteError to the caller (preserving prior throw-on-failure behavior).
+  const records = await Promise.all(
+    indexKeys.map((indexKey) => {
+      const tokenId = indexKey.slice(indexPrefix.length);
+      return env.OAUTH_KV.get(KV_NAMESPACE + tokenId, "json") as Promise<
+        TokenMetadata | null
+      >;
+    })
+  );
+  const summaries = records
+    .filter((m): m is TokenMetadata => m !== null && m.expiresAt > now)
+    .map(toSummary);
   summaries.sort((a, b) => b.createdAt - a.createdAt);
   return { tokens: summaries, truncated: !listed.list_complete };
 }
@@ -430,21 +434,24 @@ export async function listAllTokens(
   now: number = Date.now()
 ): Promise<TokenListResult> {
   const listed = await env.OAUTH_KV.list({ prefix: KV_NAMESPACE, limit: LIST_LIMIT });
-  // Defensive: KV.list with prefix "apitoken:" would also match "apitoken_hash:"
-  // and "apitoken_user:" since they start with the same characters. Filter to
-  // canonical entries only.
+  // Defense-in-depth filter for `apitoken_hash:` / `apitoken_user:` prefixes
+  // that share leading substring with `apitoken:`. (The KV_NAMESPACE
+  // startsWith check is implied by the list prefix, so only the underscore
+  // exclusion is needed here.)
   const canonicalKeys = (listed.keys as { name: string }[])
     .map((k) => k.name)
-    .filter(
-      (name) => name.startsWith(KV_NAMESPACE) && !name.startsWith("apitoken_")
-    );
-  const summaries: PublicTokenSummary[] = [];
-  for (const key of canonicalKeys) {
-    const meta = (await env.OAUTH_KV.get(key, "json")) as TokenMetadata | null;
-    if (!meta) continue;
-    if (meta.expiresAt <= now) continue;
-    summaries.push(toSummary(meta));
-  }
+    .filter((name) => !name.startsWith("apitoken_"));
+  // Parallelize KV.get across all canonical keys. CF Workers KV permits
+  // concurrent reads; individual `get` rejection propagates and surfaces as
+  // KVWriteError to the caller (preserving prior throw-on-failure behavior).
+  const records = await Promise.all(
+    canonicalKeys.map(
+      (key) => env.OAUTH_KV.get(key, "json") as Promise<TokenMetadata | null>
+    )
+  );
+  const summaries = records
+    .filter((m): m is TokenMetadata => m !== null && m.expiresAt > now)
+    .map(toSummary);
   summaries.sort((a, b) => b.createdAt - a.createdAt);
   return { tokens: summaries, truncated: !listed.list_complete };
 }

@@ -267,6 +267,17 @@ Final stdout is a JSON line of the form:
 The script is idempotent — re-running `--apply` is safe and will not double
 any state. Exit code 2 indicates wrangler was not on PATH.
 
+### Post-rollout verification (real-KV smoke)
+
+After deploying 4.1 to staging, run a real-KV smoke test:
+
+- Issue 1 token, then `GET /v1/tokens` with that bearer.
+- If the deployment has >900 tokens for a single user, confirm
+  `truncated:true` behavior matches expectation.
+- MockKV emits `list_complete: false` at `keys.length === limit`; real CF
+  KV may differ at the exact boundary. Cross-check the truncated flag
+  against `wrangler kv key list --binding OAUTH_KV --prefix apitoken_user:<user>:`.
+
 ## Related Documentation
 
 - [Client Bootstrap Guide](./client-bootstrap.md) – Detailed OAuth client setup instructions
