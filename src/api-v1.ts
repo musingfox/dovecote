@@ -19,12 +19,15 @@ import {
   revokeToken as _revokeToken,
   getTokenMetadataByTokenId as _getTokenMetadataByTokenId,
   deleteTokenEntries as _deleteTokenEntries,
+  listUserTokens as _listUserTokens,
+  listAllTokens as _listAllTokens,
   InvalidScopeError,
   MissingPepperError,
   KVWriteError,
   type IssueResult,
   type RevokeResult,
   type TokenMetadata as ApiTokenMetadata,
+  type TokenListResult,
 } from "./auth/api-token.js";
 import { checkRateLimit as _checkRateLimit, type RateLimitResult } from "./auth/rate-limit.js";
 import { writeAudit } from "./auth/audit.js";
@@ -67,6 +70,10 @@ export type V1Services = {
     meta: ApiTokenMetadata,
     env: Env
   ) => Promise<void>;
+  // Optional list helpers; default-wired below. Surfaced as service slots so
+  // tests can inject stubs without populating MockKV with thousands of keys.
+  listUserTokens?: (userId: string, env: Env) => Promise<TokenListResult>;
+  listAllTokens?: (env: Env) => Promise<TokenListResult>;
 };
 
 // Error mapping helper
@@ -174,6 +181,101 @@ export function createV1App(services: V1Services) {
       return c.json({ profile, value });
     } catch (err) {
       return mapError(c, err);
+    }
+  });
+
+  // GET /v1/tokens — self-list + admin-list (Phase 4.3 / C-Endpoint-ListSelf+ListAdmin)
+  v1.get("/tokens", async (c) => {
+    const auth = c.get("auth");
+    const env = c.env;
+    const ctx = c.executionCtx as ExecutionContext;
+    const ip = auth.ip;
+    const scopeStr = auth.scopes.join(" ");
+
+    const userIdFilter = c.req.query("userId");
+    const isAdmin = auth.scopes.includes("dovecote:admin");
+
+    // Non-admin: refuse to list another user's tokens (loud 403, not silent ignore)
+    if (userIdFilter && !isAdmin && userIdFilter !== auth.userId) {
+      writeAudit(env, ctx, {
+        event: "token.list",
+        ok: false,
+        reason: "forbidden",
+        userIdFilter,
+        authMethod: auth.authMethod,
+        ip,
+        scope: scopeStr,
+      });
+      return c.json(
+        {
+          error: "forbidden",
+          error_description:
+            "Cannot list tokens of another user without dovecote:admin",
+        },
+        403
+      );
+    }
+
+    // Rate limit (shared "tokens" namespace with issue/revoke/renew).
+    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "tokens");
+    if (!rl.allowed) {
+      writeAudit(env, ctx, {
+        event: "token.list",
+        ok: false,
+        reason: "rate_limited",
+        ...(userIdFilter ? { userIdFilter } : {}),
+        authMethod: auth.authMethod,
+        ip,
+        scope: scopeStr,
+      });
+      return c.json(
+        { error: "rate_limited", error_description: "Too many requests" },
+        429,
+        { "Retry-After": "60" }
+      );
+    }
+
+    try {
+      const listUserFn = services.listUserTokens ?? _listUserTokens;
+      const listAllFn = services.listAllTokens ?? _listAllTokens;
+      let result: TokenListResult;
+      if (userIdFilter) {
+        result = await listUserFn(userIdFilter, env);
+      } else if (isAdmin) {
+        result = await listAllFn(env);
+      } else {
+        result = await listUserFn(auth.userId, env);
+      }
+
+      writeAudit(env, ctx, {
+        event: "token.list",
+        ok: true,
+        count: result.tokens.length,
+        truncated: result.truncated,
+        ...(userIdFilter ? { userIdFilter } : {}),
+        authMethod: auth.authMethod,
+        ip,
+        scope: scopeStr,
+      });
+
+      return c.json(
+        { tokens: result.tokens, truncated: result.truncated },
+        200
+      );
+    } catch (_err) {
+      writeAudit(env, ctx, {
+        event: "token.list",
+        ok: false,
+        reason: "internal_error",
+        ...(userIdFilter ? { userIdFilter } : {}),
+        authMethod: auth.authMethod,
+        ip,
+        scope: scopeStr,
+      });
+      return c.json(
+        { error: "internal_error", error_description: "internal error" },
+        500
+      );
     }
   });
 
@@ -582,6 +684,8 @@ const v1 = createV1App({
   checkRateLimit: _checkRateLimit,
   getTokenMetadataByTokenId: _getTokenMetadataByTokenId,
   deleteTokenEntries: _deleteTokenEntries,
+  listUserTokens: _listUserTokens,
+  listAllTokens: _listAllTokens,
 });
 
 export default v1;

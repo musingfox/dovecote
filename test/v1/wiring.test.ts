@@ -121,6 +121,24 @@ test("wiring: POST /v1/tokens delegates to issueToken (response signature)", asy
   expect(body.tokenId).toBeTruthy();
 });
 
+// /v1/tokens GET → listUserTokens (non-admin) / listAllTokens (admin) — both
+// route through services and return the same {tokens, truncated} envelope.
+// Identifying signature: response has `tokens` (array) AND `truncated` (boolean) —
+// POST returns `token`/`tokenId`, DELETE returns `notice`. Slot swap of the
+// list helpers can't easily produce this envelope from sendNotification etc.
+test("wiring: GET /v1/tokens delegates to list helpers (response envelope)", async () => {
+  const app = buildApp(adminAuth);
+  const res = await app.fetch(
+    new Request("http://localhost/v1/tokens"),
+    makeEnv(),
+    createMockExecutionCtx(null) as any,
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  expect(Array.isArray(body.tokens)).toBe(true);
+  expect(typeof body.truncated).toBe("boolean");
+});
+
 // /v1/tokens/:id DELETE → admin gate then revokeToken. Identifying signature:
 // response carries `notice` field (eventual-consistency copy) — only revokeToken
 // path emits this in api-v1.ts.

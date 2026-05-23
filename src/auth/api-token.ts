@@ -360,6 +360,96 @@ export async function getTokenMetadataByTokenId(
 }
 
 /**
+ * Shape returned to the GET /v1/tokens endpoint. Excludes `hash` so it cannot
+ * be re-serialized into the response.
+ */
+export interface PublicTokenSummary {
+  tokenId: string;
+  userId: string;
+  scopes: string[];
+  createdAt: number;
+  expiresAt: number;
+  label?: string;
+}
+
+export interface TokenListResult {
+  tokens: PublicTokenSummary[];
+  truncated: boolean;
+}
+
+const LIST_LIMIT = 1000;
+
+function toSummary(meta: TokenMetadata): PublicTokenSummary {
+  return {
+    tokenId: meta.tokenId,
+    userId: meta.userId,
+    scopes: meta.scopes,
+    createdAt: meta.createdAt,
+    expiresAt: meta.expiresAt,
+    ...(meta.label !== undefined ? { label: meta.label } : {}),
+  };
+}
+
+/**
+ * List tokens owned by a specific user via the per-user index
+ * (apitoken_user:<userId>:<tokenId>). Strips `hash` before returning.
+ *
+ * Tokens whose canonical record is missing or expired are silently dropped —
+ * the index can lag the canonical TTL or be stale post-revoke.
+ */
+export async function listUserTokens(
+  userId: string,
+  env: Env,
+  now: number = Date.now()
+): Promise<TokenListResult> {
+  const indexPrefix = KV_USER_NAMESPACE + userId + ":";
+  const listed = await env.OAUTH_KV.list({ prefix: indexPrefix, limit: LIST_LIMIT });
+  const indexKeys = (listed.keys as { name: string }[]).map((k) => k.name);
+  const summaries: PublicTokenSummary[] = [];
+  for (const indexKey of indexKeys) {
+    const tokenId = indexKey.slice(indexPrefix.length);
+    const meta = (await env.OAUTH_KV.get(KV_NAMESPACE + tokenId, "json")) as
+      | TokenMetadata
+      | null;
+    if (!meta) continue;
+    if (meta.expiresAt <= now) continue;
+    summaries.push(toSummary(meta));
+  }
+  summaries.sort((a, b) => b.createdAt - a.createdAt);
+  return { tokens: summaries, truncated: !listed.list_complete };
+}
+
+/**
+ * List every token in the system. Used by the admin path of GET /v1/tokens.
+ *
+ * Scans the canonical `apitoken:` prefix (NOT `apitoken_user:`) so that
+ * pre-backfill historical tokens are still surfaced for admins.
+ */
+export async function listAllTokens(
+  env: Env,
+  now: number = Date.now()
+): Promise<TokenListResult> {
+  const listed = await env.OAUTH_KV.list({ prefix: KV_NAMESPACE, limit: LIST_LIMIT });
+  // Defensive: KV.list with prefix "apitoken:" would also match "apitoken_hash:"
+  // and "apitoken_user:" since they start with the same characters. Filter to
+  // canonical entries only.
+  const canonicalKeys = (listed.keys as { name: string }[])
+    .map((k) => k.name)
+    .filter(
+      (name) => name.startsWith(KV_NAMESPACE) && !name.startsWith("apitoken_")
+    );
+  const summaries: PublicTokenSummary[] = [];
+  for (const key of canonicalKeys) {
+    const meta = (await env.OAUTH_KV.get(key, "json")) as TokenMetadata | null;
+    if (!meta) continue;
+    if (meta.expiresAt <= now) continue;
+    summaries.push(toSummary(meta));
+  }
+  summaries.sort((a, b) => b.createdAt - a.createdAt);
+  return { tokens: summaries, truncated: !listed.list_complete };
+}
+
+/**
  * Delete only the old token entries (apitoken:<id> + apitoken_hash:<hash>),
  * given the previously fetched metadata. Caller is responsible for ordering
  * (e.g., renew should persist new keys via issueToken BEFORE calling this).
