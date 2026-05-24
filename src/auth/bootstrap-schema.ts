@@ -4,6 +4,9 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const REDIRECT_URI_POLICY_ERROR =
   "HTTP redirect_uris must be loopback (127.0.0.1, localhost, [::1]); use HTTPS otherwise";
 
+// Cross-checks raw URI authority against URL().hostname to defeat WHATWG
+// normalisations (e.g. LOCALHOST → localhost lowercase) that would otherwise
+// let case/encoding variants slip past the strict LOOPBACK_HOSTS allowlist.
 function rawHostnameFromUri(uri: string): string | undefined {
   const schemeEnd = uri.indexOf("://");
   if (schemeEnd === -1) return undefined;
