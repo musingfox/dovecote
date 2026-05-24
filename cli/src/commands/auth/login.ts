@@ -41,6 +41,7 @@ export async function runAuthLogin(
     "device": { type: "boolean" },
     "scope": { type: "string" },
     "expires-in": { type: "string" },
+    "label": { type: "string" },
   });
 
   const clientId =
@@ -111,15 +112,21 @@ export async function runAuthLogin(
     expiresAt: number;
     label?: string;
   };
+  const label = (values.label as string | undefined) ?? "dovecote-cli";
   try {
     exchange = await exchangeOAuthForRuntimeToken({
       serverUrl,
       oauthToken,
-      label: "dovecote-cli",
+      label,
       fetchImpl: ctx.fetchImpl,
     });
   } catch (e) {
-    if (e instanceof CliError) throw e;
+    if (e instanceof CliError) {
+      if (e.code === ExitCode.GENERIC && e.message.startsWith("Exchange failed:")) {
+        throw new CliError(ExitCode.UPSTREAM, e.message);
+      }
+      throw e;
+    }
     throw new CliError(
       ExitCode.UPSTREAM,
       `Exchange failed: ${(e as Error).message}`
@@ -148,7 +155,7 @@ export async function runAuthLogin(
   await writeConfig(newConfig, ctx.configPath ?? defaultConfigPath(ctx.env));
 
   ctx.stdout(
-    `Logged in. tokenId=${exchange.tokenId} scopes=[${exchange.scopes.join(", ")}] expiresAt=${new Date(exchange.expiresAt).toISOString()}\n`
+    `Logged in. tokenId=${exchange.tokenId} scopes=[${exchange.scopes.join(", ")}] expiresAt=${new Date(exchange.expiresAt).toISOString()} label='${exchange.label ?? label}'\n`
   );
   return ExitCode.OK;
 }

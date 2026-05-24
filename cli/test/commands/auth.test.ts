@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runMain } from "../../src/main.ts";
-import { ExitCode } from "../../src/exit-codes.ts";
+import { CliError, ExitCode } from "../../src/exit-codes.ts";
 import { readConfig, writeConfig } from "../../src/config.ts";
 import { runAuthLogin } from "../../src/commands/auth/login.ts";
 import type { LoopbackServer, LoopbackServerFactory } from "../../src/auth-flow.ts";
@@ -491,4 +491,154 @@ test("auth whoami: client behind minClientVersion → exit 10", async () => {
     ),
   });
   expect(code).toBe(ExitCode.CLIENT_BEHIND);
+});
+
+test("auth login: --label forwards runtime token label", async () => {
+  let capturedState: string | undefined;
+  let exchangeBody: string | undefined;
+  const factory: LoopbackServerFactory = async () => ({
+    redirectUri: "http://127.0.0.1:54321",
+    onAuthorizeUrl(url: string) {
+      capturedState = new URL(url).searchParams.get("state") ?? undefined;
+    },
+    async waitForCallback() {
+      return { code: "c", state: capturedState ?? "" };
+    },
+    async close() {},
+  });
+  const fetchImpl = makeFetch((url, init) => {
+    if (url.includes("/token")) {
+      return new Response(JSON.stringify({ access_token: "oauth_label" }), { status: 200 });
+    }
+    if (url.includes("/v1/auth/exchange")) {
+      exchangeBody = init?.body as string | undefined;
+      return new Response(
+        JSON.stringify({
+          token: "dvct_x",
+          tokenId: "t1",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: Date.now() + 90 * 86400 * 1000,
+          label: "ci-runner-1",
+        }),
+        { status: 201 }
+      );
+    }
+    return new Response("nf", { status: 404 });
+  });
+  const out: string[] = [];
+
+  const exit = await runAuthLogin(
+    {
+      argv: ["--server-url", "https://srv", "--no-browser", "--label", "ci-runner-1"],
+      globalFlags: { json: false, quiet: false, verbose: false },
+      env: { DOVECOTE_CLIENT_ID: "cli-test" },
+      stdout: (s) => out.push(s),
+      stderr: () => {},
+      configPath: cfgPath,
+      fetchImpl,
+    },
+    { browser: async () => {}, loopbackFactory: factory, isTTY: false }
+  );
+
+  expect(exit).toBe(ExitCode.OK);
+  expect(JSON.parse(exchangeBody ?? "{}").label).toBe("ci-runner-1");
+  expect(out.join("")).toContain("label='ci-runner-1'");
+});
+
+test("auth login: omitted --label defaults runtime token label", async () => {
+  let capturedState: string | undefined;
+  let exchangeBody: string | undefined;
+  const factory: LoopbackServerFactory = async () => ({
+    redirectUri: "http://127.0.0.1:54321",
+    onAuthorizeUrl(url: string) {
+      capturedState = new URL(url).searchParams.get("state") ?? undefined;
+    },
+    async waitForCallback() {
+      return { code: "c", state: capturedState ?? "" };
+    },
+    async close() {},
+  });
+  const fetchImpl = makeFetch((url, init) => {
+    if (url.includes("/token")) {
+      return new Response(JSON.stringify({ access_token: "oauth_default_label" }), { status: 200 });
+    }
+    if (url.includes("/v1/auth/exchange")) {
+      exchangeBody = init?.body as string | undefined;
+      return new Response(
+        JSON.stringify({
+          token: "dvct_x",
+          tokenId: "t1",
+          userId: "operator",
+          scopes: ["dovecote:admin"],
+          expiresAt: Date.now() + 90 * 86400 * 1000,
+          label: "dovecote-cli",
+        }),
+        { status: 201 }
+      );
+    }
+    return new Response("nf", { status: 404 });
+  });
+  const out: string[] = [];
+
+  const exit = await runAuthLogin(
+    {
+      argv: ["--server-url", "https://srv", "--no-browser"],
+      globalFlags: { json: false, quiet: false, verbose: false },
+      env: { DOVECOTE_CLIENT_ID: "cli-test" },
+      stdout: (s) => out.push(s),
+      stderr: () => {},
+      configPath: cfgPath,
+      fetchImpl,
+    },
+    { browser: async () => {}, loopbackFactory: factory, isTTY: false }
+  );
+
+  expect(exit).toBe(ExitCode.OK);
+  expect(JSON.parse(exchangeBody ?? "{}").label).toBe("dovecote-cli");
+  expect(out.join("")).toContain("label='dovecote-cli'");
+});
+
+
+test("auth login: oversized --label surfaces upstream exchange failure", async () => {
+  let capturedState: string | undefined;
+  const factory: LoopbackServerFactory = async () => ({
+    redirectUri: "http://127.0.0.1:54321",
+    onAuthorizeUrl(url: string) {
+      capturedState = new URL(url).searchParams.get("state") ?? undefined;
+    },
+    async waitForCallback() {
+      return { code: "c", state: capturedState ?? "" };
+    },
+    async close() {},
+  });
+  const fetchImpl = makeFetch((url) => {
+    if (url.includes("/token")) {
+      return new Response(JSON.stringify({ access_token: "oauth_long_label" }), { status: 200 });
+    }
+    if (url.includes("/v1/auth/exchange")) {
+      return new Response(JSON.stringify({ error: "label_too_long" }), { status: 400 });
+    }
+    return new Response("nf", { status: 404 });
+  });
+
+  try {
+    const exit = await runAuthLogin(
+      {
+        argv: ["--server-url", "https://srv", "--no-browser", "--label", "x".repeat(65)],
+        globalFlags: { json: false, quiet: false, verbose: false },
+        env: { DOVECOTE_CLIENT_ID: "cli-test" },
+        stdout: () => {},
+        stderr: () => {},
+        configPath: cfgPath,
+        fetchImpl,
+      },
+      { browser: async () => {}, loopbackFactory: factory, isTTY: false }
+    );
+    expect(exit).not.toBe(ExitCode.OK);
+  } catch (e: any) {
+    expect(e).toBeInstanceOf(CliError);
+    expect(e.code).toBe(ExitCode.UPSTREAM);
+    expect(String(e.message)).toContain("Exchange failed: 400");
+  }
 });
