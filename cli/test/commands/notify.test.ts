@@ -40,6 +40,46 @@ function makeFetch(handler: (url: string, init?: RequestInit) => Response): type
   }) as typeof fetch;
 }
 
+async function runNotifyRetryAfterCase(options: {
+  retryAfter?: string;
+  now?: () => number;
+}) {
+  let calls = 0;
+  const sleeps: number[] = [];
+  const stderr: string[] = [];
+  const stdout: string[] = [];
+  const code = await runNotify(
+    {
+      argv: ["ops", "--text", "hi", "--retry", "2"],
+      globalFlags: { json: false, quiet: false, verbose: false },
+      env: { HOME: "/no" },
+      stdout: (s) => stdout.push(s),
+      stderr: (s) => stderr.push(s),
+      configPath: cfgPath,
+      now: options.now,
+      fetchImpl: ((async () => {
+        calls++;
+        if (calls === 1) {
+          const headers = new Headers();
+          if (options.retryAfter !== undefined) {
+            headers.set("Retry-After", options.retryAfter);
+          }
+          return new Response(JSON.stringify({ error: "rate_limited" }), {
+            status: 429,
+            headers,
+          });
+        }
+        return new Response(
+          JSON.stringify({ success: true, channel: "ops", messageId: "m_retry" }),
+          { status: 200 }
+        );
+      }) as unknown as typeof fetch),
+    },
+    { sleep: async (ms) => { sleeps.push(ms); } }
+  );
+  return { calls, code, sleeps, stderr: stderr.join(""), stdout: stdout.join("") };
+}
+
 test("notify sends and prints messageId on 200", async () => {
   const out: string[] = [];
   const code = await runMain({
@@ -181,6 +221,59 @@ test("notify 429 five attempts exhausted → exit 7 (UPSTREAM)", async () => {
   );
   expect(code).toBe(ExitCode.UPSTREAM);
   expect(calls).toBe(5);
+});
+
+test("notify 429 Retry-After integer seconds controls retry sleep", async () => {
+  const result = await runNotifyRetryAfterCase({ retryAfter: "30" });
+  expect(result.code).toBe(ExitCode.OK);
+  expect(result.calls).toBe(2);
+  expect(result.sleeps).toEqual([30_000]);
+  expect(result.stderr).toBe("");
+});
+
+test("notify 429 Retry-After RFC 1123 date controls retry sleep", async () => {
+  const now = Date.UTC(2026, 0, 1, 0, 0, 0);
+  const retryAfter = new Date(now + 10_000).toUTCString();
+  const result = await runNotifyRetryAfterCase({ retryAfter, now: () => now });
+  expect(result.code).toBe(ExitCode.OK);
+  expect(result.sleeps).toHaveLength(1);
+  expect(result.sleeps[0]).toBeGreaterThanOrEqual(9_000);
+  expect(result.sleeps[0]).toBeLessThanOrEqual(11_000);
+});
+
+test("notify 429 without Retry-After falls back to fixed backoff", async () => {
+  const result = await runNotifyRetryAfterCase({});
+  expect(result.code).toBe(ExitCode.OK);
+  expect(result.sleeps).toHaveLength(1);
+  expect(result.sleeps[0]).toBeGreaterThanOrEqual(1000);
+  expect(result.sleeps[0]).toBeLessThan(1300);
+  expect(result.stderr).toBe("");
+});
+
+test("notify 429 malformed Retry-After warns and falls back to fixed backoff", async () => {
+  const result = await runNotifyRetryAfterCase({ retryAfter: "notanumber" });
+  expect(result.code).toBe(ExitCode.OK);
+  expect(result.sleeps).toHaveLength(1);
+  expect(result.sleeps[0]).toBeGreaterThanOrEqual(1000);
+  expect(result.sleeps[0]).toBeLessThan(1300);
+  expect(result.stderr).toContain(
+    "Warning: malformed Retry-After header: notanumber"
+  );
+});
+
+test("notify 429 Retry-After above cap warns and sleeps 300s", async () => {
+  const result = await runNotifyRetryAfterCase({ retryAfter: "600" });
+  expect(result.code).toBe(ExitCode.OK);
+  expect(result.sleeps).toEqual([300_000]);
+  expect(result.stderr).toContain(
+    "Warning: Retry-After exceeds 5 min cap; sleeping 300s"
+  );
+});
+
+test("notify 429 Retry-After zero retries immediately", async () => {
+  const result = await runNotifyRetryAfterCase({ retryAfter: "0" });
+  expect(result.code).toBe(ExitCode.OK);
+  expect(result.sleeps).toEqual([0]);
 });
 
 test("notify --dry-run prints content and skips HTTP", async () => {

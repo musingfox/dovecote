@@ -4,6 +4,7 @@ import { CliError, ExitCode } from "../exit-codes.ts";
 import { parseCommandArgs } from "../argv.ts";
 import { readConfig, resolveServerUrl } from "../config.ts";
 import { createHttpClient } from "../http.ts";
+import { parseRetryAfter } from "../retry-after.ts";
 
 export interface NotifyDeps {
   /** Override sleep for tests (defaults to real setTimeout). */
@@ -100,7 +101,35 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
         ctx.stderr(`Channel not found: ${channel}\n`);
         return ExitCode.NOT_FOUND;
       }
-      // 5xx / 429 → retry
+      // 429 with Retry-After → cooperate with server-provided pacing.
+      if (res.status === 429 && attempt < retry) {
+        const retryAfter = res.headers.get("Retry-After");
+        if (retryAfter === null) {
+          await doSleep(backoffMs(attempt));
+          continue;
+        }
+
+        const seconds = parseRetryAfter(
+          retryAfter,
+          ctx.now ? ctx.now() : Date.now()
+        );
+        if (seconds === null) {
+          ctx.stderr(
+            `Warning: malformed Retry-After header: ${retryAfter}; using fixed backoff\n`
+          );
+          await doSleep(backoffMs(attempt));
+          continue;
+        }
+
+        const cappedSeconds = Math.min(seconds, 300);
+        if (seconds > 300) {
+          ctx.stderr("Warning: Retry-After exceeds 5 min cap; sleeping 300s\n");
+        }
+        await doSleep(cappedSeconds * 1000);
+        continue;
+      }
+
+      // 5xx / 429 without Retry-After → retry with fixed backoff
       if (attempt < retry) {
         const wait = backoffMs(attempt);
         await doSleep(wait);
