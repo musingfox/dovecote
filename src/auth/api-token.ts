@@ -137,9 +137,10 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Generate a URL-safe base64-encoded random string.
+ * Generate a URL-safe base64-encoded random string. Exported so other auth
+ * carve-outs (e.g. device-code flow) can share the entropy primitive.
  */
-function generateRandomBase64Url(byteCount: number): string {
+export function generateRandomBase64Url(byteCount: number): string {
   const bytes = new Uint8Array(byteCount);
   crypto.getRandomValues(bytes);
   return base64url(bytes);
