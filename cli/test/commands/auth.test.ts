@@ -642,3 +642,25 @@ test("auth login: oversized --label surfaces upstream exchange failure", async (
     expect(String(e.message)).toContain("Exchange failed: 400");
   }
 });
+
+test("auth login: --help lists --label without OAuth flow", async () => {
+  const out: string[] = [];
+  let fetchCalls = 0;
+  const exit = await runAuthLogin({
+    argv: ["--help"],
+    globalFlags: { json: false, quiet: false, verbose: false },
+    env: {},
+    stdout: (s) => out.push(s),
+    stderr: () => {},
+    configPath: cfgPath,
+    fetchImpl: makeFetch(() => {
+      fetchCalls++;
+      throw new Error("fetch should not be called for auth login help");
+    }),
+  });
+
+  expect(exit).toBe(ExitCode.OK);
+  expect(out.join("")).toContain("--label");
+  expect(out.join("")).toContain("login");
+  expect(fetchCalls).toBe(0);
+});

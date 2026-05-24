@@ -30,10 +30,28 @@ export interface LoginDeps {
   now?: () => number;
 }
 
+const AUTH_LOGIN_HELP = `Usage: dovecote auth login [options]
+
+Options:
+  --client-id <id>     OAuth client id (defaults to DOVECOTE_CLIENT_ID env)
+  --server-url <url>   Override server URL
+  --no-browser         Print authorize URL instead of opening browser
+  --device             Use RFC 8628 device-code flow (headless)
+  --scope <scope>      OAuth scope (device flow)
+  --expires-in <dur>   Token lifetime (7d|30d|60d|90d)
+  --label <string>     Label recorded on the runtime token (default: "dovecote-cli")
+  --help, -h           Show this help
+`;
+
 export async function runAuthLogin(
   ctx: CmdCtx,
   deps: LoginDeps = {}
 ): Promise<number> {
+  if (ctx.argv.includes("--help") || ctx.argv.includes("-h")) {
+    ctx.stdout(AUTH_LOGIN_HELP);
+    return ExitCode.OK;
+  }
+
   const { values } = parseCommandArgs(ctx.argv, {
     "client-id": { type: "string" },
     "server-url": { type: "string" },
