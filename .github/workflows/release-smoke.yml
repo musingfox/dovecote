@@ -1,0 +1,48 @@
+name: Release smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to smoke (e.g. cli-v0.1.0)
+        required: true
+        type: string
+        default: cli-v0.1.0
+      expected_version:
+        description: Expected `dovecote --version` output
+        required: true
+        type: string
+        default: "0.1.0"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install via setup-dovecote@${{ inputs.tag }}
+        uses: musingfox/dovecote/.github/actions/setup-dovecote@cli-v0.1.0
+        with:
+          version: ${{ inputs.expected_version }}
+
+      - name: Assert dovecote --version
+        shell: bash
+        run: |
+          OUT=$(dovecote --version | tr -d '\r\n ')
+          echo "got: '$OUT'"
+          if [ "$OUT" != "${{ inputs.expected_version }}" ]; then
+            echo "::error::expected '${{ inputs.expected_version }}', got '$OUT'"
+            exit 1
+          fi
+          echo "OK: dovecote --version = $OUT"
