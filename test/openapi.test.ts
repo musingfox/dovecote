@@ -50,6 +50,50 @@ test("C-OpenAPI-Registration: GET /v1/tokens registered with TokenListResponse",
   expect(spec.components.schemas).toHaveProperty("TokenListResponse");
 });
 
+// C-OpenApiDeviceDriftGate: Phase 4.4 RFC 8628 device-code carve-outs.
+// Both endpoints are unauthenticated like /v1/auth/exchange-oidc — no 403,
+// so they are NOT added to REQUIRED_PATHS above.
+test("C-OpenApiDeviceDriftGate: POST /v1/auth/device-authorize registered with DeviceAuthorize{Request,Response} + 503", async () => {
+  const spec = await Bun.file("openapi.json").json();
+  expect(spec.paths).toHaveProperty("/v1/auth/device-authorize");
+  const op = spec.paths["/v1/auth/device-authorize"].post;
+  expect(op).toBeDefined();
+  expect(op.requestBody.content["application/json"].schema.$ref).toContain(
+    "DeviceAuthorizeRequest",
+  );
+  expect(op.responses["200"].content["application/json"].schema.$ref).toContain(
+    "DeviceAuthorizeResponse",
+  );
+  for (const code of ["400", "429", "500", "503"]) {
+    expect(op.responses).toHaveProperty(code);
+  }
+  expect(spec.components.schemas).toHaveProperty("DeviceAuthorizeRequest");
+  expect(spec.components.schemas).toHaveProperty("DeviceAuthorizeResponse");
+});
+
+test("C-OpenApiDeviceDriftGate: POST /v1/auth/exchange-device registered with DeviceExchangeRequest + 503", async () => {
+  const spec = await Bun.file("openapi.json").json();
+  expect(spec.paths).toHaveProperty("/v1/auth/exchange-device");
+  const op = spec.paths["/v1/auth/exchange-device"].post;
+  expect(op).toBeDefined();
+  expect(op.requestBody.content["application/json"].schema.$ref).toContain(
+    "DeviceExchangeRequest",
+  );
+  // Success returns TokenIssueResponse (reused).
+  expect(op.responses["201"].content["application/json"].schema.$ref).toContain(
+    "TokenIssueResponse",
+  );
+  // 400 envelope is the typed device-poll union.
+  expect(op.responses["400"].content["application/json"].schema.$ref).toContain(
+    "DevicePollPendingResponse",
+  );
+  for (const code of ["429", "500", "503"]) {
+    expect(op.responses).toHaveProperty(code);
+  }
+  expect(spec.components.schemas).toHaveProperty("DeviceExchangeRequest");
+  expect(spec.components.schemas).toHaveProperty("DevicePollPendingResponse");
+});
+
 // C-OpenAPI-Registration: Phase 4.3 OIDC exchange endpoint shape.
 // Note we do NOT extend REQUIRED_PATHS above — `/v1/auth/exchange-oidc` has
 // no admin-scope gate, so the "every /v1 path defines 401 + 403" loop above
