@@ -206,6 +206,124 @@ test("second poll on consumed → 400 expired_token", async () => {
   expect(body.error).toBe("expired_token");
 });
 
+test("two concurrent polls on approved record → first 201, second 400 expired_token; issueToken called exactly once", async () => {
+  // Models the race fix: poll1 writes `consumed` BEFORE calling issueToken.
+  // We pause poll1's issueToken to hold the in-flight state, then fire poll2.
+  // Under the OLD ordering (consumed AFTER issueToken), poll2 would still see
+  // `approved` and mint a 2nd token. Under the fix, poll2 sees `consumed` and
+  // returns `expired_token`, and issueToken is invoked exactly once.
+  const env = buildEnv();
+  let releaseIssueToken!: () => void;
+  const issueTokenGate = new Promise<void>((r) => (releaseIssueToken = r));
+  let issueCallCount = 0;
+  const issueTokenMock = mock(async () => {
+    issueCallCount++;
+    // Block until the test releases the gate — keeps poll1 suspended after
+    // it has written `consumed` but before it returns a 201.
+    await issueTokenGate;
+    return {
+      token: "dvct_" + "z".repeat(32),
+      tokenId: "tid_race_" + issueCallCount,
+      expiresAt: Date.now() + 7_776_000_000,
+    };
+  });
+  const services = makeServices({ issueToken: issueTokenMock });
+  const { root } = buildApp(services);
+
+  const now = Date.now();
+  await seed(env, "DCRACE", {
+    status: "approved",
+    clientId: "cli",
+    requestedScopes: ["dovecote:notify"],
+    intervalSec: 5,
+    lastPollMs: 0,
+    createdAt: now - 5000,
+    expiresAt: now + 595_000,
+    userCode: "AAAA-BBBB",
+    userId: "alice",
+    scopes: ["dovecote:notify"],
+  });
+
+  // Fire poll1 — it will progress through the consumed-write and then block
+  // inside issueToken on the gate.
+  const poll1Promise = root.fetch(
+    req({ grant_type: GRANT, device_code: "DCRACE" }),
+    env,
+    execCtx(),
+  );
+  // Let poll1's microtasks drain so it reaches the awaited issueToken call.
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+
+  // At this point poll1 should be suspended INSIDE issueToken, and the KV
+  // record should already be `consumed` (the fix's ordering).
+  const midState = await (env.OAUTH_KV as any).get("device:DCRACE", "json");
+  expect(midState.status).toBe("consumed");
+  expect(issueCallCount).toBe(1);
+
+  // Now fire poll2 — it should observe `consumed` and bail with expired_token,
+  // NOT call issueToken again.
+  const poll2Res = await root.fetch(
+    req({ grant_type: GRANT, device_code: "DCRACE" }),
+    env,
+    execCtx(),
+  );
+  expect(poll2Res.status).toBe(400);
+  expect(((await poll2Res.json()) as any).error).toBe("expired_token");
+
+  // Release poll1 — it completes with 201.
+  releaseIssueToken();
+  const poll1Res = await poll1Promise;
+  expect(poll1Res.status).toBe(201);
+  expect(((await poll1Res.json()) as any).token).toMatch(/^dvct_/);
+
+  // Invariant: issueToken called exactly once across both polls.
+  expect(issueTokenMock).toHaveBeenCalledTimes(1);
+});
+
+test("approved record → consume_write_failed when KV.put throws → 500 internal_error, NO token minted", async () => {
+  const env = buildEnv();
+  const services = makeServices();
+  const { root } = buildApp(services);
+  const now = Date.now();
+  await seed(env, "DCFAIL", {
+    status: "approved",
+    clientId: "cli",
+    requestedScopes: [],
+    intervalSec: 5,
+    lastPollMs: 0,
+    createdAt: now - 1000,
+    expiresAt: now + 599_000,
+    userCode: "AAAA-BBBB",
+    userId: "alice",
+    scopes: ["dovecote:notify"],
+  });
+  // Patch put to throw ONLY for the consumed-marker write (status=consumed).
+  const kv = env.OAUTH_KV as any as MockKV;
+  const origPut = kv.put.bind(kv);
+  kv.put = (async (key: string, value: string, opts?: any) => {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed.status === "consumed") {
+        throw new Error("simulated KV write failure");
+      }
+    } catch (e) {
+      if ((e as Error).message === "simulated KV write failure") throw e;
+    }
+    return origPut(key, value, opts);
+  }) as any;
+
+  const res = await root.fetch(
+    req({ grant_type: GRANT, device_code: "DCFAIL" }),
+    env,
+    execCtx(),
+  );
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("internal_error");
+  // CRITICAL: issueToken must NOT have been called when consume-write fails.
+  expect(services.issueToken).toHaveBeenCalledTimes(0);
+});
+
 test("denied record → 400 access_denied", async () => {
   const env = buildEnv();
   const { root } = buildApp();

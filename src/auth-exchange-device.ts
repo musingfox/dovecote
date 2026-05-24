@@ -466,7 +466,13 @@ export function createAuthExchangeDeviceApp(services: DeviceServices) {
       return c.json({ error: "authorization_pending" }, 400);
     }
 
-    // 7. Approved → mint token, mark consumed.
+    // 7. Approved → mark consumed FIRST (CAS-style), THEN mint token.
+    //    Reversing the order closes a concurrent-poll race: if two polls see
+    //    `approved` simultaneously, only the one whose `consumed` write lands
+    //    first proceeds to issueToken — the other re-reads `consumed` and
+    //    returns `expired_token`. Workers KV has no native CAS, so re-read +
+    //    verify narrows (but does not eliminate) the race window from
+    //    [read…issueToken…write] down to [re-read…write].
     if (record.status === "approved") {
       if (!record.userId || !record.scopes) {
         writeAudit(env, ctx, {
@@ -482,6 +488,64 @@ export function createAuthExchangeDeviceApp(services: DeviceServices) {
           500,
         );
       }
+
+      // 7a. Re-read + verify still-approved (best-effort CAS).
+      let latest: DeviceRecord | null;
+      try {
+        latest = (await env.OAUTH_KV.get(recordKey, "json")) as DeviceRecord | null;
+      } catch (e) {
+        writeAudit(env, ctx, {
+          event: "auth.device.exchange",
+          ok: false,
+          reason: "internal_error",
+          authMethod: "none",
+          ip,
+          scope: "",
+        });
+        return c.json(
+          { error: "internal_error", error_description: (e as Error).message },
+          500,
+        );
+      }
+      if (!latest || latest.status !== "approved" || latest.expiresAt <= now) {
+        // Another concurrent poll already consumed it, or it expired in the
+        // narrow window. Surface as expired_token (existing branch behavior).
+        writeAudit(env, ctx, {
+          event: "auth.device.exchange",
+          ok: false,
+          reason: "expired_token",
+          authMethod: "none",
+          ip,
+          scope: "",
+        });
+        return c.json({ error: "expired_token" }, 400);
+      }
+
+      // 7b. Write `consumed` BEFORE issueToken. If this throws, we MUST NOT
+      //     mint a token — trading availability for safety to prevent double
+      //     minting on transient KV write failure.
+      const consumed: DeviceRecord = { ...latest, status: "consumed" };
+      try {
+        await env.OAUTH_KV.put(recordKey, JSON.stringify(consumed), {
+          expirationTtl: ttl,
+        });
+      } catch {
+        writeAudit(env, ctx, {
+          event: "auth.device.exchange",
+          ok: false,
+          reason: "consume_write_failed",
+          userId: record.userId,
+          authMethod: "none",
+          ip,
+          scope: record.scopes.join(" "),
+        });
+        return c.json(
+          { error: "internal_error", error_description: "Failed to persist consume marker" },
+          500,
+        );
+      }
+
+      // 7c. Mint token.
       let result: IssueResult;
       try {
         const ttlSeconds = record.expiresInRequested
@@ -544,16 +608,8 @@ export function createAuthExchangeDeviceApp(services: DeviceServices) {
         throw err;
       }
 
-      // Mark consumed (TTL preserved, never reset).
-      const consumed: DeviceRecord = { ...record, status: "consumed" };
-      try {
-        await env.OAUTH_KV.put(recordKey, JSON.stringify(consumed), {
-          expirationTtl: ttl,
-        });
-      } catch {
-        // Best-effort — the token is already issued; a stale "approved"
-        // record will be caught on the next poll (consumed/expired).
-      }
+      // Note: `consumed` was already written above (step 7b) BEFORE issueToken
+      // to close the concurrent-poll race. No post-issuance write needed.
 
       writeAudit(env, ctx, {
         event: "auth.device.exchange",
