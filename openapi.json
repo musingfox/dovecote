@@ -587,8 +587,28 @@
               }
             }
           },
+          "429": {
+            "description": "Rate limit exceeded — Retry-After header indicates retry window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Admin token revocation pressure circuit open",
             "content": {
               "application/json": {
                 "schema": {

@@ -12,6 +12,7 @@ function makeServices(overrides: {
   sendNotification?: (...args: any[]) => any;
   listChannels?: (...args: any[]) => any;
   readEnv?: (...args: any[]) => any;
+  checkRateLimit?: (...args: any[]) => any;
 } = {}) {
   return {
     sendNotification: mock(
@@ -25,6 +26,13 @@ function makeServices(overrides: {
     listChannels: mock(overrides.listChannels ?? ((_env: any, _auth: any) => [] as any[])),
     readEnv: mock(
       overrides.readEnv ?? (async (_env: any, _auth: any, _ctx: any, _args: any) => "default-value")
+    ),
+    checkRateLimit: mock(
+      overrides.checkRateLimit ??
+        (async (_kv: any, _ip: string, _namespace: string, _limit?: number) => ({
+          allowed: true,
+          current: 1,
+        }))
     ),
   };
 }

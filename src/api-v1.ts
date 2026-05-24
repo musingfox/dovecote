@@ -60,7 +60,8 @@ export type V1Services = {
   checkRateLimit: (
     kv: KVNamespace,
     ip: string,
-    namespace: string
+    namespace: string,
+    limit?: number
   ) => Promise<RateLimitResult>;
   getTokenMetadataByTokenId?: (
     tokenId: string,
@@ -77,6 +78,12 @@ export type V1Services = {
 };
 
 // Error mapping helper
+function parseNotifyLimit(value?: string): number {
+  if (value === undefined) return 60;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 60;
+}
+
 function mapError(c: any, err: unknown): Response {
   if (err instanceof ScopeError) {
     return c.json({ error: "forbidden", error_description: err.message }, 403);
@@ -101,7 +108,32 @@ export function createV1App(services: V1Services) {
   v1.post("/notify", async (c) => {
     const auth = c.get("auth");
     const env = c.env;
-    const ctx = c.executionCtx;
+    const ctx = c.executionCtx as ExecutionContext;
+    const ip = auth.ip;
+    const scope = auth.scopes.join(" ");
+
+    const rl = await services.checkRateLimit(
+      env.OAUTH_KV,
+      ip,
+      "notify",
+      parseNotifyLimit(env.NOTIFY_RATE_LIMIT_PER_MINUTE)
+    );
+    if (!rl.allowed) {
+      writeAudit(env, ctx, {
+        event: "notify.send",
+        ok: false,
+        reason: "rate_limited",
+        userId: auth.userId,
+        authMethod: auth.authMethod,
+        ip,
+        scope,
+      });
+      return c.json(
+        { error: "rate_limited", error_description: "Too many requests" },
+        429,
+        { "Retry-After": "60" }
+      );
+    }
 
     let body: any;
     try {

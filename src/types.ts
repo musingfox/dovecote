@@ -10,6 +10,7 @@ export interface Env {
   HMAC_PEPPER: string;
   ENABLE_CLIENT_BOOTSTRAP?: string;
   LEGACY_OPERATOR_USERNAME?: string;
+  NOTIFY_RATE_LIMIT_PER_MINUTE?: string;
   /**
    * JSON array of OIDC issuer configs trusted by POST /v1/auth/exchange-oidc.
    * Each entry: `{issuer, jwks_uri, audience, subClaim?}`. Unset/malformed → 503.

@@ -134,6 +134,7 @@ registry.registerPath({
     200: jsonOk(sendResultSchema, "Notification dispatched"),
     ...writeValidationErrors,
     ...commonAuthErrors,
+    ...adminRateLimitErrors,
   },
 });
 
