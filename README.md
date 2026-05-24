@@ -148,15 +148,17 @@ The dovecote CLI ships as a standalone binary for 5 platforms; releases are tagg
 ### Install in a GitHub Actions workflow
 
 ```yaml
-- uses: musingfox/dovecote/.github/actions/setup-dovecote@v1
+- uses: musingfox/dovecote/.github/actions/setup-dovecote@cli-v0.1.0
   with:
-    version: 0.1.0
+    version: "0.1.0"
     server-url: https://dovecote.your-subdomain.workers.dev
   env:
     DOVECOTE_TOKEN: ${{ secrets.DOVECOTE_TOKEN }}
 
 - run: dovecote notify ops --text "deploy complete"
 ```
+
+For end-to-end CI consumer setup (token provisioning, supported triples, troubleshooting), see [docs/setup-dovecote-runbook.md](./docs/setup-dovecote-runbook.md).
 
 ### Local install
 
