@@ -6,9 +6,8 @@ inputs:
     description: "Release version to install (e.g., 0.1.0)."
     required: true
   token:
-    description: "DOVECOTE_TOKEN to export into env. Defaults to the env's existing DOVECOTE_TOKEN if set."
+    description: "DOVECOTE_TOKEN to export into env. If unset, the action leaves the caller's DOVECOTE_TOKEN env var (if any) untouched."
     required: false
-    default: ${{ env.DOVECOTE_TOKEN }}
   server-url:
     description: "Override DOVECOTE_SERVER_URL."
     required: false
