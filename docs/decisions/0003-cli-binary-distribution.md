@@ -70,9 +70,9 @@ Chosen option: **GitHub Releases only**。v0.1 不發 Homebrew tap、不發 npm 
   * **Homebrew tap**：俟 audience size 成長到值得額外 tap 維運（評估依據：GH Releases 下載量、issue 中對 `brew install` 的需求量）時再 re-evaluate；可於 v0.2 / v0.3 引入
   * **npm publish**：需先翻轉 `package.json` 的 `"private": true`、並設計 npm-wrapper 形態（npm package 內含小 launcher，自 GH Releases 下載對應 platform binary，避免 npm tarball 直接夾帶 60–100 MB binary）；同樣依 audience size 再評估
   * **Docker image**：若未來出現 server-side / container-based 使用情境再行評估，v0.1 不涵蓋
-* **Signing follow-up（v0.2）**：
-  * macOS Developer ID signing + notarization（apple-codesign / `codesign` + `xcrun notarytool`），消除 `xattr` workaround
-  * Windows code signing（EV cert / Azure Trusted Signing），減少 SmartScreen 警告
+* **Signing follow-up（v0.2）**：方向已於 [ADR 0004](./0004-cli-binary-signing-direction.md) 確定 — v0.2 採 **cosign-keyless（Sigstore + GitHub Actions OIDC）** 為唯一簽章機制；macOS Developer ID / Windows EV 等原生簽章延後至 v0.3+，待 audience 訊號達標再評估
+  * 候選但未採用：macOS Developer ID signing + notarization（apple-codesign / `codesign` + `xcrun notarytool`），可消除 `xattr` workaround
+  * 候選但未採用：Windows code signing（EV cert / Azure Trusted Signing），可減少 SmartScreen 警告
 * **Cross-reference**：
   * [ADR 0001](./0001-http-api-trunk-and-dual-auth.md) — CLI 為純 HTTP client，僅呼叫 `/v1/*`，為本 ADR 的架構前提
 * **Out-of-scope precondition**：CLI entrypoint（`src/cli.ts`）、`package.json` `bin` 欄位、`bun build --compile` build pipeline 尚未建立，屬本 ADR 範圍外的先決條件
