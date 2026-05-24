@@ -606,16 +606,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Admin token revocation pressure circuit open",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
           }
         }
       }

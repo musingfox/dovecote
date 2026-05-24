@@ -122,6 +122,10 @@ const adminRateLimitErrors = {
   503: errorResponse("Admin token revocation pressure circuit open"),
 };
 
+const notifyRateLimitErrors = {
+  429: errorResponse("Rate limit exceeded — Retry-After header indicates retry window"),
+};
+
 // --- Route registrations ---
 registry.registerPath({
   method: "post",
@@ -134,7 +138,7 @@ registry.registerPath({
     200: jsonOk(sendResultSchema, "Notification dispatched"),
     ...writeValidationErrors,
     ...commonAuthErrors,
-    ...adminRateLimitErrors,
+    ...notifyRateLimitErrors,
   },
 });
 
