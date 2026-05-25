@@ -17,7 +17,15 @@
 import { randomBytes, pbkdf2Sync } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, stderr, env, argv, exit } from "node:process";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+  chmodSync,
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir, homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -87,6 +95,42 @@ function fail(msg: string): never {
   exit(1);
 }
 
+// ---------- state persistence ----------
+
+function statePath(envName: string): string {
+  return join(homedir(), ".dovecote", `state-${envName}.json`);
+}
+
+interface WizardState {
+  envName: string;
+  serverUrl?: string;
+  username?: string;
+  channelIds?: string[];
+  lastUpdated?: string;
+}
+
+function loadState(envName: string): WizardState {
+  const p = statePath(envName);
+  if (!existsSync(p)) return { envName };
+  try {
+    return JSON.parse(readFileSync(p, "utf8")) as WizardState;
+  } catch {
+    return { envName };
+  }
+}
+
+function saveState(envName: string, patch: Partial<WizardState>): void {
+  const p = statePath(envName);
+  mkdirSync(dirname(p), { recursive: true });
+  const merged = {
+    ...loadState(envName),
+    ...patch,
+    envName,
+    lastUpdated: new Date().toISOString(),
+  };
+  writeFileSync(p, JSON.stringify(merged, null, 2) + "\n", { mode: 0o600 });
+}
+
 // ---------- wrangler shell helpers ----------
 
 function wrangler(
@@ -115,8 +159,36 @@ function genSecret(bytes = 32): string {
 
 // ---------- step implementations ----------
 
+async function step0_prereqs(): Promise<void> {
+  header(0, 9, "Prerequisites");
+
+  // bun
+  const bun = spawnSync("bun", ["--version"], { encoding: "utf8" });
+  if (bun.status !== 0) fail("`bun` not on PATH — install from https://bun.sh");
+  const bunVer = (bun.stdout || "").trim();
+  ok(`bun ${bunVer}`);
+
+  // wrangler
+  const wr = spawnSync("wrangler", ["--version"], { encoding: "utf8" });
+  if (wr.status !== 0)
+    fail("`wrangler` not on PATH — run `bun install` to get the dev dependency");
+  // wrangler --version emits lines like "wrangler 4.40.2 (update available 4.94.0)"; grab first line
+  const wrVer = ((wr.stdout || "").split("\n")[0] ?? "").trim();
+  ok(wrVer);
+
+  // jq (optional — only the verify-from-stdout path uses it)
+  const jq = spawnSync("jq", ["--version"], { encoding: "utf8" });
+  if (jq.status === 0) {
+    ok(`jq ${(jq.stdout || "").trim()}`);
+  } else {
+    warn(
+      "jq not on PATH — optional (recommended for parsing /admin/issue-token responses by hand)"
+    );
+  }
+}
+
 async function step1_authCheck(): Promise<void> {
-  header(1, 8, "Cloudflare authentication");
+  header(1, 9, "Cloudflare authentication");
   const r = wrangler(["whoami"], { capture: true });
   if (r.code !== 0) {
     if (
@@ -145,7 +217,7 @@ interface SecretPlan {
 }
 
 async function step2_secrets(): Promise<SecretPlan[]> {
-  header(2, 8, `Generate + push secrets to dovecote (${envName})`);
+  header(2, 9, `Generate + push secrets to dovecote (${envName})`);
 
   const existing = wrangler(["secret", "list", "--env", envName], {
     capture: true,
@@ -199,6 +271,24 @@ async function step2_secrets(): Promise<SecretPlan[]> {
     return plan;
   }
 
+  // Persist generated secrets to a local file BEFORE pushing — if the wrangler
+  // push fails, the user still has the values on disk to retry with.
+  const secretsFile = join(homedir(), ".dovecote", `secrets-${envName}.txt`);
+  mkdirSync(dirname(secretsFile), { recursive: true });
+  const ts = new Date().toISOString();
+  const lines = [
+    `# dovecote ${envName} secrets — generated ${ts}`,
+    `# IMPORTANT`,
+    `#   1. Move these into your password manager (1Password / Bitwarden / etc.).`,
+    `#   2. Delete this file after copying — it's plaintext on your disk.`,
+    `#   3. HMAC_PEPPER is UNRECOVERABLE. Losing it invalidates every dvct_* token`,
+    `#      ever issued by this worker; rotating it requires re-issuing all CLI tokens.`,
+    ``,
+  ];
+  for (const p of toPush) lines.push(`${p.name}=${p.value}`);
+  writeFileSync(secretsFile, lines.join("\n") + "\n", { mode: 0o600 });
+  ok(`wrote ${secretsFile} (mode 0600) — copy to password manager, then delete`);
+
   info(`pushing ${toPush.length} secret(s) via wrangler secret bulk...`);
   const dir = mkdtempSync(join(tmpdir(), "dovecote-setup-"));
   const file = join(dir, "secrets.json");
@@ -216,8 +306,8 @@ async function step2_secrets(): Promise<SecretPlan[]> {
   return plan;
 }
 
-async function step3_channel(): Promise<void> {
-  header(3, 8, "Configure at least one notification channel");
+async function step3_channel(): Promise<string[]> {
+  header(3, 9, "Configure at least one notification channel");
   const choice = (
     await ask(
       "  Channel? [telegram / discord / both / skip]",
@@ -226,6 +316,7 @@ async function step3_channel(): Promise<void> {
   ).toLowerCase();
 
   const instances: { name: string; payload: string }[] = [];
+  const channelIds: string[] = [];
 
   if (choice === "telegram" || choice === "both") {
     info(
@@ -241,6 +332,7 @@ async function step3_channel(): Promise<void> {
         name: "TELEGRAM_INSTANCES",
         payload: JSON.stringify([{ id, botToken, chatId }]),
       });
+      channelIds.push(`telegram-${id}`);
     }
   }
 
@@ -257,6 +349,7 @@ async function step3_channel(): Promise<void> {
         name: "DISCORD_INSTANCES",
         payload: JSON.stringify([{ id, webhookUrl }]),
       });
+      channelIds.push(`discord-${id}`);
     }
   }
 
@@ -264,12 +357,12 @@ async function step3_channel(): Promise<void> {
     warn(
       "skipped channel config — `dovecote notify` will return no_channels until you set TELEGRAM_INSTANCES or DISCORD_INSTANCES."
     );
-    return;
+    return [];
   }
 
   if (instances.length === 0) {
     warn("no channel configured — you can re-run the wizard later.");
-    return;
+    return [];
   }
 
   const dir = mkdtempSync(join(tmpdir(), "dovecote-setup-"));
@@ -284,6 +377,8 @@ async function step3_channel(): Promise<void> {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+  saveState(envName, { channelIds });
+  return channelIds;
 }
 
 function normalizeServerUrl(raw: string): string | null {
@@ -312,12 +407,29 @@ async function askUrl(prompt: string): Promise<string> {
 }
 
 async function step4_deploy(): Promise<string> {
-  header(4, 8, `Deploy worker (dovecote-${envName})`);
+  header(4, 9, `Deploy worker (dovecote-${envName})`);
+
+  if (resume) {
+    const prior = loadState(envName).serverUrl;
+    if (prior) {
+      ok(`reusing serverUrl from state: ${prior}`);
+      info(
+        `(delete ${statePath(envName)} if you want to re-deploy in --resume mode)`
+      );
+      return prior;
+    }
+  }
+
   const proceed = resume
     ? false
     : await askYesNo("  Run `wrangler deploy --env " + envName + "` now?");
+  let serverUrl: string;
   if (!proceed) {
-    return await askUrl("  Deployed worker URL (paste from CF dashboard):");
+    serverUrl = await askUrl(
+      "  Deployed worker URL (paste from CF dashboard):"
+    );
+    saveState(envName, { serverUrl });
+    return serverUrl;
   }
   const r = wrangler(["deploy", "--env", envName], { capture: true });
   stdout.write(r.stdout);
@@ -327,10 +439,14 @@ async function step4_deploy(): Promise<string> {
   const urlMatch = r.stdout.match(/https:\/\/[\w.-]+workers\.dev/);
   if (urlMatch) {
     ok(`deployed: ${urlMatch[0]}`);
-    return urlMatch[0];
+    serverUrl = urlMatch[0];
+    saveState(envName, { serverUrl });
+    return serverUrl;
   }
   warn("could not auto-detect deployed URL from wrangler output.");
-  return await askUrl("  Paste the deployed worker URL:");
+  serverUrl = await askUrl("  Paste the deployed worker URL:");
+  saveState(envName, { serverUrl });
+  return serverUrl;
 }
 
 interface SeedResult {
@@ -339,7 +455,7 @@ interface SeedResult {
 }
 
 async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
-  header(5, 8, "Seed your first user");
+  header(5, 9, "Seed your first user");
 
   const pepperEntry = secrets.find((s) => s.name === "HMAC_PEPPER");
   let pepper = pepperEntry?.value || "";
@@ -358,7 +474,8 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
       );
   }
 
-  const username = (await ask("  username", "nick")) || "nick";
+  const priorUsername = loadState(envName).username ?? "nick";
+  const username = (await ask("  username", priorUsername)) || priorUsername;
   if (!/^[a-z0-9_-]{1,64}$/.test(username))
     fail("username must match [a-z0-9_-]{1,64}");
 
@@ -413,6 +530,7 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
     fail("wrangler kv key put failed");
   }
   ok(`user:${username} written to OAUTH_KV (env=${envName})`);
+  saveState(envName, { username });
   return { username, pepper };
 }
 
@@ -421,7 +539,7 @@ async function step6_bootstrap(
   username: string,
   secrets: SecretPlan[]
 ): Promise<void> {
-  header(6, 8, "Mint personal CLI token");
+  header(6, 9, "Mint personal CLI token");
 
   const adminEntry = secrets.find((s) => s.name === "ADMIN_REVOKE_TOKEN");
   let adminToken = adminEntry?.value || "";
@@ -535,7 +653,7 @@ async function step7_summary(
   username: string,
   secrets: SecretPlan[]
 ): Promise<void> {
-  header(7, 8, "Save credentials");
+  header(7, 9, "Save credentials");
   stdout.write(
     "\n  Stash these in your password manager — only shown once:\n\n"
   );
@@ -554,7 +672,7 @@ async function step8_nextSteps(
   serverUrl: string,
   username: string
 ): Promise<void> {
-  header(8, 8, "Next: install CLI + verify");
+  header(8, 9, "Next: install CLI + verify");
   stdout.write("\n  Local install (macOS arm64 example):\n");
   stdout.write(
     "    curl -L -o dovecote.tar.gz https://github.com/musingfox/dovecote/releases/download/cli-v0.1.0/dovecote-bun-darwin-arm64.tar.gz\n"
@@ -581,6 +699,7 @@ async function main(): Promise<void> {
       `Press Ctrl-C to abort at any point; secrets that have already been pushed will survive.\n`
   );
 
+  await step0_prereqs();
   await step1_authCheck();
   const secrets = await step2_secrets();
   await step3_channel();
