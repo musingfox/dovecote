@@ -100,7 +100,12 @@ const record = {
 };
 
 const json = JSON.stringify(record);
-const namespaceFlag = namespaceId ? ` --namespace-id "${namespaceId}"` : "";
-const cmd = `wrangler kv key put --binding OAUTH_KV "user:${username}" '${json}'${namespaceFlag}`;
+// wrangler 4.x rejects --binding and --namespace-id together. When the caller
+// passes --namespace-id we target the namespace directly; otherwise we resolve
+// the binding via the default wrangler.toml env (caller may append --env <name>).
+const targetFlag = namespaceId
+  ? ` --namespace-id "${namespaceId}"`
+  : " --binding OAUTH_KV";
+const cmd = `wrangler kv key put${targetFlag} "user:${username}" '${json}'`;
 
 process.stdout.write(cmd + "\n");
