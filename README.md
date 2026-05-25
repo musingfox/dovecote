@@ -145,6 +145,25 @@ When adding a connector on Claude.ai, fill in the MCP endpoint URL **including t
 
 The dovecote CLI ships as a standalone binary for 5 platforms; releases are tagged `cli-v<semver>` and published as GitHub Releases with a `SHA256SUMS` sidecar.
 
+### Deploy your own (5 minutes)
+
+```bash
+git clone https://github.com/musingfox/dovecote.git
+cd dovecote
+bun install
+wrangler login          # one-time browser OAuth
+bun run setup           # interactive wizard
+```
+
+The wizard pushes 4 secrets to your Cloudflare Worker, configures at least one
+notification channel (Telegram or Discord), deploys, seeds your first user,
+mints a CLI token, and runs `bun run verify` end-to-end. Secrets are recorded
+to `~/.dovecote/secrets-<env>.txt` (mode 0600) — move them to your password
+manager and delete the file.
+
+See [docs/setup-dovecote-runbook.md](./docs/setup-dovecote-runbook.md) for the
+GH Actions consumer side.
+
 ### Install in a GitHub Actions workflow
 
 ```yaml

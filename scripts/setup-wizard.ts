@@ -691,6 +691,28 @@ async function step8_nextSteps(
   stdout.write(`    # seeded user: ${username}\n`);
 }
 
+async function step9_verify(
+  serverUrl: string,
+  channelIds: string[] = []
+): Promise<void> {
+  header(9, 9, "Verify end-to-end");
+  info("Running `bun run verify` against the new deployment...");
+  const channelArg = channelIds[0] ? ["--", "--channel", channelIds[0]] : [];
+  const r = spawnSync(
+    "bun",
+    ["scripts/verify.ts", ...channelArg],
+    {
+      stdio: "inherit",
+      env: { ...env, DOVECOTE_SERVER_URL: serverUrl },
+    }
+  );
+  if (r.status !== 0) {
+    warn("verify reported failures — your setup may be incomplete. See above for hints.");
+  } else {
+    ok("all checks passed");
+  }
+}
+
 // ---------- main ----------
 
 async function main(): Promise<void> {
@@ -702,12 +724,16 @@ async function main(): Promise<void> {
   await step0_prereqs();
   await step1_authCheck();
   const secrets = await step2_secrets();
-  await step3_channel();
+  const channelIds = await step3_channel();
   const serverUrl = await step4_deploy();
   const seed = await step5_seedUser(secrets);
   await step6_bootstrap(serverUrl, seed.username, secrets);
   await step7_summary(serverUrl, seed.username, secrets);
   await step8_nextSteps(serverUrl, seed.username);
+  await step9_verify(
+    serverUrl,
+    channelIds.length > 0 ? channelIds : loadState(envName).channelIds ?? []
+  );
 
   rl.close();
   stdout.write("\n  ✓ setup complete\n");
