@@ -286,15 +286,38 @@ async function step3_channel(): Promise<void> {
   }
 }
 
+function normalizeServerUrl(raw: string): string | null {
+  let s = raw.trim();
+  if (!s) return null;
+  // Accept bare host (`dovecote-staging.<sub>.workers.dev`) by adding scheme.
+  if (!/^https?:\/\//i.test(s)) s = "https://" + s;
+  // Strip trailing slash for consistency.
+  if (s.endsWith("/")) s = s.slice(0, -1);
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+async function askUrl(prompt: string): Promise<string> {
+  while (true) {
+    const raw = await ask(prompt);
+    const normalized = normalizeServerUrl(raw);
+    if (normalized) return normalized;
+    warn(`'${raw}' is not a valid URL. Example: https://dovecote-staging.<sub>.workers.dev`);
+  }
+}
+
 async function step4_deploy(): Promise<string> {
   header(4, 8, `Deploy worker (dovecote-${envName})`);
   const proceed = resume
     ? false
     : await askYesNo("  Run `wrangler deploy --env " + envName + "` now?");
   if (!proceed) {
-    const url = await ask("  Deployed worker URL (paste from CF dashboard):");
-    if (!url) fail("Need the deployed URL to continue.");
-    return url;
+    return await askUrl("  Deployed worker URL (paste from CF dashboard):");
   }
   const r = wrangler(["deploy", "--env", envName], { capture: true });
   stdout.write(r.stdout);
@@ -307,9 +330,7 @@ async function step4_deploy(): Promise<string> {
     return urlMatch[0];
   }
   warn("could not auto-detect deployed URL from wrangler output.");
-  const url = await ask("  Paste the deployed worker URL:");
-  if (!url) fail("Need the deployed URL to continue.");
-  return url;
+  return await askUrl("  Paste the deployed worker URL:");
 }
 
 interface SeedResult {
@@ -378,8 +399,12 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
   };
   const json = JSON.stringify(record);
 
+  // --remote is REQUIRED on wrangler 4.x: `kv key put` defaults to writing
+  // the local miniflare cache (`.wrangler/state/...`), not the deployed
+  // worker's KV. Without it, /admin/issue-token's `user:<id>` lookup against
+  // the staging worker fails 404 even after a "successful" seed.
   const r = wrangler(
-    ["kv", "key", "put", "--binding", "OAUTH_KV", `user:${username}`, json, "--env", envName],
+    ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", `user:${username}`, json, "--env", envName],
     { capture: true }
   );
   stdout.write(r.stdout);

@@ -106,6 +106,9 @@ const json = JSON.stringify(record);
 const targetFlag = namespaceId
   ? ` --namespace-id "${namespaceId}"`
   : " --binding OAUTH_KV";
-const cmd = `wrangler kv key put${targetFlag} "user:${username}" '${json}'`;
+// --remote is REQUIRED on wrangler 4.x: `kv key put` defaults to the local
+// miniflare cache. Without it the seed never reaches the deployed worker and
+// `/admin/issue-token` returns 404 user_not_found.
+const cmd = `wrangler kv key put --remote${targetFlag} "user:${username}" '${json}'`;
 
 process.stdout.write(cmd + "\n");
