@@ -408,12 +408,18 @@ async function step6_bootstrap(
   }
 
   const clientName = (await ask("  client name", "my-cli")) || "my-cli";
+  // The CLI loopback flow binds 127.0.0.1:<random port> with no path
+  // (cli/src/auth-flow.ts builds `http://127.0.0.1:${port}`). The OAuth
+  // provider matches loopback redirects on protocol+hostname+pathname+search
+  // (port is ignored), so `http://127.0.0.1` is the only default that lets
+  // `dovecote auth login` round-trip without an "Invalid redirect URI" 400.
+  // External callers (Claude.ai, webhooks) override with their own https URL.
   const redirectInput = (
     await ask(
-      "  redirect URI (loopback or https)",
-      "http://127.0.0.1:9999/cb"
+      "  redirect URI (CLI loopback = http://127.0.0.1; external = https://...)",
+      "http://127.0.0.1"
     )
-  ) || "http://127.0.0.1:9999/cb";
+  ) || "http://127.0.0.1";
 
   info("Temporarily enabling ENABLE_CLIENT_BOOTSTRAP...");
   const enable = wrangler(
