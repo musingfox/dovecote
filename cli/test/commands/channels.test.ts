@@ -46,12 +46,15 @@ test("channels list prints rows", async () => {
     configPath: cfgPath,
     fetchImpl: makeFetch(() =>
       new Response(
-        JSON.stringify({ channels: [{ name: "ops", service: "slack" }] }),
+        JSON.stringify({
+          channels: [{ id: "slack-ops", name: "ops", service: "slack" }],
+        }),
         { status: 200 }
       )
     ),
   });
   expect(code).toBe(ExitCode.OK);
+  expect(out.join("")).toContain("slack-ops");
   expect(out.join("")).toContain("ops");
   expect(out.join("")).toContain("slack");
 });

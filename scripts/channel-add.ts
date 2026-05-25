@@ -127,28 +127,41 @@ interface ExistingInstance {
 }
 
 function listExisting(service: "telegram" | "discord"): ExistingInstance[] {
-  // We use `dovecote channels list` so that we hit the worker the operator
-  // is currently configured against (their CLI config picks the env). This
-  // is more accurate than re-parsing the secret JSON (which we can't read
-  // back from CF anyway).
-  const r = dovecote(["channels", "list"]);
+  // Use --json mode to get the channel id field reliably. Previous text-mode
+  // parsing matched a regex against the human-readable output, which didn't
+  // include the channel id (only `name | service`) -- the script silently
+  // returned an empty list and the resulting `wrangler secret put` OVERWROTE
+  // every existing instance with just the new one. JSON has the canonical
+  // `{id, name, enabled, service}` shape from /v1/channels.
+  //
+  // Fail-fast on any error: a silent empty list here means a destructive
+  // overwrite in step 4. Operator should investigate before retrying.
+  const r = dovecote(["channels", "list", "--json"]);
   if (r.code !== 0) {
-    warn(
-      `dovecote channels list failed (exit=${r.code}). Falling back to empty list.\n` +
-        `  Make sure your CLI is pointed at the ${envName} worker (check ~/.config/dovecote/config.json).`
+    fail(
+      `dovecote channels list --json failed (exit=${r.code}).\n` +
+        `  Make sure the CLI is pointed at the ${envName} worker (check ~/.config/dovecote/config.json).\n` +
+        `  stderr: ${r.stderr.trim().slice(0, 200)}\n` +
+        `  Aborting to avoid overwriting existing instances with an empty list.`
     );
-    return [];
+  }
+  let parsed: { channels?: Array<{ id?: string; service?: string }> };
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch (e) {
+    fail(
+      `dovecote channels list --json returned unparseable output (${(e as Error).message}). ` +
+        `Aborting to avoid an overwrite.`
+    );
   }
   const out: ExistingInstance[] = [];
-  for (const line of r.stdout.split("\n")) {
-    // Format: `Display (instance) | <service>-<instance>`
-    const m = line.match(/\|\s*(telegram|discord)-([a-z0-9][a-z0-9-]*)$/i);
-    if (m && m[1] && m[2]) {
-      const svc = m[1].toLowerCase() as "telegram" | "discord";
-      if (svc === service) {
-        out.push({ service: svc, instanceId: m[2], channelId: `${svc}-${m[2]}` });
-      }
-    }
+  for (const ch of parsed.channels ?? []) {
+    if (!ch.id || ch.service !== service) continue;
+    // `id` looks like `<service>-<instance>`. Strip the leading `<service>-`.
+    const prefix = `${service}-`;
+    if (!ch.id.startsWith(prefix)) continue;
+    const instanceId = ch.id.slice(prefix.length);
+    out.push({ service, instanceId, channelId: ch.id });
   }
   return out;
 }
@@ -197,6 +210,59 @@ async function pushSecret(secretName: string, value: string): Promise<void> {
   }
 }
 
+// ---------- env-mismatch guard ----------
+
+function assertCliPointsAtTargetEnv(): void {
+  // The local CLI's serverUrl decides which worker we list channels from.
+  // If it diverges from the env we're targeting (e.g. CLI on prod but
+  // script invoked with --env staging), listExisting() would return the
+  // wrong env's instances and a push would clobber the OTHER env.
+  const stateFile = join(
+    process.env.HOME ?? "",
+    ".dovecote",
+    `state-${envName}.json`
+  );
+  const cliConfig = join(
+    process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "", ".config"),
+    "dovecote",
+    "config.json"
+  );
+
+  let stateUrl = "";
+  let cliUrl = "";
+  try {
+    const s = JSON.parse(require("node:fs").readFileSync(stateFile, "utf8"));
+    stateUrl = (s.serverUrl || "").replace(/\/+$/, "");
+  } catch {
+    // No state file — first run for this env. Skip the check, but warn.
+    warn(
+      `no ~/.dovecote/state-${envName}.json found; can't cross-check that the ` +
+        `CLI is pointed at ${envName}. If the CLI is pointing elsewhere this ` +
+        `script will read the WRONG env's channels and overwrite ${envName}.`
+    );
+    return;
+  }
+  try {
+    const c = JSON.parse(require("node:fs").readFileSync(cliConfig, "utf8"));
+    cliUrl = (c.serverUrl || "").replace(/\/+$/, "");
+  } catch {
+    fail(
+      `CLI not configured: ~/.config/dovecote/config.json missing or unreadable. ` +
+        `Run \`bun run setup -- --env ${envName} --resume\` first to mint a CLI token.`
+    );
+  }
+
+  if (stateUrl && cliUrl && stateUrl !== cliUrl) {
+    fail(
+      `Env mismatch: this script is targeting ${envName} (${stateUrl}) but the ` +
+        `local CLI is configured for a DIFFERENT server (${cliUrl}). ` +
+        `Listing channels would return the wrong env and a push would overwrite ${envName}. ` +
+        `Either switch the CLI (re-run \`bun run setup -- --env ${envName} --resume\`) ` +
+        `or call this script with the env that matches the CLI.`
+    );
+  }
+}
+
 // ---------- main ----------
 
 async function main(): Promise<void> {
@@ -205,6 +271,8 @@ async function main(): Promise<void> {
       `Existing instances are detected via 'dovecote channels list'. You'll be asked\n` +
       `to re-paste their credentials (CF doesn't expose secret values for read-back).\n\n`
   );
+
+  assertCliPointsAtTargetEnv();
 
   const service = (await ask(
     "  Service to append to? [telegram / discord]",
