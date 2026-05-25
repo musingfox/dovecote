@@ -15,3 +15,15 @@ preview_urls = false
 [[env.staging.kv_namespaces]]
 binding = "OAUTH_KV"
 id = "869f4dd5df204c97842095366bf169e1"
+
+# Explicit `production` mirror of the top-level config so `--env production`
+# resolves the same Worker + KV. Required by the setup wizard's hard-coded
+# env names; the top-level block stays as the default `wrangler deploy` target
+# (deploying without --env is equivalent to --env production).
+[env.production]
+name = "dovecote"
+preview_urls = false
+
+[[env.production.kv_namespaces]]
+binding = "OAUTH_KV"
+id = "371678f8ea88456eb1bf37b13fe265a7"
