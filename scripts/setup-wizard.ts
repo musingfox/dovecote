@@ -17,9 +17,9 @@
 import { randomBytes, pbkdf2Sync } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, stderr, env, argv, exit } from "node:process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, chmodSync } from "node:fs";
+import { tmpdir, homedir, hostname } from "node:os";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 // ---------- arg parsing ----------
@@ -393,95 +393,121 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
 
 async function step6_bootstrap(
   serverUrl: string,
+  username: string,
   secrets: SecretPlan[]
-): Promise<string> {
-  header(6, 8, "Bootstrap an OAuth client");
+): Promise<void> {
+  header(6, 8, "Mint personal CLI token");
 
   const adminEntry = secrets.find((s) => s.name === "ADMIN_REVOKE_TOKEN");
   let adminToken = adminEntry?.value || "";
   if (!adminToken) {
     info(
-      "ADMIN_REVOKE_TOKEN was already set; paste the existing value to call /admin/bootstrap-client."
+      "ADMIN_REVOKE_TOKEN was already set; paste the existing value to call /admin/issue-token."
     );
     adminToken = await askSecret("    ADMIN_REVOKE_TOKEN:");
     if (!adminToken) fail("ADMIN_REVOKE_TOKEN required.");
   }
 
-  const clientName = (await ask("  client name", "my-cli")) || "my-cli";
-  // The CLI loopback flow binds 127.0.0.1:<random port> with no path
-  // (cli/src/auth-flow.ts builds `http://127.0.0.1:${port}`). The OAuth
-  // provider matches loopback redirects on protocol+hostname+pathname+search
-  // (port is ignored), so `http://127.0.0.1` is the only default that lets
-  // `dovecote auth login` round-trip without an "Invalid redirect URI" 400.
-  // External callers (Claude.ai, webhooks) override with their own https URL.
-  const redirectInput = (
-    await ask(
-      "  redirect URI (CLI loopback = http://127.0.0.1; external = https://...)",
-      "http://127.0.0.1"
-    )
-  ) || "http://127.0.0.1";
+  const defaultLabel = hostname();
+  const label = (await ask("  label", defaultLabel)) || defaultLabel;
 
-  info("Temporarily enabling ENABLE_CLIENT_BOOTSTRAP...");
-  const enable = wrangler(
-    ["secret", "put", "ENABLE_CLIENT_BOOTSTRAP", "--env", envName],
-    { stdin: "1\n" }
-  );
-  if (enable.code !== 0) fail("failed to enable client bootstrap");
-  ok("ENABLE_CLIENT_BOOTSTRAP=1 set");
+  const scopesInput =
+    (
+      await ask(
+        "  scopes (comma-separated)",
+        "dovecote:notify,dovecote:admin,dovecote:env:read"
+      )
+    ) || "dovecote:notify,dovecote:admin,dovecote:env:read";
+  const scopes = scopesInput
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  info("Calling POST /admin/bootstrap-client...");
-  let clientId = "";
+  const daysInput = (await ask("  expires in days", "90")) || "90";
+  const expiresInDays = parseInt(daysInput, 10);
+  if (!Number.isFinite(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) {
+    fail("expires-in-days must be an integer between 1 and 90");
+  }
+
+  info("Calling POST /admin/issue-token...");
+  let resBody: string;
+  let resStatus: number;
   try {
-    const res = await fetch(`${serverUrl}/admin/bootstrap-client`, {
+    const res = await fetch(`${serverUrl}/admin/issue-token`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${adminToken}`,
+        Authorization: `Bearer ${adminToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        clientName,
-        redirectUris: [redirectInput],
+        userId: username,
+        scopes,
+        expiresInDays,
+        label,
       }),
     });
-    const body = await res.text();
-    if (!res.ok) {
-      stderr.write(`  ✘ HTTP ${res.status}: ${body}\n`);
-    } else {
-      try {
-        const parsed = JSON.parse(body);
-        clientId = parsed.client_id || parsed.clientId || "";
-        if (clientId) ok(`client_id: ${clientId}`);
-        else warn(`unexpected response: ${body}`);
-      } catch {
-        warn(`non-JSON response: ${body}`);
-      }
-    }
+    resStatus = res.status;
+    resBody = await res.text();
   } catch (e) {
-    stderr.write(`  ✘ fetch failed: ${(e as Error).message}\n`);
+    fail(`fetch failed: ${(e as Error).message}`);
   }
 
-  info("Disabling ENABLE_CLIENT_BOOTSTRAP...");
-  const disable = wrangler(
-    ["secret", "delete", "ENABLE_CLIENT_BOOTSTRAP", "--env", envName],
-    { stdin: "y\n" }
-  );
-  if (disable.code !== 0) {
-    warn(
-      "failed to delete ENABLE_CLIENT_BOOTSTRAP — re-run `wrangler secret delete ENABLE_CLIENT_BOOTSTRAP --env " +
-        envName +
-        "` manually."
+  if (resStatus < 200 || resStatus >= 300) {
+    stderr.write(`  ✘ HTTP ${resStatus}: ${resBody}\n`);
+    fail(
+      `/admin/issue-token returned ${resStatus} — verify ADMIN_REVOKE_TOKEN matches the worker and user '${username}' exists.`
     );
-  } else {
-    ok("ENABLE_CLIENT_BOOTSTRAP removed");
   }
 
-  return clientId;
+  let parsed: {
+    token: string;
+    tokenId: string;
+    userId: string;
+    scopes: string[];
+    expiresAt: number;
+    label?: string;
+  };
+  try {
+    parsed = JSON.parse(resBody);
+  } catch {
+    fail(`non-JSON response from /admin/issue-token: ${resBody}`);
+  }
+
+  // Write ~/.config/dovecote/config.json (XDG-aware), mode 0600.
+  const baseDir = env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  const configPath = join(baseDir, "dovecote", "config.json");
+  const config = {
+    serverUrl,
+    clientVersion: "0.1.0",
+    tokens: [
+      {
+        tokenId: parsed.tokenId,
+        token: parsed.token,
+        userId: parsed.userId,
+        scopes: parsed.scopes,
+        expiresAt: parsed.expiresAt,
+        ...(parsed.label !== undefined ? { label: parsed.label } : {}),
+      },
+    ],
+  };
+
+  try {
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    chmodSync(configPath, 0o600);
+  } catch (e) {
+    fail(`failed to write ${configPath}: ${(e as Error).message}`);
+  }
+
+  ok(`Token minted and saved to ${configPath} (mode 0600)`);
+  ok(
+    `You can now run: dovecote ping; dovecote notify <channel> --text 'hello'`
+  );
 }
 
 async function step7_summary(
   serverUrl: string,
   username: string,
-  clientId: string,
   secrets: SecretPlan[]
 ): Promise<void> {
   header(7, 8, "Save credentials");
@@ -495,33 +521,31 @@ async function step7_summary(
   }
   stdout.write("\n  Shell exports to copy:\n");
   stdout.write(`    export DOVECOTE_SERVER_URL=${serverUrl}\n`);
-  if (clientId) stdout.write(`    export DOVECOTE_CLIENT_ID=${clientId}\n`);
   stdout.write("\n");
   await askYesNo("  Stored safely?", true);
 }
 
 async function step8_nextSteps(
   serverUrl: string,
-  username: string,
-  clientId: string
+  username: string
 ): Promise<void> {
-  header(8, 8, "Next: install CLI + log in");
+  header(8, 8, "Next: install CLI + verify");
   stdout.write("\n  Local install (macOS arm64 example):\n");
   stdout.write(
     "    curl -L -o dovecote.tar.gz https://github.com/musingfox/dovecote/releases/download/cli-v0.1.0/dovecote-bun-darwin-arm64.tar.gz\n"
   );
   stdout.write("    tar -xzf dovecote.tar.gz && xattr -d com.apple.quarantine ./dovecote\n");
   stdout.write("    sudo mv dovecote /usr/local/bin/\n\n");
-  stdout.write("  Then log in:\n");
-  stdout.write(`    export DOVECOTE_SERVER_URL=${serverUrl}\n`);
-  if (clientId) stdout.write(`    export DOVECOTE_CLIENT_ID=${clientId}\n`);
   stdout.write(
-    `    dovecote auth login --server-url ${serverUrl} --label "$(hostname)"\n`
+    "  Token already saved to ~/.config/dovecote/config.json.\n"
   );
-  stdout.write(`    # username: ${username}, password: (the one you set)\n\n`);
-  stdout.write("  Smoke test:\n");
+  stdout.write(
+    "  Run `dovecote ping` to verify, then `dovecote notify <channel> --text \"hello\"`.\n\n"
+  );
+  stdout.write(`    export DOVECOTE_SERVER_URL=${serverUrl}\n`);
   stdout.write("    dovecote ping\n");
   stdout.write("    dovecote notify ops --text \"hello from setup\"\n\n");
+  stdout.write(`    # seeded user: ${username}\n`);
 }
 
 // ---------- main ----------
@@ -537,9 +561,9 @@ async function main(): Promise<void> {
   await step3_channel();
   const serverUrl = await step4_deploy();
   const seed = await step5_seedUser(secrets);
-  const clientId = await step6_bootstrap(serverUrl, secrets);
-  await step7_summary(serverUrl, seed.username, clientId, secrets);
-  await step8_nextSteps(serverUrl, seed.username, clientId);
+  await step6_bootstrap(serverUrl, seed.username, secrets);
+  await step7_summary(serverUrl, seed.username, secrets);
+  await step8_nextSteps(serverUrl, seed.username);
 
   rl.close();
   stdout.write("\n  ✓ setup complete\n");
