@@ -17,7 +17,8 @@
     "prepare": "lefthook install || true",
     "mutation": "bunx stryker run",
     "openapi:gen": "bun scripts/generate-openapi.mjs",
-    "setup": "bun scripts/setup-wizard.ts"
+    "setup": "bun scripts/setup-wizard.ts",
+    "verify": "bun scripts/verify.ts"
   },
   "devDependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.4",
