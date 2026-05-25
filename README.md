@@ -164,6 +164,23 @@ manager and delete the file.
 See [docs/setup-dovecote-runbook.md](./docs/setup-dovecote-runbook.md) for the
 GH Actions consumer side.
 
+### Use from another Claude Code session
+
+Once `bun run setup` has minted a token into `~/.config/dovecote/config.json`,
+other Claude Code sessions can shell out to the `dovecote` CLI to send
+notifications. Install the bundled skill for explicit discovery:
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R .claude/skills/dovecote-notify ~/.claude/skills/
+```
+
+The skill (defined in [.claude/skills/dovecote-notify/SKILL.md](./.claude/skills/dovecote-notify/SKILL.md))
+triggers on phrases like *"notify me"*, *"send to Telegram"*, *"ping ops"*,
+*"alert when X finishes"*, etc. — your agent will pick the right channel,
+shell out to `dovecote notify`, and handle errors (token expired, channel
+unknown, rate-limit) without further prompting.
+
 ### Install in a GitHub Actions workflow
 
 ```yaml
