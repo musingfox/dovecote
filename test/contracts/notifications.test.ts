@@ -73,8 +73,33 @@ test("A2: messageContentSchema enforces text-or-embed presence", () => {
   const result4 = messageContentSchema.safeParse({});
   expect(result4.success).toBe(false);
   if (!result4.success) {
-    expect(result4.error.errors[0]?.message).toBe("At least one of text or embed is required");
+    expect(result4.error.errors[0]?.message).toBe("At least one of text, embed, or attachment is required");
   }
+});
+
+test("A1b: messageContentSchema accepts attachment", () => {
+  // Valid: attachment only
+  const result1 = messageContentSchema.safeParse({
+    attachment: { filename: "chart.png", data: "aGVsbG8=", contentType: "image/png" },
+  });
+  expect(result1.success).toBe(true);
+
+  // Valid: embed + attachment (embed references attachment://chart.png)
+  const result2 = messageContentSchema.safeParse({
+    embed: { image: { url: "attachment://chart.png" } },
+    attachment: { filename: "chart.png", data: "aGVsbG8=" },
+  });
+  expect(result2.success).toBe(true);
+
+  // Valid: attachment without optional contentType
+  const result3 = messageContentSchema.safeParse({
+    attachment: { filename: "doc.bin", data: "aGVsbG8=" },
+  });
+  expect(result3.success).toBe(true);
+
+  // Invalid: still rejects empty (no text/embed/attachment)
+  const result4 = messageContentSchema.safeParse({});
+  expect(result4.success).toBe(false);
 });
 
 test("A2: messageContentSchema reference equality with legacy import", () => {

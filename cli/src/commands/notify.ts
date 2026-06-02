@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { basename, extname } from "node:path";
 import type { CmdCtx } from "../main.ts";
 import { CliError, ExitCode } from "../exit-codes.ts";
 import { parseCommandArgs } from "../argv.ts";
@@ -17,17 +18,20 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
     text: { type: "string" },
     stdin: { type: "boolean" },
     "embed-json": { type: "string" },
+    image: { type: "string" },
+    attach: { type: "string" },
     "dry-run": { type: "boolean" },
     retry: { type: "string" },
   });
   const channel = positionals[0];
   if (!channel) {
-    ctx.stderr("Usage: dovecote notify <channel> [--text|--stdin|--embed-json]\n");
+    ctx.stderr("Usage: dovecote notify <channel> [--text|--stdin|--embed-json] [--image|--attach <path>]\n");
     return ExitCode.USAGE;
   }
   const text = values.text as string | undefined;
   const useStdin = !!values.stdin;
   const embedJson = values["embed-json"] as string | undefined;
+  const imagePath = (values.image as string | undefined) ?? (values.attach as string | undefined);
   const contentFlags = [text, useStdin ? "stdin" : undefined, embedJson].filter(
     (x) => x !== undefined
   );
@@ -35,8 +39,10 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
     ctx.stderr("--text, --stdin, --embed-json are mutually exclusive\n");
     return ExitCode.USAGE;
   }
-  if (contentFlags.length === 0) {
-    ctx.stderr("One of --text, --stdin, --embed-json is required\n");
+  // --image/--attach is orthogonal: it may stand alone or accompany any of the
+  // mutually-exclusive content sources (e.g. an embed referencing the file).
+  if (contentFlags.length === 0 && imagePath === undefined) {
+    ctx.stderr("One of --text, --stdin, --embed-json, or --image is required\n");
     return ExitCode.USAGE;
   }
 
@@ -49,6 +55,23 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
   } else if (embedJson !== undefined) {
     const text2 = await fs.readFile(embedJson, "utf-8");
     content = JSON.parse(text2);
+  } else {
+    content = {};
+  }
+
+  if (imagePath !== undefined) {
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(imagePath);
+    } catch {
+      ctx.stderr(`Attachment file not found or unreadable: ${imagePath}\n`);
+      return ExitCode.USAGE;
+    }
+    content.attachment = {
+      filename: basename(imagePath),
+      data: bytes.toString("base64"),
+      contentType: guessContentType(imagePath),
+    };
   }
 
   const retry = Math.max(1, parseInt((values.retry as string) ?? "1", 10) || 1);
@@ -150,6 +173,18 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
   }
   ctx.stderr(`Notify failed after ${retry} attempts: status=${lastStatus} body=${lastBody}\n`);
   return ExitCode.UPSTREAM;
+}
+
+function guessContentType(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    default:
+      return "application/octet-stream";
+  }
 }
 
 function sleep(ms: number): Promise<void> {

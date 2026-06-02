@@ -29,7 +29,7 @@ describe("messageContentSchema (BC1)", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.errors[0]?.message).toBe(
-        "At least one of text or embed is required"
+        "At least one of text, embed, or attachment is required"
       );
     }
   });

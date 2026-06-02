@@ -166,7 +166,7 @@ test("C2.4.a - POST /v1/notify 400 invalid_request (zod fail - empty content)", 
 
   const body = (await res.json()) as any;
   expect(body.error).toBe("invalid_request");
-  expect(body.error_description).toContain("At least one of text or embed");
+  expect(body.error_description).toContain("At least one of text, embed, or attachment");
 });
 
 test("C2.4.a - POST /v1/notify 404 not_found (NotFoundError)", async () => {

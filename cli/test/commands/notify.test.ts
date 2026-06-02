@@ -276,6 +276,65 @@ test("notify 429 Retry-After zero retries immediately", async () => {
   expect(result.sleeps).toEqual([0]);
 });
 
+test("notify --image reads file and populates content.attachment", async () => {
+  const pngPath = join(tmpDir, "chart.png");
+  // "hello" → base64 "aGVsbG8="
+  await fs.writeFile(pngPath, "hello");
+  const out: string[] = [];
+  const code = await runMain({
+    argv: ["notify", "ops", "--image", pngPath, "--dry-run"],
+    env: { HOME: "/no" },
+    stdout: (s) => out.push(s),
+    stderr: () => {},
+    configPath: cfgPath,
+  });
+  expect(code).toBe(ExitCode.OK);
+  const printed = out.join("");
+  const json = JSON.parse(printed.slice(printed.indexOf("content=") + "content=".length));
+  expect(json.attachment).toEqual({
+    filename: "chart.png",
+    data: "aGVsbG8=",
+    contentType: "image/png",
+  });
+});
+
+test("notify --image combines with --embed-json", async () => {
+  const pngPath = join(tmpDir, "chart.png");
+  await fs.writeFile(pngPath, "hello");
+  const embedPath = join(tmpDir, "embed.json");
+  await fs.writeFile(
+    embedPath,
+    JSON.stringify({ embed: { image: { url: "attachment://chart.png" } } })
+  );
+  const out: string[] = [];
+  const code = await runMain({
+    argv: ["notify", "ops", "--embed-json", embedPath, "--image", pngPath, "--dry-run"],
+    env: { HOME: "/no" },
+    stdout: (s) => out.push(s),
+    stderr: () => {},
+    configPath: cfgPath,
+  });
+  expect(code).toBe(ExitCode.OK);
+  const printed = out.join("");
+  const json = JSON.parse(printed.slice(printed.indexOf("content=") + "content=".length));
+  expect(json.embed.image.url).toBe("attachment://chart.png");
+  expect(json.attachment.filename).toBe("chart.png");
+  expect(json.attachment.data).toBe("aGVsbG8=");
+});
+
+test("notify --image with missing file → USAGE error", async () => {
+  const err: string[] = [];
+  const code = await runMain({
+    argv: ["notify", "ops", "--image", join(tmpDir, "nope.png"), "--dry-run"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: (s) => err.push(s),
+    configPath: cfgPath,
+  });
+  expect(code).toBe(ExitCode.USAGE);
+  expect(err.join("")).toContain("not found");
+});
+
 test("notify --dry-run prints content and skips HTTP", async () => {
   let called = false;
   const out: string[] = [];

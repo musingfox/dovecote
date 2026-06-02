@@ -4,6 +4,15 @@ import { isValidInstanceId, isValidDiscordWebhookUrl } from "./utils.js";
 
 const MAX_ERROR_DETAIL = 100;
 
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export class DiscordProvider implements ChannelProvider {
   constructor(
     private channelId: string,
@@ -27,14 +36,35 @@ export class DiscordProvider implements ChannelProvider {
         payload.embeds = [content.embed];
       }
 
-      const response = await fetch(url.toString(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-        redirect: "manual",
-      });
+      let init: RequestInit;
+      if (content.attachment !== undefined) {
+        // Discord file upload: multipart/form-data with a payload_json part and
+        // a files[0] part. The embed may reference the file inline via
+        // image.url = "attachment://<filename>". Do not set Content-Type so that
+        // fetch supplies the correct multipart boundary.
+        const bytes = base64ToBytes(content.attachment.data);
+        const form = new FormData();
+        form.append("payload_json", JSON.stringify(payload));
+        form.append(
+          "files[0]",
+          new Blob([bytes], {
+            type: content.attachment.contentType ?? "application/octet-stream",
+          }),
+          content.attachment.filename
+        );
+        init = { method: "POST", body: form, redirect: "manual" };
+      } else {
+        init = {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          redirect: "manual",
+        };
+      }
+
+      const response = await fetch(url.toString(), init);
 
       if (response.status >= 300 && response.status < 400) {
         return {

@@ -43,6 +43,77 @@ describe("DiscordProvider (BC7)", () => {
     });
   });
 
+  it("send with attachment → POSTs multipart with payload_json + files[0]", async () => {
+    let capturedBody: any;
+    let capturedOptions: any;
+    const mockFetch = mock((url: string, options?: any) => {
+      capturedOptions = options;
+      capturedBody = options?.body;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ id: "msg-img", content: "", channel_id: "ch-123" }),
+          { status: 200 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    // "aGVsbG8=" is base64 for "hello"
+    const result = await provider.send({
+      embed: { image: { url: "attachment://chart.png" } },
+      attachment: { filename: "chart.png", data: "aGVsbG8=", contentType: "image/png" },
+    });
+
+    expect(result.success).toBe(true);
+    expect(capturedBody).toBeInstanceOf(FormData);
+    // No manually-set Content-Type → fetch supplies the multipart boundary.
+    expect(capturedOptions.headers).toBeUndefined();
+    expect(capturedOptions.redirect).toBe("manual");
+
+    const payloadJson = capturedBody.get("payload_json");
+    expect(typeof payloadJson).toBe("string");
+    const parsed = JSON.parse(payloadJson);
+    expect(parsed.embeds[0].image.url).toBe("attachment://chart.png");
+    expect(parsed.username).toBe("Dovecote");
+
+    const file = capturedBody.get("files[0]");
+    expect(file).toBeInstanceOf(Blob);
+    expect((file as File).name).toBe("chart.png");
+    expect((file as Blob).type).toBe("image/png");
+    expect(await (file as Blob).text()).toBe("hello");
+  });
+
+  it("send without attachment → still JSON (no regression)", async () => {
+    let capturedBody: any;
+    let capturedOptions: any;
+    const mockFetch = mock((url: string, options?: any) => {
+      capturedOptions = options;
+      capturedBody = options?.body;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ id: "msg-001", content: "Hi", channel_id: "ch-123" }),
+          { status: 200 }
+        )
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const provider = new DiscordProvider(
+      "discord-team-a",
+      "https://discord.com/api/webhooks/123/abc"
+    );
+    await provider.send({ text: "Hi" });
+
+    expect(capturedBody).not.toBeInstanceOf(FormData);
+    expect(typeof capturedBody).toBe("string");
+    expect(capturedOptions.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(capturedBody).content).toBe("Hi");
+  });
+
   it("send returns HTTP 404 error", async () => {
     const mockFetch = mock(() => {
       return Promise.resolve(new Response("Not Found", { status: 404 }));

@@ -161,6 +161,25 @@
                     }
                   }
                 }
+              },
+              "attachment": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string"
+                  },
+                  "data": {
+                    "type": "string",
+                    "maxLength": 10485760
+                  },
+                  "contentType": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "filename",
+                  "data"
+                ]
               }
             }
           }

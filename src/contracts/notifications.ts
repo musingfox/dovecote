@@ -28,13 +28,26 @@ export const discordEmbedSchema = z.object({
   })).optional(),
 });
 
+// Base64-encoded attachment bytes. Bound to ~10MB of base64 (~7.5MB decoded),
+// comfortably under Discord's default ~8MB webhook attachment cap.
+const ATTACHMENT_DATA_MAX = 10 * 1024 * 1024;
+
+export const attachmentSchema = z.object({
+  filename: z.string(),
+  data: z.string().max(ATTACHMENT_DATA_MAX),
+  contentType: z.string().optional(),
+});
+
 export const messageContentSchema = z.object({
   text: z.string().optional(),
   embed: discordEmbedSchema.optional(),
+  attachment: attachmentSchema.optional(),
 }).refine(
-  (data) => data.text !== undefined || data.embed !== undefined,
-  { message: "At least one of text or embed is required" }
+  (data) => data.text !== undefined || data.embed !== undefined || data.attachment !== undefined,
+  { message: "At least one of text, embed, or attachment is required" }
 );
+
+export type Attachment = z.infer<typeof attachmentSchema>;
 
 export type DiscordEmbed = z.infer<typeof discordEmbedSchema>;
 export type MessageContent = z.infer<typeof messageContentSchema>;
