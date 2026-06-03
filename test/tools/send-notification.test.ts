@@ -135,8 +135,8 @@ test("C1: send_notification forbidden (user-A, scopes=[], discord-test) → isEr
   consoleLogSpy.mockRestore();
 });
 
-test("C1: send_notification forbidden (user-B, scopes=[dovecote:env:read], telegram-test) → isError + audit", async () => {
-  const auth: AuthCtx = { userId: "user-B", scopes: ["dovecote:env:read"], authMethod: "oauth", ip: "unknown" };
+test("C1: send_notification forbidden (user-B, scopes=[dovecote:admin], telegram-test) → isError + audit", async () => {
+  const auth: AuthCtx = { userId: "user-B", scopes: ["dovecote:admin"], authMethod: "oauth", ip: "unknown" };
   const consoleLogSpy = spyOn(console, "log");
 
   const handler = buildNoScopeHandler(auth);

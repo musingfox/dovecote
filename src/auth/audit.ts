@@ -15,8 +15,6 @@ import type { AuthMethod } from "./ctx.js";
 export type AuditEvent =
   // OAuth authorization (pre-token, so no tokenId)
   | (AuditCommon & { event: "authorize"; userId: string })
-  // Read environment profile
-  | (AuditCommon & { event: "env.read"; userId: string; profile: string })
   // Revoke an OAuth grant
   | (AuditCommon & { event: "admin.revoke"; grantId: string; tokenId?: string })
   // Bootstrap an OAuth client

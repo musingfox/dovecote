@@ -21,7 +21,6 @@ function makeServices() {
       messageId: "msg-ok",
     })),
     listChannels: mock(() => []),
-    readEnv: mock(async () => ""),
     issueToken: mock(async () => ({ token: "x", tokenId: "x", expiresAt: 0 })),
     revokeToken: mock(async () => ({ revoked: true })),
     checkRateLimit,

@@ -11,7 +11,6 @@ import { ScopeError, NotFoundError, UpstreamError } from "../../src/services/err
 function makeServices(overrides: {
   sendNotification?: (...args: any[]) => any;
   listChannels?: (...args: any[]) => any;
-  readEnv?: (...args: any[]) => any;
   checkRateLimit?: (...args: any[]) => any;
 } = {}) {
   return {
@@ -24,9 +23,6 @@ function makeServices(overrides: {
         }))
     ),
     listChannels: mock(overrides.listChannels ?? ((_env: any, _auth: any) => [] as any[])),
-    readEnv: mock(
-      overrides.readEnv ?? (async (_env: any, _auth: any, _ctx: any, _args: any) => "default-value")
-    ),
     checkRateLimit: mock(
       overrides.checkRateLimit ??
         (async (_kv: any, _ip: string, _namespace: string, _limit?: number) => ({
@@ -49,13 +45,9 @@ function buildApp(auth: AuthCtx | null, services = makeServices()) {
 }
 
 function buildTestEnv(
-  channels: Array<{ id: string; webhookUrl: string }> = [],
-  envEntries: Array<{ profile: string; value: string }> = []
+  channels: Array<{ id: string; webhookUrl: string }> = []
 ): Env {
   const kv = new MockKV();
-  for (const entry of envEntries) {
-    kv.getStore().set(`env:${entry.profile}`, { value: entry.value });
-  }
   return {
     OAUTH_KV: kv as any,
     OAUTH_PASSWORD: "test",
@@ -77,12 +69,6 @@ function createMockExecutionContext() {
 const NOTIFY_AUTH: AuthCtx = {
   userId: "user-1",
   scopes: ["dovecote:notify"],
-  authMethod: "api_token",
-  ip: "127.0.0.1",
-};
-const ENV_AUTH: AuthCtx = {
-  userId: "user-1",
-  scopes: ["dovecote:env:read"],
   authMethod: "api_token",
   ip: "127.0.0.1",
 };

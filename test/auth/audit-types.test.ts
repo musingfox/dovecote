@@ -46,17 +46,6 @@ const _e4: AuditEvent = {
   ok: true,
 };
 
-// Test: env.read
-const _e5: AuditEvent = {
-  event: "env.read",
-  userId: "u",
-  profile: "prod",
-  authMethod: "oauth",
-  ip: "1.2.3.4",
-  scope: "dovecote:env:read",
-  ok: true,
-};
-
 // Test: admin.revoke
 const _e6: AuditEvent = {
   event: "admin.revoke",
@@ -162,16 +151,6 @@ const _bad5: AuditEvent = {
   authMethod: "api_token",
   ip: "1.2.3.4",
   scope: "dovecote:notify",
-  ok: true,
-};
-
-// @ts-expect-error - Missing required profile on env.read
-const _bad6: AuditEvent = {
-  event: "env.read",
-  userId: "u",
-  authMethod: "oauth",
-  ip: "1.2.3.4",
-  scope: "dovecote:env:read",
   ok: true,
 };
 

@@ -9,7 +9,6 @@ import { runNotify } from "./commands/notify.ts";
 import { runPing } from "./commands/ping.ts";
 import { runChannelsList } from "./commands/channels/list.ts";
 import { runChannelsTest } from "./commands/channels/test.ts";
-import { runEnvGet } from "./commands/env/get.ts";
 import { runTokensCreate } from "./commands/tokens/create.ts";
 import { runTokensList } from "./commands/tokens/list.ts";
 import { runTokensRevoke } from "./commands/tokens/revoke.ts";
@@ -38,7 +37,6 @@ Commands:
   notify <channel>    Send a notification (--text|--stdin|--embed-json)
   channels list       List configured channels
   channels test <ch>  Send a probe message to a channel
-  env get <profile>   Read an env profile from the server
   tokens create       Mint a new dvct_* token
   tokens list         Show locally-stored tokens
                       --remote               query server for live token list
@@ -110,10 +108,6 @@ export async function runMain(deps: MainDeps): Promise<number> {
         if (subcommand === "list") return await runChannelsList(ctx);
         if (subcommand === "test") return await runChannelsTest(ctx);
         stderr(`Unknown channels subcommand: ${subcommand ?? "(none)"}\n`);
-        return ExitCode.USAGE;
-      case "env":
-        if (subcommand === "get") return await runEnvGet(ctx);
-        stderr(`Unknown env subcommand: ${subcommand ?? "(none)"}\n`);
         return ExitCode.USAGE;
       case "tokens":
         if (subcommand === "create") return await runTokensCreate(ctx);

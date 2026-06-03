@@ -54,7 +54,7 @@ function makeEnv(extra: Partial<Env> = {}): Env {
 
 // /v1/notify → sendNotification throws ScopeError("dovecote:notify") on missing scope.
 // listChannels also throws "dovecote:notify"; differentiate via route-specific request shape:
-// sendNotification rejects on body, listChannels on a GET, readEnv on env:read scope.
+// sendNotification rejects on body, listChannels on a GET.
 test("wiring: POST /v1/notify delegates to sendNotification (ScopeError signature)", async () => {
   const app = buildApp(noScope);
   const res = await app.fetch(

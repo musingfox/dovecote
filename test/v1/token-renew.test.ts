@@ -10,7 +10,6 @@ function makeServices(overrides: Record<string, any> = {}) {
   return {
     sendNotification: mock(async () => ({ success: true })),
     listChannels: mock(() => [] as any[]),
-    readEnv: mock(async () => ""),
     issueToken: mock(
       overrides.issueToken ??
         (async (params: any, _env: any) => ({

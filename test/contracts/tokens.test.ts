@@ -35,7 +35,7 @@ test("B1: tokenMetadataSchema describes a stored API token record", () => {
   const result3 = tokenMetadataSchema.safeParse({
     tokenId: "t_abc",
     hash: "sha256:abc123",
-    scopes: ["dovecote:notify", "dovecote:env:read"],
+    scopes: ["dovecote:notify", "dovecote:admin"],
     createdAt: 1700000000,
     expiresAt: 1800000000,
   });

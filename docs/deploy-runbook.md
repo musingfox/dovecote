@@ -197,16 +197,6 @@ Retrieve a specific audit entry:
 wrangler kv key get --binding OAUTH_KV "audit:1714320000:abc-def-123"
 ```
 
-Filter by event type (requires `jq`):
-
-```bash
-wrangler kv key list --binding OAUTH_KV --prefix "audit:" | \
-  jq -r '.[] | .name' | \
-  while read key; do
-    wrangler kv key get --binding OAUTH_KV "$key" | jq 'select(.event == "env.read")'
-  done
-```
-
 ## 30-Day Rolling Baseline Metrics (DP5)
 
 Establish operational baseline within 30 days post-deployment:
