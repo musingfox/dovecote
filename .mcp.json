@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "header-probe": {
+      "type": "http",
+      "url": "https://dovecote.musingfox.me/debug/echo",
+      "headers": {
+        "Authorization": "Bearer dvct-test-sentinel-123"
+      }
+    }
+  }
+}
