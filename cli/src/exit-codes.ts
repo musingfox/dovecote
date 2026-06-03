@@ -3,7 +3,7 @@
  *
  * 0  ok
  * 1  generic error
- * 2  usage / argv error (also: invalid profile name format)
+ * 2  usage / argv error (bad flags, missing required arguments)
  * 3  no local config (logged out)
  * 4  upstream resource not found (404) — includes "no TTY for browser" and channel-not-found
  * 5  OAuth flow declined / state mismatch / loopback timeout

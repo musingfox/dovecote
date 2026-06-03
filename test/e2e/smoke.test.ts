@@ -210,7 +210,7 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   const mcpData = JSON.parse(dataLine!.slice(6));
 
   // We expect a result (not an auth error)
-  // It may be an error result (profile not found), but should not be 401/403
+  // It may be an error result (e.g. channel not found), but should not be 401/403
   expect(mcpData.result || mcpData.error).toBeTruthy();
   if (mcpData.error) {
     // If it's an error, it should not be an auth error

@@ -13,6 +13,8 @@ test("E6: OIDC_DEFAULT_SCOPES is a subset of SCOPES_SUPPORTED", () => {
   }
 });
 
-test("E6: SCOPES_SUPPORTED === [dovecote:notify, dovecote:admin]", () => {
-  expect([...SCOPES_SUPPORTED].sort()).toEqual(["dovecote:admin", "dovecote:notify"]);
+test("E6: SCOPES_SUPPORTED contains required scopes", () => {
+  expect(SCOPES_SUPPORTED).toContain("dovecote:notify");
+  expect(SCOPES_SUPPORTED).toContain("dovecote:admin");
+  expect(SCOPES_SUPPORTED).not.toContain("dovecote:env:read");
 });

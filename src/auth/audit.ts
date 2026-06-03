@@ -94,7 +94,6 @@ type AuditCommon = {
 const FREE_TEXT_FIELDS = [
   "reason",
   "channel",
-  "profile",
   "clientName",
   "route",
   "issuer",
