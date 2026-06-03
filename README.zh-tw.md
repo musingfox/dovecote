@@ -176,7 +176,6 @@ dovecote 實作多層防禦安全控制：
 - **防點擊劫持標頭**：`/authorize` 端點回傳 `Content-Security-Policy: frame-ancestors 'none'` 與 `X-Frame-Options: DENY`
 - **基於 Scope 的存取控制**：
   - `dovecote:notify` – 透過已設定通道發送通知
-  - `dovecote:env:read` – **高權限**：從 KV 儲存讀取環境設定檔。授予時需謹慎。
   - `dovecote:admin` – **Admin 權限**：執行 admin 等級操作。需要 `OAUTH_ADMIN_PASSWORD`（獨立於 `OAUTH_PASSWORD`）。任何含有 `dovecote:admin` 的授權請求（即使混合其他 scope）均驗證 admin 密碼；一般密碼不被接受。若 `OAUTH_ADMIN_PASSWORD` 未設定，端點立即回傳 503，不存在 silent fallback。
 
 ### 漏洞通報

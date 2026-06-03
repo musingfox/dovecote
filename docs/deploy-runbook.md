@@ -43,7 +43,7 @@ single-line `wrangler kv key put` command, ready to paste:
 node scripts/seed-user.mjs \
   --username alice \
   --password "$ALICE_PASSWORD" \
-  --scopes dovecote:notify,dovecote:env:read \
+  --scopes dovecote:notify \
   --pepper "$HMAC_PEPPER"
 ```
 
@@ -59,7 +59,7 @@ server-side (the `/authorize` form returns 403 without a KV read).
 
 > **Migration tip**: KV-seeded users receive ONLY the scopes listed in
 > `--scopes`. The legacy operator inherited the full set
-> (`dovecote:notify`, `dovecote:env:read`, `dovecote:admin`). When seeding
+> (`dovecote:notify`, `dovecote:admin`). When seeding
 > a replacement user, remember to enumerate every scope your existing
 > workflows depend on — otherwise tokens issued to that user will be
 > rejected at scope-check time.
@@ -67,7 +67,6 @@ server-side (the `/authorize` form returns 403 without a KV read).
 ### 2. Available scopes
 
 - `dovecote:notify` – send notifications
-- `dovecote:env:read` – read env profile
 - `dovecote:admin` – admin actions (revoke, bootstrap)
 
 A user can only successfully complete an `/authorize` request for scopes
@@ -82,7 +81,7 @@ account:
 
 - Default username: `operator` (override via `LEGACY_OPERATOR_USERNAME`)
 - Password: `OAUTH_PASSWORD`
-- Granted scopes: all (`dovecote:notify`, `dovecote:env:read`, `dovecote:admin`)
+- Granted scopes: all (`dovecote:notify`, `dovecote:admin`)
 
 This back-compat path lets existing single-tenant installs keep working.
 To retire it, seed real users into KV and unset `OAUTH_PASSWORD`.

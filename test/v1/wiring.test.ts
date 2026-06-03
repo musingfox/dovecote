@@ -85,21 +85,6 @@ test("wiring: GET /v1/channels delegates to listChannels (ScopeError signature)"
   expect(body.error_description).toContain("dovecote:notify");
 });
 
-// /v1/env/:profile → readEnv throws ScopeError("dovecote:env:read"). Unique scope
-// requirement means a mutation wiring sendNotification or listChannels here
-// would surface "dovecote:notify" instead — caught.
-test("wiring: GET /v1/env/:profile delegates to readEnv (ScopeError signature)", async () => {
-  const app = buildApp(noScope);
-  const res = await app.fetch(
-    new Request("http://localhost/v1/env/dev"),
-    makeEnv(),
-    createMockExecutionCtx(null) as any,
-  );
-  expect(res.status).toBe(403);
-  const body = (await res.json()) as any;
-  expect(body.error_description).toContain("dovecote:env:read");
-});
-
 // /v1/tokens POST → admin gate inside route, then issueToken. Identifying signature:
 // successful issuance returns a token starting with "dvct_". revokeToken returns a
 // different shape (`{revoked, notice}`), so a slot-swap would fail this expect.

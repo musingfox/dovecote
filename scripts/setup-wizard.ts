@@ -15,6 +15,7 @@
  */
 
 import { randomBytes, pbkdf2Sync } from "node:crypto";
+import { DEFAULT_SCOPES } from "./wizard-defaults.js";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, stderr, env, argv, exit } from "node:process";
 import {
@@ -488,7 +489,7 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
         "  scopes (comma-separated)",
         "dovecote:notify,dovecote:admin"
       )
-    ) || "dovecote:notify,dovecote:admin,dovecote:env:read";
+    ) || DEFAULT_SCOPES.join(",");
   const scopeList = scopes
     .split(",")
     .map((s) => s.trim())
@@ -559,7 +560,7 @@ async function step6_bootstrap(
         "  scopes (comma-separated)",
         "dovecote:notify,dovecote:admin"
       )
-    ) || "dovecote:notify,dovecote:admin,dovecote:env:read";
+    ) || DEFAULT_SCOPES.join(",");
   const scopes = scopesInput
     .split(",")
     .map((s) => s.trim())

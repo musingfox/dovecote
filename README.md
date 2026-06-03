@@ -246,7 +246,6 @@ dovecote implements defense-in-depth security controls:
 - **Anti-Clickjacking Headers**: `/authorize` endpoint serves `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`
 - **Scope-Based Access Control**:
   - `dovecote:notify` – Send notifications via configured channels
-  - `dovecote:env:read` – **High privilege**: Read environment profiles from KV storage. Grant with caution.
   - `dovecote:admin` – **Admin privilege**: Execute admin-level operations. Requires `OAUTH_ADMIN_PASSWORD` (separate from `OAUTH_PASSWORD`). Any authorization request containing `dovecote:admin` (even mixed with other scopes) is validated against the admin password; the regular password is not accepted. If `OAUTH_ADMIN_PASSWORD` is not configured, the endpoint returns 503 immediately — there is no silent fallback.
 
 ### Vulnerability Reporting
