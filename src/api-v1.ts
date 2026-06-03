@@ -5,10 +5,8 @@ import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { MessageContent } from "./channels/types.js";
 import { sendNotification as _sendNotification } from "./services/notifications.js";
 import { listChannels as _listChannels } from "./services/channels.js";
-import { readEnv as _readEnv } from "./services/env.js";
 import { ScopeError, NotFoundError, UpstreamError } from "./services/errors.js";
 import { messageContentSchema } from "./contracts/notifications.js";
-import { profileNameSchema } from "./contracts/env.js";
 import {
   tokenIssueRequestSchema,
   tokenRenewRequestSchema,
@@ -43,12 +41,6 @@ export type V1Services = {
     args: { channel: string; content: MessageContent }
   ) => Promise<SendResult>;
   listChannels: (env: Env, auth: AuthCtx) => ChannelConfig[];
-  readEnv: (
-    env: Env,
-    auth: AuthCtx,
-    ctx: ExecutionContext,
-    args: { profile: string }
-  ) => Promise<string>;
   issueToken: (
     params: { userId: string; scopes: string[]; label?: string; ttlSeconds?: number },
     env: Env
@@ -186,31 +178,6 @@ export function createV1App(services: V1Services) {
     try {
       const channels = services.listChannels(env, auth);
       return c.json({ channels });
-    } catch (err) {
-      return mapError(c, err);
-    }
-  });
-
-  // GET /v1/env/:profile
-  v1.get("/env/:profile", async (c) => {
-    const auth = c.get("auth");
-    const env = c.env;
-    const ctx = c.executionCtx;
-
-    const profile = c.req.param("profile");
-
-    const result = profileNameSchema.safeParse(profile);
-    if (!result.success) {
-      const errorMessage = result.error.issues[0]?.message || "Invalid request";
-      return c.json(
-        { error: "invalid_request", error_description: errorMessage },
-        400
-      );
-    }
-
-    try {
-      const value = await services.readEnv(env, auth, ctx!, { profile });
-      return c.json({ profile, value });
     } catch (err) {
       return mapError(c, err);
     }
@@ -710,7 +677,6 @@ export function createV1App(services: V1Services) {
 const v1 = createV1App({
   sendNotification: _sendNotification,
   listChannels: _listChannels,
-  readEnv: _readEnv,
   issueToken: _issueToken,
   revokeToken: _revokeToken,
   checkRateLimit: _checkRateLimit,

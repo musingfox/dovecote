@@ -3,7 +3,6 @@ import { test, expect } from "bun:test";
 const REQUIRED_PATHS = [
   "/v1/notify",
   "/v1/channels",
-  "/v1/env/{profile}",
   "/v1/tokens",
   "/v1/tokens/{tokenId}",
   "/health",

@@ -1,5 +1,4 @@
 export * as notifications from "./notifications.js";
-export * as env from "./env.js";
 export * as tokens from "./tokens.js";
 export * as errors from "./errors.js";
 export * as health from "./health.js";
@@ -12,7 +11,6 @@ export {
   channelConfigSchema,
   channelsListResponseSchema,
 } from "./notifications.js";
-export { profileNameSchema, envReadResponseSchema } from "./env.js";
 export {
   tokenMetadataSchema,
   tokenIssueRequestSchema,
@@ -29,7 +27,6 @@ export type {
   SendResultContract,
   ChannelsListResponse,
 } from "./notifications.js";
-export type { ProfileName, EnvReadResponse } from "./env.js";
 export type {
   TokenMetadata,
   TokenIssueRequest,

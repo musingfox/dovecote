@@ -226,21 +226,6 @@
           "channels"
         ]
       },
-      "EnvReadResponse": {
-        "type": "object",
-        "properties": {
-          "profile": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "profile",
-          "value"
-        ]
-      },
       "TokenListResponse": {
         "type": "object",
         "properties": {
@@ -655,76 +640,6 @@
           },
           "403": {
             "description": "Insufficient scope for this resource",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/env/{profile}": {
-      "get": {
-        "description": "Read an env profile value. Requires scope `dovecote:env:read`.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[a-zA-Z0-9_-]+$",
-              "example": "dev"
-            },
-            "required": true,
-            "name": "profile",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Env profile resolved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EnvReadResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing or invalid Authorization header",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Insufficient scope for this resource",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
             "content": {
               "application/json": {
                 "schema": {

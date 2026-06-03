@@ -16,7 +16,7 @@ const oauthDefaults = {
 };
 
 const authenticatedCtx = {
-  props: { userId: "test-user", scopes: ["dovecote:notify", "dovecote:env:read"] },
+  props: { userId: "test-user", scopes: ["dovecote:notify"] },
   waitUntil: () => {},
   passThroughOnException: () => {},
 } as ExecutionContext;
@@ -59,7 +59,7 @@ async function getTestAccessToken(): Promise<string> {
   authorizeUrl.searchParams.set("state", "test-state");
   authorizeUrl.searchParams.set("code_challenge", codeChallenge);
   authorizeUrl.searchParams.set("code_challenge_method", "S256");
-  authorizeUrl.searchParams.set("scope", "dovecote:notify dovecote:env:read");
+  authorizeUrl.searchParams.set("scope", "dovecote:notify");
 
   const authorizeGetReq = new Request(authorizeUrl.toString());
   const authorizeGetRes = await doFetch(authorizeGetReq);
@@ -83,7 +83,7 @@ async function getTestAccessToken(): Promise<string> {
   authorizeFormData.append("client_id", clientId);
   authorizeFormData.append("redirect_uri", "https://test.local/callback");
   authorizeFormData.append("state", "test-state");
-  authorizeFormData.append("scope", "dovecote:notify dovecote:env:read");
+  authorizeFormData.append("scope", "dovecote:notify");
   authorizeFormData.append("code_challenge", codeChallenge);
   authorizeFormData.append("code_challenge_method", "S256");
 
@@ -277,7 +277,7 @@ async function doFetch(req: Request): Promise<Response> {
   } else {
     // Local mode: use app.fetch with authenticated context
     const ctx = {
-      props: { userId: "test-user", scopes: ["dovecote:notify", "dovecote:env:read"] },
+      props: { userId: "test-user", scopes: ["dovecote:notify"] },
       waitUntil: () => {},
       passThroughOnException: () => {},
     } as ExecutionContext;
@@ -717,92 +717,3 @@ describe("E2E: scope guard", () => {
 });
 
 // ========================================
-// E2E: OAuth-integrated scope guard (C8, C9)
-// ========================================
-
-describe("E2E: OAuth-integrated scope guard", () => {
-  const envWithChannels: Env = {
-    ...oauthDefaults,
-    OAUTH_KV: config.env.OAUTH_KV,
-    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
-    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
-  };
-
-  // Minimal ctx for the OAuth wrapper — no injected props; OAuth provider populates them from token
-  const minimalCtx = {
-    waitUntil: (_promise: Promise<unknown>) => {},
-    passThroughOnException: () => {},
-  } as ExecutionContext;
-
-  // C8: send_notification via OAuth app with env:read-only token → Forbidden
-  it("C8: send_notification via OAuth app with dovecote:env:read token → Forbidden", async () => {
-    if (config.isRemote) {
-      console.log("Skipping: in-process test not applicable in remote mode");
-      return;
-    }
-
-    const narrowToken = await getTestAccessTokenForScope("dovecote:env:read");
-
-    const req = new Request("http://localhost/mcp", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${narrowToken}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          name: "send_notification",
-          arguments: { channel: "discord-test", content: { text: "should be forbidden" } },
-        },
-        id: 50,
-      }),
-    });
-
-    const res = await app.fetch(req, envWithChannels, minimalCtx);
-    expect(res.status).toBe(200);
-
-    const data = parseSSEData(await res.text());
-    expect(data.result.isError).toBe(true);
-    expect(data.result.content[0].text).toMatch(/Forbidden/);
-  });
-
-  // C9: list_channels via OAuth app with env:read-only token → Forbidden, no channel names
-  it("C9: list_channels via OAuth app with dovecote:env:read token → Forbidden, no channel names", async () => {
-    if (config.isRemote) {
-      console.log("Skipping: in-process test not applicable in remote mode");
-      return;
-    }
-
-    const narrowToken = await getTestAccessTokenForScope("dovecote:env:read");
-
-    const req = new Request("http://localhost/mcp", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${narrowToken}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          name: "list_channels",
-          arguments: {},
-        },
-        id: 51,
-      }),
-    });
-
-    const res = await app.fetch(req, envWithChannels, minimalCtx);
-    expect(res.status).toBe(200);
-
-    const data = parseSSEData(await res.text());
-    expect(data.result.isError).toBe(true);
-    const text: string = data.result.content[0].text;
-    expect(text).toMatch(/Forbidden/);
-    expect(text).not.toMatch(/discord-test|telegram-test/);
-  });
-});

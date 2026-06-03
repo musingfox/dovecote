@@ -321,7 +321,7 @@ test("C2.3.a-10: Multiple scopes are preserved in auth", async () => {
   const issueResult = await issueToken(
     {
       userId: "user123",
-      scopes: ["dovecote:notify", "dovecote:env:read"],
+      scopes: ["dovecote:notify", "dovecote:admin"],
     },
     env,
     now
@@ -336,5 +336,5 @@ test("C2.3.a-10: Multiple scopes are preserved in auth", async () => {
 
   expect(res.status).toBe(200);
   const body = await res.json() as any;
-  expect(body.auth.scopes).toEqual(["dovecote:notify", "dovecote:env:read"]);
+  expect(body.auth.scopes).toEqual(["dovecote:notify", "dovecote:admin"]);
 });

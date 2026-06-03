@@ -32,7 +32,6 @@ test("C2: GET /.well-known/oauth-authorization-server returns metadata", async (
   expect(json.authorization_endpoint).toBeTruthy();
   expect(json.token_endpoint).toBeTruthy();
   expect(json.scopes_supported).toContain("dovecote:notify");
-  expect(json.scopes_supported).toContain("dovecote:env:read");
 });
 
 test("C3: POST /register is closed (returns 4xx)", async () => {
@@ -120,7 +119,7 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   const authorizeGetRes = await doFetch(
     `/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       "https://test.local/callback"
-    )}&response_type=code&state=s1&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:env:read`
+    )}&response_type=code&state=s1&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:notify`
   );
 
   expect(authorizeGetRes.status).toBe(200);
@@ -143,7 +142,7 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   authorizeFormData.append("client_id", clientId);
   authorizeFormData.append("redirect_uri", "https://test.local/callback");
   authorizeFormData.append("state", "s1");
-  authorizeFormData.append("scope", "dovecote:env:read");
+  authorizeFormData.append("scope", "dovecote:notify");
   authorizeFormData.append("code_challenge", codeChallenge);
   authorizeFormData.append("code_challenge_method", "S256");
 
@@ -178,14 +177,14 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   const tokenData: any = await tokenRes.json();
   expect(tokenData.access_token).toBeTruthy();
 
-  // Step 6: Use access token to call MCP get_env
+  // Step 6: Use access token to call MCP list_channels
   const mcpReq = {
     jsonrpc: "2.0",
     id: 1,
     method: "tools/call",
     params: {
-      name: "get_env",
-      arguments: { profile: "test-profile" },
+      name: "list_channels",
+      arguments: {},
     },
   };
 
@@ -246,7 +245,7 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
   const authorizeGetRes = await doFetch(
     `/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       "https://test.local/callback"
-    )}&response_type=code&state=s2&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:env:read`
+    )}&response_type=code&state=s2&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:notify`
   );
 
   const html = await authorizeGetRes.text();
@@ -263,7 +262,7 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
   authorizeFormData.append("client_id", clientId);
   authorizeFormData.append("redirect_uri", "https://test.local/callback");
   authorizeFormData.append("state", "s2");
-  authorizeFormData.append("scope", "dovecote:env:read");
+  authorizeFormData.append("scope", "dovecote:notify");
   authorizeFormData.append("code_challenge", codeChallenge);
   authorizeFormData.append("code_challenge_method", "S256");
 

@@ -20,7 +20,6 @@ import { pbkdf2Sync, randomBytes } from "node:crypto";
 
 const SCOPES_SUPPORTED = [
   "dovecote:notify",
-  "dovecote:env:read",
   "dovecote:admin",
 ];
 

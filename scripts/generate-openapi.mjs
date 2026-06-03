@@ -15,10 +15,6 @@ import {
   channelsListResponseSchema as _channelsListResponseSchema,
 } from "../src/contracts/notifications.ts";
 import {
-  profileNameSchema,
-  envReadResponseSchema as _envReadResponseSchema,
-} from "../src/contracts/env.ts";
-import {
   tokenIssueRequestSchema,
   tokenIssueResponseSchema as _tokenIssueResponseSchema,
   tokenRevokeResponseSchema as _tokenRevokeResponseSchema,
@@ -65,11 +61,6 @@ const errorResponse = (description) => ({
 
 const notifyRequestSchema = _notifyRequestSchema.openapi("NotifyRequest");
 
-const profilePathSchema = profileNameSchema.openapi({
-  param: { name: "profile", in: "path" },
-  example: "dev",
-});
-
 const tokenIdPathSchema = z.string().min(1).openapi({
   param: { name: "tokenId", in: "path" },
   example: "tkn_01HZ...",
@@ -91,7 +82,6 @@ const channelConfigSchema = _channelConfigSchema.openapi("ChannelConfig");
 const channelsListSchema = z.object({
   channels: z.array(channelConfigSchema),
 }).openapi("ChannelsList");
-const envReadResponseSchema = _envReadResponseSchema.openapi("EnvReadResponse");
 const tokenIssueResponseSchema = _tokenIssueResponseSchema.openapi("TokenIssueResponse");
 const revokeResponseSchema = _tokenRevokeResponseSchema.openapi("RevokeResponse");
 const tokenListResponseSchema = _tokenListResponseSchema.openapi("TokenListResponse");
@@ -148,20 +138,6 @@ registry.registerPath({
   description: "List configured notification channels. Requires scope `dovecote:read`.",
   responses: {
     200: jsonOk(channelsListSchema, "Channels listed"),
-    ...commonAuthErrors,
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/v1/env/{profile}",
-  description: "Read an env profile value. Requires scope `dovecote:env:read`.",
-  request: {
-    params: z.object({ profile: profilePathSchema }),
-  },
-  responses: {
-    200: jsonOk(envReadResponseSchema, "Env profile resolved"),
-    ...notFoundError,
     ...commonAuthErrors,
   },
 });
@@ -334,7 +310,6 @@ const doc = generator.generateDocument({
 const requiredPaths = [
   "/v1/notify",
   "/v1/channels",
-  "/v1/env/{profile}",
   "/v1/tokens",
   "/v1/tokens/{tokenId}",
   "/v1/tokens/{tokenId}/renew",
@@ -357,7 +332,6 @@ const requiredSchemas = [
   "SendResult",
   "ChannelConfig",
   "ChannelsList",
-  "EnvReadResponse",
   "TokenIssueRequest",
   "TokenIssueResponse",
   "TokenExchangeRequest",

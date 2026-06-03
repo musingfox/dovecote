@@ -123,7 +123,7 @@ test("C2.2.a-2: Issue token without label (label is optional)", async () => {
   const result = await issueToken(
     {
       userId: "user456",
-      scopes: ["dovecote:env:read"],
+      scopes: ["dovecote:admin"],
     },
     env,
     now
@@ -157,7 +157,7 @@ test("C2.2.a-3: Issue token with multiple scopes", async () => {
   const result = await issueToken(
     {
       userId: "user789",
-      scopes: ["dovecote:notify", "dovecote:env:read"],
+      scopes: ["dovecote:notify", "dovecote:admin"],
       ttlSeconds: 3600, // 1 hour
     },
     env,
@@ -182,7 +182,7 @@ test("C2.2.a-3: Issue token with multiple scopes", async () => {
   }
 
   expect(metadata).toBeDefined();
-  expect(metadata?.scopes).toEqual(["dovecote:notify", "dovecote:env:read"]);
+  expect(metadata?.scopes).toEqual(["dovecote:notify", "dovecote:admin"]);
 });
 
 test("C2.2.a-4: Issue token with invalid scope throws InvalidScopeError", async () => {
@@ -580,7 +580,7 @@ test("C2.2.b-9: Multiple tokens with same user but different scopes", async () =
   const result2 = await issueToken(
     {
       userId: "user123",
-      scopes: ["dovecote:env:read", "dovecote:notify"],
+      scopes: ["dovecote:admin", "dovecote:notify"],
     },
     env,
     now
@@ -595,7 +595,7 @@ test("C2.2.b-9: Multiple tokens with same user but different scopes", async () =
   const verify2 = await verifyToken(result2.token, env, now);
   expect(verify2.kind).toBe("valid");
   if (verify2.kind !== "valid") throw new Error("expected valid");
-  expect(verify2.auth.scopes).toEqual(["dovecote:env:read", "dovecote:notify"]);
+  expect(verify2.auth.scopes).toEqual(["dovecote:admin", "dovecote:notify"]);
 });
 
 test("C2.2.b-10: Verify with wrong HMAC_PEPPER returns null", async () => {

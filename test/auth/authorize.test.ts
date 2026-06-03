@@ -245,13 +245,6 @@ function filterScopes(scope: string): string[] {
   );
 }
 
-test("authorize scope filter: both supported scopes", () => {
-  expect(filterScopes("dovecote:notify dovecote:env:read")).toEqual([
-    "dovecote:notify",
-    "dovecote:env:read",
-  ]);
-});
-
 test("authorize scope filter: one supported, one unsupported", () => {
   expect(filterScopes("dovecote:notify admin:delete")).toEqual(["dovecote:notify"]);
 });
@@ -276,14 +269,6 @@ test("SCOPE_DESCRIPTIONS dovecote:notify has no warning", () => {
   expect(SCOPE_DESCRIPTIONS["dovecote:notify"].warning).toBeUndefined();
 });
 
-test("SCOPE_DESCRIPTIONS contains dovecote:env:read with correct description", () => {
-  expect(SCOPE_DESCRIPTIONS["dovecote:env:read"].description).toBe("讀取環境變數設定檔");
-});
-
-test("SCOPE_DESCRIPTIONS dovecote:env:read has correct warning", () => {
-  expect(SCOPE_DESCRIPTIONS["dovecote:env:read"].warning).toBe("此授權允許讀取完整環境變數");
-});
-
 // ---------------------------------------------------------------------------
 // GET /authorize – scope handling
 // ---------------------------------------------------------------------------
@@ -300,12 +285,6 @@ function envWithScope(scope: string[]): AuthEnv {
 test("GET /authorize with valid scope dovecote:notify returns 200", async () => {
   const env = envWithScope(["dovecote:notify"]);
   const res = await authorizeApp.fetch(new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify"), env);
-  expect(res.status).toBe(200);
-});
-
-test("GET /authorize with valid scopes dovecote:notify and dovecote:env:read returns 200", async () => {
-  const env = envWithScope(["dovecote:notify", "dovecote:env:read"]);
-  const res = await authorizeApp.fetch(new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify%20dovecote:env:read"), env);
   expect(res.status).toBe(200);
 });
 
@@ -339,24 +318,6 @@ test("GET /authorize with dovecote:notify shows description but no warning", asy
   expect(html).not.toContain('<div class="scope-warning">');
 });
 
-test("GET /authorize with dovecote:env:read shows warning", async () => {
-  const env = envWithScope(["dovecote:env:read"]);
-  const res = await authorizeApp.fetch(new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:env:read"), env);
-  const html = await res.text();
-  expect(html).toContain('<div class="scope-warning">此授權允許讀取完整環境變數</div>');
-});
-
-test("GET /authorize with both scopes shows both descriptions and warning appears once", async () => {
-  const env = envWithScope(["dovecote:notify", "dovecote:env:read"]);
-  const res = await authorizeApp.fetch(new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify%20dovecote:env:read"), env);
-  const html = await res.text();
-  expect(html).toContain("傳送通知訊息至已連結的頻道");
-  expect(html).toContain("讀取環境變數設定檔");
-  const warningMatches = html.match(/scope-warning/g);
-  expect(warningMatches).not.toBeNull();
-  expect(warningMatches?.length).toBe(2); // One in CSS, one in HTML
-});
-
 // Snapshot tests - normalized CSRF
 test("GET /authorize HTML snapshot for dovecote:notify", async () => {
   const env = envWithScope(["dovecote:notify"]);
@@ -364,22 +325,6 @@ test("GET /authorize HTML snapshot for dovecote:notify", async () => {
   const html = await res.text();
   const normalizedHtml = html.replace(/name="csrf_token" value="[^"]+"/g, 'name="csrf_token" value="NORMALIZED_CSRF_TOKEN"');
   expect(normalizedHtml).toMatchSnapshot("dovecote:notify");
-});
-
-test("GET /authorize HTML snapshot for dovecote:env:read", async () => {
-  const env = envWithScope(["dovecote:env:read"]);
-  const res = await authorizeApp.fetch(new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:env:read"), env);
-  const html = await res.text();
-  const normalizedHtml = html.replace(/name="csrf_token" value="[^"]+"/g, 'name="csrf_token" value="NORMALIZED_CSRF_TOKEN"');
-  expect(normalizedHtml).toMatchSnapshot("dovecote:env:read");
-});
-
-test("GET /authorize HTML snapshot for both scopes", async () => {
-  const env = envWithScope(["dovecote:notify", "dovecote:env:read"]);
-  const res = await authorizeApp.fetch(new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify%20dovecote:env:read"), env);
-  const html = await res.text();
-  const normalizedHtml = html.replace(/name="csrf_token" value="[^"]+"/g, 'name="csrf_token" value="NORMALIZED_CSRF_TOKEN"');
-  expect(normalizedHtml).toMatchSnapshot("both-scopes");
 });
 
 // ---------------------------------------------------------------------------

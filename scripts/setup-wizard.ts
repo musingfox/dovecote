@@ -486,7 +486,7 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
     (
       await ask(
         "  scopes (comma-separated)",
-        "dovecote:notify,dovecote:admin,dovecote:env:read"
+        "dovecote:notify,dovecote:admin"
       )
     ) || "dovecote:notify,dovecote:admin,dovecote:env:read";
   const scopeList = scopes
@@ -496,7 +496,6 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
 
   const supported = new Set([
     "dovecote:notify",
-    "dovecote:env:read",
     "dovecote:admin",
   ]);
   for (const s of scopeList)
@@ -558,7 +557,7 @@ async function step6_bootstrap(
     (
       await ask(
         "  scopes (comma-separated)",
-        "dovecote:notify,dovecote:admin,dovecote:env:read"
+        "dovecote:notify,dovecote:admin"
       )
     ) || "dovecote:notify,dovecote:admin,dovecote:env:read";
   const scopes = scopesInput
