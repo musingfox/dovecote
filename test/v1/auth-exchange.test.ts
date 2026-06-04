@@ -1,7 +1,7 @@
 import { test, expect, mock, beforeEach, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { createAuthExchangeApp } from "../../src/auth-exchange.js";
-import { InvalidScopeError, MissingPepperError } from "../../src/auth/api-token.js";
+import { InvalidScopeError, MissingPepperError, KVWriteError } from "../../src/auth/api-token.js";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
 
@@ -236,6 +236,24 @@ test("C-Server-1: 401 missing_authorization when Authorization header absent", a
   expect(res.status).toBe(401);
   const body = (await res.json()) as any;
   expect(body.error_description).toBe("missing_authorization");
+});
+
+test("auth-exchange: disposition-guard — KVWriteError swallowed as 500 internal error, not Failed to persist token (errorMode=swallow)", async () => {
+  const { app } = buildApp(
+    makeServices({
+      issueToken: async () => { throw new KVWriteError("kv down"); },
+    }),
+  );
+  const env = buildEnv();
+  const req = new Request("http://localhost/v1/auth/exchange", {
+    method: "POST",
+    headers: { Authorization: "Bearer oauth_token_abc" },
+  });
+  const res = await app.fetch(req, env, createExecCtx());
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("internal error");
+  expect(body.error_description).not.toBe("Failed to persist token");
 });
 
 test("C-Server-1: audit token.issue ok:true on success with authMethod=oauth", async () => {

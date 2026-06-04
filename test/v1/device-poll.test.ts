@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createAuthExchangeDeviceApp } from "../../src/auth-exchange-device.js";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
-import { MissingPepperError, InvalidScopeError } from "../../src/auth/api-token.js";
+import { MissingPepperError, InvalidScopeError, KVWriteError } from "../../src/auth/api-token.js";
 import type { DeviceRecord } from "../../src/contracts/devices.js";
 
 const GRANT = "urn:ietf:params:oauth:grant-type:device_code";
@@ -464,6 +464,35 @@ test("approval branch: InvalidScopeError → 400 invalid_request", async () => {
   );
   expect(res.status).toBe(400);
   expect(((await res.json()) as any).error).toBe("invalid_request");
+});
+
+test("device-poll: disposition-guard — KVWriteError surfaces as 500 Failed to persist token (errorMode=surface)", async () => {
+  const env = buildEnv();
+  const services = makeServices({
+    issueToken: mock(async () => { throw new KVWriteError("kv down"); }),
+  });
+  const { root } = buildApp(services);
+  const now = Date.now();
+  await seed(env, "DCGUARD", {
+    status: "approved",
+    clientId: "cli",
+    requestedScopes: ["dovecote:notify"],
+    intervalSec: 5,
+    lastPollMs: 0,
+    createdAt: now - 5000,
+    expiresAt: now + 595_000,
+    userCode: "AAAA-BBBB",
+    userId: "alice",
+    scopes: ["dovecote:notify"],
+  });
+  const res = await root.fetch(
+    req({ grant_type: GRANT, device_code: "DCGUARD" }),
+    env,
+    execCtx(),
+  );
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("Failed to persist token");
 });
 
 test("rate-limit overflow → 429 with Retry-After:60 (distinct from slow_down)", async () => {

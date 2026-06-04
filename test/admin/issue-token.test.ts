@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test";
+import { test, expect, mock } from "bun:test";
 import { createAdminIssueTokenApp } from "../../src/admin-issue-token.js";
-import { issueToken } from "../../src/auth/api-token.js";
+import { issueToken, KVWriteError } from "../../src/auth/api-token.js";
 import { checkRateLimit } from "../../src/auth/rate-limit.js";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
@@ -297,6 +297,30 @@ test("admin-issue-token: invalid scope (dovecote:nonexistent) → 400 + audit in
     (e) => e.event === "token.issue" && e.reason === "invalid_body",
   );
   expect(failed).toBeTruthy();
+});
+
+test("admin-issue-token: disposition-guard — KVWriteError surfaces as 500 Failed to persist token (errorMode=surface)", async () => {
+  const { env, kv } = makeEnv();
+  await seedUser(kv, "alice");
+  const app = createAdminIssueTokenApp({
+    issueToken: mock(async () => { throw new KVWriteError("kv down"); }),
+    checkRateLimit,
+  });
+
+  const req = new Request("https://example.com/admin/issue-token", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer admin-tok",
+      "Content-Type": "application/json",
+      "CF-Connecting-IP": "1.2.3.4",
+    },
+    body: JSON.stringify({ userId: "alice", scopes: ["dovecote:notify"] }),
+  });
+
+  const res = await app.fetch(req, env, createExecCtx());
+  expect(res.status).toBe(500);
+  const data = (await res.json()) as any;
+  expect(data.error_description).toBe("Failed to persist token");
 });
 
 test("admin-issue-token: 60 calls OK, 61st → 429 + Retry-After:60 + audit rate_limited", async () => {

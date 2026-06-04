@@ -332,6 +332,23 @@ test("C-Endpoint-ExchangeOidc: 500 internal_error when resolveUserId throws KVWr
   expect(body.error).toBe("internal_error");
 });
 
+// --- disposition-guard ---------------------------------------------------
+
+test("auth-exchange-oidc: disposition-guard — issueToken KVWriteError swallowed as 500 internal error (not Failed to persist token/user record) (errorMode=swallow)", async () => {
+  const { app } = buildApp(
+    makeServices({
+      issueToken: async () => { throw new KVWriteError("kv down"); },
+    }),
+  );
+  const env = buildEnv();
+  const res = await app.fetch(req({ id_token: validIdToken }), env, createExecCtx());
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("internal error");
+  expect(body.error_description).not.toBe("Failed to persist token");
+  expect(body.error_description).not.toBe("Failed to persist user record");
+});
+
 // --- Brand new sub auto-provisions ---------------------------------------
 
 test("C-Endpoint-ExchangeOidc: brand-new sub → 201 with default scopes from resolveUserId", async () => {
