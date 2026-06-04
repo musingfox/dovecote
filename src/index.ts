@@ -15,8 +15,13 @@ import { createAuthExchangeOidcApp } from "./auth-exchange-oidc.js";
 import { createAuthExchangeDeviceApp } from "./auth-exchange-device.js";
 import { createDeviceVerificationApp } from "./device-verification.js";
 import { createAdminIssueTokenApp } from "./admin-issue-token.js";
+import { createOidcRpCallbackApp } from "./auth/oidc-rp-callback.js";
 import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
+import {
+  verifyOidcIdToken as defaultVerifyOidcIdToken,
+} from "./auth/oidc-verify.js";
+import { resolveUserId as defaultResolveUserId } from "./auth/resolve-user.js";
 
 const oauthOptions: OAuthProviderOptions<Env> = {
   apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
@@ -77,6 +82,60 @@ const adminIssueTokenApp = createAdminIssueTokenApp({
   checkRateLimit,
 });
 app.route("/", adminIssueTokenApp);
+
+// Carve-out: GET /oidc/callback is the OIDC RP callback route. It authenticates
+// via the upstream IdP (not dvct_*), so it must precede the /v1/* bearer
+// middleware. It calls env.OAUTH_PROVIDER.completeAuthorization internally.
+const oidcRpCallbackApp = createOidcRpCallbackApp({
+  exchangeUpstreamCode: async ({ code, redirectUri, env }) => {
+    const tokenEndpoint = (env as any).OIDC_RP_TOKEN_ENDPOINT;
+    const clientId = (env as any).OIDC_RP_CLIENT_ID;
+    const clientSecret = (env as any).OIDC_RP_CLIENT_SECRET;
+    if (!tokenEndpoint || !clientId) {
+      return { error: "RP token endpoint or client_id not configured" };
+    }
+    const params = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      ...(clientSecret ? { client_secret: clientSecret } : {}),
+    });
+    let resp: Response;
+    try {
+      resp = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+    } catch (e) {
+      return { error: `network_error: ${(e as Error).message}` };
+    }
+    if (!resp.ok) {
+      let detail = "";
+      try {
+        const body = await resp.json() as any;
+        detail = body.error ?? resp.statusText;
+      } catch {
+        detail = resp.statusText;
+      }
+      return { error: detail };
+    }
+    let body: any;
+    try {
+      body = await resp.json();
+    } catch {
+      return { error: "invalid_json_response" };
+    }
+    if (!body.id_token) {
+      return { error: "missing_id_token" };
+    }
+    return { id_token: body.id_token as string };
+  },
+  verifyOidcIdToken: defaultVerifyOidcIdToken,
+  resolveUserId: defaultResolveUserId,
+});
+app.route("/", oidcRpCallbackApp);
 
 app.use("/v1/*", bearerMiddleware);
 
