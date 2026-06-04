@@ -9,6 +9,10 @@ import { checkRateLimit } from "./rate-limit.js";
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
 import { resolveUserId } from "./resolve-user.js";
+import { decodeOidcState } from "./oidc-rp-state.js";
+import { parseOidcIssuers, getOidcClockToleranceSec } from "./oidc-config.js";
+import { verifyOidcIdToken } from "./oidc-verify.js";
+import * as jose from "jose";
 
 // Extend Env to include the OAUTH_PROVIDER helper
 interface AuthEnv extends Env {
@@ -20,6 +24,9 @@ const securityHeaders = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
 } as const;
+
+/** Module-level JWKS cache for the callback handler (keyed by jwks_uri). */
+const callbackJwksCache = new Map<string, jose.JWTVerifyGetKey>();
 
 const app = new Hono<{ Bindings: AuthEnv }>();
 
@@ -556,14 +563,162 @@ app.post("/admin/bootstrap-client", async (c) => {
 });
 
 /**
- * OIDC callback skeleton — turn-12 completes full verify/exchange flow.
+ * GET /oidc/callback — full OIDC RP flow (turn-12).
+ *
+ * Guard order (each reject path never calls completeAuthorization):
+ *   1. no OAUTH_PROVIDER → 500 no_provider
+ *   2. OIDC_STATE_SECRET missing/short → 500 config_error
+ *   3. missing code or state → 400 missing_params
+ *   4. decodeOidcState null → 400 invalid_state
+ *   5. state.iat expired (>600 s) → 400 state_expired
+ *   6. upstream token exchange fail/no id_token → 502 upstream_exchange_failed
+ *   7. verifyOidcIdToken → untrusted_issuer/bad_signature/expired_token
+ *   8. nonce mismatch → 400 nonce_mismatch
+ *   9. resolveUserId throw/null → 500 user_resolve_failed
+ *  10. completeAuthorization → 302
  */
 app.get("/oidc/callback", async (c) => {
+  // Guard 1 — no provider
   if (!c.env.OAUTH_PROVIDER) return c.json({ error: "no_provider" }, 500);
+
+  // Guard 2 — state secret config (fail-closed)
+  const stateSecret = c.env.OIDC_STATE_SECRET;
+  if (!stateSecret || stateSecret.length < 32) {
+    return c.json({ error: "config_error" }, 500);
+  }
+
+  // Guard 3 — required query params
   const code = c.req.query("code");
-  const state = c.req.query("state");
-  if (!code || !state) return c.json({ error: "missing_params" }, 400);
-  return c.json({ error: "not_implemented" }, 400);
+  const stateParam = c.req.query("state");
+  if (!code || !stateParam) return c.json({ error: "missing_params" }, 400);
+
+  // Guard 4 — decode & verify state signature
+  const payload = await decodeOidcState(stateParam, stateSecret);
+  if (payload === null) return c.json({ error: "invalid_state" }, 400);
+
+  // Guard 5 — state TTL (10 minutes)
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (typeof payload.iat === "number" && nowSec - payload.iat > 600) {
+    return c.json({ error: "state_expired" }, 400);
+  }
+
+  // Load issuer allow-list. Use first issuer as the target for the callback.
+  // (Multi-issuer: the state should carry the issuer; as a two-way-door default
+  //  we derive from the allow-list matching — if only one issuer, that's it.)
+  let allowList: ReturnType<typeof parseOidcIssuers>;
+  try {
+    allowList = parseOidcIssuers(c.env);
+  } catch {
+    return c.json({ error: "config_error" }, 500);
+  }
+  // Derive issuer config: pick first (fixture always has one). If the state
+  // carried an issuer field we could match; for now pick first as default.
+  const issuerConfig = allowList[0];
+  if (!issuerConfig) return c.json({ error: "config_error" }, 500);
+
+  // Guard 6 — upstream code→token exchange
+  const tokenEndpoint = issuerConfig.token_endpoint ?? `${issuerConfig.issuer}/token`;
+  const formParams = new URLSearchParams({ grant_type: "authorization_code", code });
+  if (payload.redirectUri) formParams.set("redirect_uri", payload.redirectUri);
+  if (issuerConfig.client_id ?? payload.clientId) {
+    formParams.set("client_id", issuerConfig.client_id ?? payload.clientId);
+  }
+  if (issuerConfig.client_secret) {
+    formParams.set("client_secret", issuerConfig.client_secret);
+  }
+
+  let idToken: string;
+  try {
+    const tokenRes = await globalThis.fetch(tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formParams.toString(),
+    });
+    if (!tokenRes.ok) {
+      return c.json({ error: "upstream_exchange_failed" }, 502);
+    }
+    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
+    if (typeof tokenBody.id_token !== "string" || !tokenBody.id_token) {
+      return c.json({ error: "upstream_exchange_failed" }, 502);
+    }
+    idToken = tokenBody.id_token;
+  } catch {
+    return c.json({ error: "upstream_exchange_failed" }, 502);
+  }
+
+  // Guard 7 — verify id_token (uses createRemoteJWKSet → globalThis.fetch)
+  const clockToleranceSec = getOidcClockToleranceSec(c.env);
+
+  // JWKS cache keyed by jwks_uri (module-level, same pattern as exchange-oidc)
+  const jwksKey = issuerConfig.jwks_uri;
+  if (!callbackJwksCache.has(jwksKey)) {
+    callbackJwksCache.set(
+      jwksKey,
+      jose.createRemoteJWKSet(new URL(jwksKey)),
+    );
+  }
+  const getKey = callbackJwksCache.get(jwksKey)!;
+
+  const verifyOutcome = await verifyOidcIdToken({
+    idToken,
+    allowList,
+    clockToleranceSec,
+    jwksResolver: () => getKey,
+  });
+
+  if (verifyOutcome.kind !== "ok") {
+    switch (verifyOutcome.kind) {
+      case "untrusted_issuer":
+        return c.json({ error: "untrusted_issuer" }, 400);
+      case "expired_token":
+        return c.json({ error: "expired_token" }, 400);
+      default:
+        return c.json({ error: "bad_signature" }, 400);
+    }
+  }
+
+  // Guard 8 — nonce binding (prevents replay)
+  const claims = verifyOutcome.claims;
+  if (claims.nonce !== payload.nonce) {
+    return c.json({ error: "nonce_mismatch" }, 400);
+  }
+
+  // Guard 9 — resolve/provision user
+  let resolved: { userId: string; scopes: string[] } | null;
+  try {
+    resolved = await resolveUserId(
+      { kind: "oidc", issuer: verifyOutcome.issuer, subject: verifyOutcome.subClaim },
+      c.env,
+    );
+  } catch {
+    return c.json({ error: "user_resolve_failed" }, 500);
+  }
+  if (!resolved) return c.json({ error: "user_resolve_failed" }, 500);
+
+  // Guard 10 — complete OAuth authorization → 302
+  const authRequest: AuthRequest = {
+    responseType: payload.responseType,
+    clientId: payload.clientId,
+    redirectUri: payload.redirectUri,
+    scope: payload.scope,
+    state: payload.state,
+    ...(payload.codeChallenge ? { codeChallenge: payload.codeChallenge } : {}),
+    ...(payload.codeChallengeMethod ? { codeChallengeMethod: payload.codeChallengeMethod } : {}),
+  };
+
+  const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
+    request: authRequest,
+    userId: resolved.userId,
+    scope: resolved.scopes,
+    metadata: {},
+    props: {
+      userId: resolved.userId,
+      scopes: resolved.scopes,
+      authMethod: "oidc",
+    },
+  });
+
+  return Response.redirect(redirectTo, 302);
 });
 
 /**

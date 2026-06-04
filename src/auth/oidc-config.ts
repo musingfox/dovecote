@@ -14,6 +14,12 @@ export const oidcIssuerConfigSchema = z.object({
   jwks_uri: z.string().url(),
   audience: z.string().min(1),
   subClaim: z.string().optional(),
+  /** Token endpoint for upstream code→token exchange. Defaults to `${issuer}/token`. */
+  token_endpoint: z.string().url().optional(),
+  /** OAuth client_id for the token exchange request. */
+  client_id: z.string().optional(),
+  /** OAuth client_secret for the token exchange request. */
+  client_secret: z.string().optional(),
 });
 export type OidcIssuerConfig = z.infer<typeof oidcIssuerConfigSchema>;
 

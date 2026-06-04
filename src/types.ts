@@ -18,6 +18,11 @@ export interface Env {
   OIDC_ISSUERS?: string;
   /** Clock-skew tolerance (seconds) for OIDC iat/exp validation. Default 60. */
   OIDC_CLOCK_TOLERANCE_SEC?: string;
+  /**
+   * Secret used to HMAC-sign the OIDC RP state token (GET /oidc/callback).
+   * Must be at least 32 characters. Missing or short → 500 config_error (fail-closed).
+   */
+  OIDC_STATE_SECRET?: string;
 }
 
 export interface ChannelConfig {
