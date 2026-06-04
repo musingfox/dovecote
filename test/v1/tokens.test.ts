@@ -269,6 +269,38 @@ test("C2.5.a - disposition-guard: KVWriteError swallowed to 500 'internal error'
   expect(body.error_description).toBe("internal error");
 });
 
+test("coverage-guard E-C: POST /v1/tokens KVWriteError emits exactly one internal_error audit with userId===u1", async () => {
+  const logSpy = spyOn(console, "log");
+  const { app } = buildApp(
+    ADMIN_AUTH,
+    makeServices({
+      issueToken: async () => {
+        throw new KVWriteError("kv failure");
+      },
+    })
+  );
+  const env = buildTestEnv();
+
+  const req = new Request("http://localhost/v1/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: "u1", scopes: ["dovecote:notify"] }),
+  });
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("internal error");
+
+  const audits = findAuditCalls(
+    logSpy,
+    (e) => e.event === "token.issue" && e.ok === false && e.reason === "internal_error"
+  );
+  expect(audits.length).toBe(1);
+  expect(audits[0].userId).toBe("u1");
+
+  logSpy.mockRestore();
+});
+
 // ============================================================
 // C2.5.b — DELETE /v1/tokens/:tokenId
 // ============================================================

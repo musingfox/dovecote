@@ -290,6 +290,70 @@ function findAuditCalls(spy: ReturnType<typeof spyOn>, predicate: (entry: any) =
   return matches;
 }
 
+test("coverage-guard E-A: renew unknown error -> 500, audit has tokenId===tid_self and userId===undefined", async () => {
+  const logSpy = spyOn(console, "log");
+  const { app } = buildApp(
+    SELF_AUTH,
+    makeServices({
+      issueToken: async () => { throw new Error("boom"); },
+    })
+  );
+  const env = buildEnv();
+
+  const req = new Request("http://localhost/v1/tokens/tid_self/renew", {
+    method: "POST",
+  });
+  const res = await app.fetch(req, env, createExecCtx());
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("internal error");
+
+  const audits = findAuditCalls(
+    logSpy,
+    (e) => e.event === "token.issue" && e.ok === false && e.reason === "internal_error"
+  );
+  expect(audits.length).toBe(1);
+  expect(audits[0].tokenId).toBe("tid_self");
+  expect(audits[0].userId).toBeUndefined();
+
+  logSpy.mockRestore();
+});
+
+test("coverage-guard E-B1: delete hook called once with oldMeta on renew success", async () => {
+  const services = makeServices();
+  const { app } = buildApp(SELF_AUTH, services);
+  const env = buildEnv();
+
+  const req = new Request("http://localhost/v1/tokens/tid_self/renew", {
+    method: "POST",
+  });
+  const res = await app.fetch(req, env, createExecCtx());
+  expect(res.status).toBe(201);
+
+  expect(services.deleteTokenEntries).toHaveBeenCalledTimes(1);
+  const deleteArg = (services.deleteTokenEntries as any).mock.calls[0][0];
+  expect(deleteArg.tokenId).toBe("tid_self");
+  expect(deleteArg.userId).toBe("user-1");
+});
+
+test("coverage-guard E-B2: delete failure is swallowed, renew still returns 201 with new tokenId", async () => {
+  const { app } = buildApp(
+    SELF_AUTH,
+    makeServices({
+      deleteTokenEntries: async () => { throw new Error("del fail"); },
+    })
+  );
+  const env = buildEnv();
+
+  const req = new Request("http://localhost/v1/tokens/tid_self/renew", {
+    method: "POST",
+  });
+  const res = await app.fetch(req, env, createExecCtx());
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as any;
+  expect(body.tokenId).toBe("tid_new");
+});
+
 test("C-Server-2: disposition-guard: renew KVWriteError swallowed to 500 'internal error' with zero token.issue audit", async () => {
   const logSpy = spyOn(console, "log");
   const { app, services } = buildApp(
