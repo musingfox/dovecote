@@ -1,10 +1,10 @@
-import { test, expect, mock, beforeEach } from "bun:test";
+import { test, expect, mock, beforeEach, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { createV1App } from "../../src/api-v1.js";
 import type { Env } from "../../src/types.js";
 import type { AuthCtx } from "../../src/auth/ctx.js";
 import { MockKV } from "../helpers/mock-kv.js";
-import { verifyToken } from "../../src/auth/api-token.js";
+import { verifyToken, KVWriteError } from "../../src/auth/api-token.js";
 
 function makeServices(overrides: Record<string, any> = {}) {
   return {
@@ -273,4 +273,49 @@ test("C-Server-2: zero-downtime invariant — old token verifies until delete co
   // AFTER delete: only new verifies
   expect((await verifyToken(old.token, env)).kind).toBe("invalid");
   expect((await verifyToken(fresh.token, env)).kind).toBe("valid");
+});
+
+function findAuditCalls(spy: ReturnType<typeof spyOn>, predicate: (entry: any) => boolean): any[] {
+  const matches: any[] = [];
+  for (const call of spy.mock.calls) {
+    const arg = call[0];
+    if (typeof arg !== "string") continue;
+    try {
+      const parsed = JSON.parse(arg);
+      if (predicate(parsed)) matches.push(parsed);
+    } catch {
+      // Not a JSON audit line — ignore
+    }
+  }
+  return matches;
+}
+
+test("C-Server-2: disposition-guard: renew KVWriteError swallowed to 500 'internal error' with zero token.issue audit", async () => {
+  const logSpy = spyOn(console, "log");
+  const { app, services } = buildApp(
+    SELF_AUTH,
+    makeServices({
+      issueToken: async () => {
+        throw new KVWriteError("kv failure");
+      },
+    })
+  );
+  const env = buildEnv();
+
+  const req = new Request("http://localhost/v1/tokens/tid_self/renew", {
+    method: "POST",
+  });
+  const res = await app.fetch(req, env, createExecCtx());
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("internal error");
+
+  // renew KVWriteError must NOT write any token.issue audit
+  const issueAudits = findAuditCalls(
+    logSpy,
+    (e) => e.event === "token.issue" && e.ok === false && e.reason === "internal_error"
+  );
+  expect(issueAudits.length).toBe(0);
+
+  logSpy.mockRestore();
 });

@@ -1,7 +1,7 @@
 import { test, expect, mock, beforeEach, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { createV1App } from "../../src/api-v1.js";
-import { InvalidScopeError, MissingPepperError } from "../../src/auth/api-token.js";
+import { InvalidScopeError, MissingPepperError, KVWriteError } from "../../src/auth/api-token.js";
 import type { Env } from "../../src/types.js";
 import type { AuthCtx } from "../../src/auth/ctx.js";
 import { MockKV } from "../helpers/mock-kv.js";
@@ -245,6 +245,28 @@ test("C2.5.a - POST /v1/tokens 503 misconfigured when HMAC_PEPPER missing (Missi
 
   const body = (await res.json()) as any;
   expect(body.error).toBe("misconfigured");
+});
+
+test("C2.5.a - disposition-guard: KVWriteError swallowed to 500 'internal error' (not surface msg)", async () => {
+  const { app } = buildApp(
+    ADMIN_AUTH,
+    makeServices({
+      issueToken: async () => {
+        throw new KVWriteError("kv failure");
+      },
+    })
+  );
+  const env = buildTestEnv();
+
+  const req = new Request("http://localhost/v1/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: "u1", scopes: ["dovecote:notify"] }),
+  });
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error_description).toBe("internal error");
 });
 
 // ============================================================

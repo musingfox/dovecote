@@ -81,6 +81,22 @@ export interface IssueTokenFlowOpts {
   missingPepperOpts?: {
     auditReason?: string;
   };
+  /**
+   * Post-issue hook called after issueToken succeeds, before the success audit.
+   * If the hook throws, the error is swallowed (the 201 response is still returned).
+   * Default: undefined (no hook).
+   */
+  onIssued?: (result: IssueResult) => Promise<void>;
+  /**
+   * When true, error-path audit entries for InvalidScopeError, MissingPepperError,
+   * and KVWriteError are suppressed (not written). Default: false (audits are written).
+   */
+  suppressErrorAudit?: boolean;
+  /**
+   * When set, the unknown-error audit entry uses this value as `tokenId` instead of
+   * `userId`. Default: undefined (unknown-error audit includes userId, no tokenId).
+   */
+  unknownAuditTokenId?: string;
   services: IssueTokenFlowServices;
 }
 
@@ -114,6 +130,9 @@ export async function issueTokenFlow(
     errorMode = "swallow",
     invalidScopeOpts,
     missingPepperOpts,
+    onIssued,
+    suppressErrorAudit = false,
+    unknownAuditTokenId,
     services,
   } = opts;
 
@@ -138,6 +157,14 @@ export async function issueTokenFlow(
   // 2. Issue token
   try {
     const result = await services.issueToken({ userId, scopes, label, ttlSeconds }, env);
+    // Post-issue hook (e.g. delete old token on renew). Throw swallowed.
+    if (onIssued) {
+      try {
+        await onIssued(result);
+      } catch {
+        // Hook failure does not affect the response.
+      }
+    }
     writeAudit(env, ctx, {
       event: auditEvent,
       ok: true,
@@ -163,7 +190,7 @@ export async function issueTokenFlow(
   } catch (err) {
     if (err instanceof InvalidScopeError) {
       if (invalidScopeOpts) {
-        if (invalidScopeOpts.auditReason) {
+        if (!suppressErrorAudit && invalidScopeOpts.auditReason) {
           writeAudit(env, ctx, {
             event: auditEvent,
             ok: false,
@@ -186,7 +213,7 @@ export async function issueTokenFlow(
       );
     }
     if (err instanceof MissingPepperError) {
-      if (missingPepperOpts?.auditReason) {
+      if (!suppressErrorAudit && missingPepperOpts?.auditReason) {
         writeAudit(env, ctx, {
           event: auditEvent,
           ok: false,
@@ -204,16 +231,18 @@ export async function issueTokenFlow(
       );
     }
     if (err instanceof KVWriteError) {
-      writeAudit(env, ctx, {
-        event: auditEvent,
-        ok: false,
-        reason: "internal_error",
-        userId,
-        authMethod: authMethod as any,
-        ip,
-        scope: auditScope,
-        ...(auditExtras ?? {}),
-      } as any);
+      if (!suppressErrorAudit) {
+        writeAudit(env, ctx, {
+          event: auditEvent,
+          ok: false,
+          reason: "internal_error",
+          userId,
+          authMethod: authMethod as any,
+          ip,
+          scope: auditScope,
+          ...(auditExtras ?? {}),
+        } as any);
+      }
       if (errorMode === "surface") {
         return c.json(
           { error: "internal_error", error_description: "Failed to persist token" },
@@ -229,16 +258,31 @@ export async function issueTokenFlow(
     if (errorMode === "surface") {
       throw err;
     }
-    writeAudit(env, ctx, {
-      event: auditEvent,
-      ok: false,
-      reason: "internal_error",
-      userId,
-      authMethod: authMethod as any,
-      ip,
-      scope: auditScope,
-      ...(auditExtras ?? {}),
-    } as any);
+    // Unknown error audit: use unknownAuditTokenId if provided (renew path),
+    // otherwise use userId (default — existing 4 callers unaffected).
+    if (unknownAuditTokenId !== undefined) {
+      writeAudit(env, ctx, {
+        event: auditEvent,
+        ok: false,
+        reason: "internal_error",
+        tokenId: unknownAuditTokenId,
+        authMethod: authMethod as any,
+        ip,
+        scope: auditScope,
+        ...(auditExtras ?? {}),
+      } as any);
+    } else {
+      writeAudit(env, ctx, {
+        event: auditEvent,
+        ok: false,
+        reason: "internal_error",
+        userId,
+        authMethod: authMethod as any,
+        ip,
+        scope: auditScope,
+        ...(auditExtras ?? {}),
+      } as any);
+    }
     return c.json(
       { error: "internal_error", error_description: "internal error" },
       500,

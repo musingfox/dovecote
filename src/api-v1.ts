@@ -19,9 +19,6 @@ import {
   deleteTokenEntries as _deleteTokenEntries,
   listUserTokens as _listUserTokens,
   listAllTokens as _listAllTokens,
-  InvalidScopeError,
-  MissingPepperError,
-  KVWriteError,
   type IssueResult,
   type RevokeResult,
   type TokenMetadata as ApiTokenMetadata,
@@ -29,6 +26,7 @@ import {
 } from "./auth/api-token.js";
 import { checkRateLimit as _checkRateLimit, type RateLimitResult } from "./auth/rate-limit.js";
 import { writeAudit } from "./auth/audit.js";
+import { issueTokenFlow } from "./auth/issue-token-flow.js";
 import type { SendResult, ChannelConfig } from "./types.js";
 
 type V1Vars = { Bindings: Env; Variables: { auth: AuthCtx } };
@@ -353,78 +351,28 @@ export function createV1App(services: V1Services) {
     }
     const body = parsed.data;
 
-    try {
-      const ttlSeconds = body.expiresIn ? expiresInToSeconds(body.expiresIn) : undefined;
-      const result = await services.issueToken(
-        { userId: body.userId, scopes: body.scopes, label: body.label, ttlSeconds },
-        env
-      );
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: true,
-        userId: body.userId,
-        tokenId: result.tokenId,
-        scopes: body.scopes,
-        authMethod: auth.authMethod,
-        ip,
-        scope,
-      });
-      return c.json(
-        {
-          token: result.token,
-          tokenId: result.tokenId,
-          userId: body.userId,
-          scopes: body.scopes,
-          expiresAt: result.expiresAt,
-          ...(body.label ? { label: body.label } : {}),
-        },
-        201
-      );
-    } catch (err) {
-      if (err instanceof InvalidScopeError) {
-        writeAudit(env, ctx, {
-          event: "token.issue",
-          ok: false,
-          reason: "invalid_scope",
-          userId: body.userId,
-          authMethod: auth.authMethod,
-          ip,
-          scope,
-        });
-        return c.json(
-          { error: "invalid_request", error_description: err.message },
-          400
-        );
-      }
-      if (err instanceof MissingPepperError) {
-        writeAudit(env, ctx, {
-          event: "token.issue",
-          ok: false,
-          reason: "misconfigured",
-          userId: body.userId,
-          authMethod: auth.authMethod,
-          ip,
-          scope,
-        });
-        return c.json(
-          { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
-          503
-        );
-      }
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: false,
-        reason: "internal_error",
-        userId: body.userId,
-        authMethod: auth.authMethod,
-        ip,
-        scope,
-      });
-      return c.json(
-        { error: "internal_error", error_description: "internal error" },
-        500
-      );
-    }
+    const ttlSeconds = body.expiresIn ? expiresInToSeconds(body.expiresIn) : undefined;
+    return issueTokenFlow(c, {
+      env,
+      ctx,
+      ip,
+      userId: body.userId,
+      scopes: body.scopes,
+      label: body.label,
+      ttlSeconds,
+      rateLimitNamespace: "tokens",
+      authMethod: auth.authMethod,
+      auditScope: scope,
+      successStatus: 201,
+      errorMode: "swallow",
+      successAuditExtras: { scopes: body.scopes },
+      invalidScopeOpts: { auditReason: "invalid_scope" },
+      missingPepperOpts: { auditReason: "misconfigured" },
+      services: {
+        issueToken: services.issueToken,
+        // Rate limit already handled in the head; skip inside helper.
+      },
+    });
   });
 
   // POST /v1/tokens/:tokenId/renew — self-renew or admin-rotate (C-Server-2)
@@ -512,83 +460,34 @@ export function createV1App(services: V1Services) {
       );
     }
 
-    try {
-      const ttlSeconds = body.expiresIn
-        ? expiresInToSeconds(body.expiresIn)
-        : undefined;
-      const result = await services.issueToken(
-        {
-          userId: oldMeta.userId,
-          scopes: oldMeta.scopes,
-          label: oldMeta.label,
-          ttlSeconds,
-        },
-        env
-      );
+    const ttlSeconds = body.expiresIn ? expiresInToSeconds(body.expiresIn) : undefined;
+    const deleteFn = services.deleteTokenEntries ?? _deleteTokenEntries;
 
-      // RACE-SAFE ORDER: new keys persisted (inside issueToken) BEFORE deleting old.
-      const deleteFn = services.deleteTokenEntries ?? _deleteTokenEntries;
-      try {
+    return issueTokenFlow(c, {
+      env,
+      ctx,
+      ip,
+      userId: oldMeta.userId,
+      scopes: oldMeta.scopes,
+      label: oldMeta.label,
+      ttlSeconds,
+      rateLimitNamespace: "tokens",
+      authMethod: auth.authMethod,
+      auditScope: scope,
+      successStatus: 201,
+      errorMode: "swallow",
+      suppressErrorAudit: true,
+      unknownAuditTokenId: tokenId,
+      successAuditExtras: { scopes: oldMeta.scopes },
+      // Post-issue: delete old token (RACE-SAFE: new persisted before delete).
+      onIssued: async () => {
         await deleteFn(oldMeta, env);
-      } catch {
-        // Old-key delete failure does not break the response — new token is valid.
-      }
-
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: true,
-        userId: oldMeta.userId,
-        tokenId: result.tokenId,
-        scopes: oldMeta.scopes,
-        authMethod: auth.authMethod,
-        ip,
-        scope,
-      });
-
-      return c.json(
-        {
-          token: result.token,
-          tokenId: result.tokenId,
-          userId: oldMeta.userId,
-          scopes: oldMeta.scopes,
-          expiresAt: result.expiresAt,
-          ...(oldMeta.label ? { label: oldMeta.label } : {}),
-        },
-        201
-      );
-    } catch (err) {
-      if (err instanceof InvalidScopeError) {
-        return c.json(
-          { error: "invalid_request", error_description: err.message },
-          400
-        );
-      }
-      if (err instanceof MissingPepperError) {
-        return c.json(
-          { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
-          503
-        );
-      }
-      if (err instanceof KVWriteError) {
-        return c.json(
-          { error: "internal_error", error_description: "internal error" },
-          500
-        );
-      }
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: false,
-        reason: "internal_error",
-        tokenId,
-        authMethod: auth.authMethod,
-        ip,
-        scope,
-      });
-      return c.json(
-        { error: "internal_error", error_description: "internal error" },
-        500
-      );
-    }
+      },
+      services: {
+        issueToken: services.issueToken,
+        // Rate limit already handled in the head; skip inside helper.
+      },
+    });
   });
 
   // DELETE /v1/tokens/:tokenId — admin-gated revocation (C2.5.b)
