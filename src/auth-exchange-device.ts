@@ -32,9 +32,7 @@ import {
 import { expiresInToSeconds } from "./contracts/tokens.js";
 import {
   generateRandomBase64Url,
-  InvalidScopeError,
   KVWriteError,
-  MissingPepperError,
   type IssueResult,
 } from "./auth/api-token.js";
 import type { RateLimitResult } from "./auth/rate-limit.js";
@@ -43,6 +41,7 @@ import {
   generateUserCode,
   normalizeUserCode,
 } from "./auth/user-code.js";
+import { issueTokenFlow } from "./auth/issue-token-flow.js";
 
 export type DeviceServices = {
   issueToken: (
@@ -545,93 +544,33 @@ export function createAuthExchangeDeviceApp(services: DeviceServices) {
         );
       }
 
-      // 7c. Mint token.
-      let result: IssueResult;
-      try {
-        const ttlSeconds = record.expiresInRequested
-          ? expiresInToSeconds(record.expiresInRequested as any)
-          : undefined;
-        result = await services.issueToken(
-          {
-            userId: record.userId,
-            scopes: record.scopes,
-            label: record.label,
-            ttlSeconds,
-          },
-          env,
-        );
-      } catch (err) {
-        if (err instanceof MissingPepperError) {
-          writeAudit(env, ctx, {
-            event: "auth.device.exchange",
-            ok: false,
-            reason: "misconfigured",
-            authMethod: "none",
-            ip,
-            scope: "",
-          });
-          return c.json(
-            { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
-            503,
-          );
-        }
-        if (err instanceof InvalidScopeError) {
-          writeAudit(env, ctx, {
-            event: "auth.device.exchange",
-            ok: false,
-            reason: "invalid_scope",
-            userId: record.userId,
-            authMethod: "none",
-            ip,
-            scope: record.scopes.join(" "),
-          });
-          return c.json(
-            { error: "invalid_request", error_description: err.message },
-            400,
-          );
-        }
-        if (err instanceof KVWriteError) {
-          writeAudit(env, ctx, {
-            event: "auth.device.exchange",
-            ok: false,
-            reason: "internal_error",
-            userId: record.userId,
-            authMethod: "none",
-            ip,
-            scope: record.scopes.join(" "),
-          });
-          return c.json(
-            { error: "internal_error", error_description: "Failed to persist token" },
-            500,
-          );
-        }
-        throw err;
-      }
-
-      // Note: `consumed` was already written above (step 7b) BEFORE issueToken
-      // to close the concurrent-poll race. No post-issuance write needed.
-
-      writeAudit(env, ctx, {
-        event: "auth.device.exchange",
-        ok: true,
-        userId: record.userId,
-        tokenId: result.tokenId,
-        authMethod: "none",
+      // 7c. Mint token via shared pipeline (RL already ran in step 2 above).
+      // Note: `consumed` was written above (step 7b) BEFORE issueToken to close
+      // the concurrent-poll race. The helper receives no checkRateLimit so it
+      // skips the RL step and goes straight to issueToken.
+      const ttlSeconds = record.expiresInRequested
+        ? expiresInToSeconds(record.expiresInRequested as any)
+        : undefined;
+      return issueTokenFlow(c, {
+        env,
+        ctx,
         ip,
-        scope: record.scopes.join(" "),
-      });
-
-      return c.json(
-        {
-          token: result.token,
-          tokenId: result.tokenId,
-          userId: record.userId,
-          scopes: record.scopes,
-          expiresAt: result.expiresAt,
-          ...(record.label ? { label: record.label } : {}),
+        userId: record.userId,
+        scopes: record.scopes,
+        label: record.label,
+        ttlSeconds,
+        rateLimitNamespace: "device-poll",
+        authMethod: "none",
+        auditEvent: "auth.device.exchange",
+        auditScope: record.scopes.join(" "),
+        successStatus: 201,
+        invalidScopeOpts: { auditReason: "invalid_scope" },
+        missingPepperOpts: { auditReason: "misconfigured" },
+        services: {
+          issueToken: services.issueToken,
+          // checkRateLimit intentionally omitted — already ran in step 2.
         },
-        201,
-      );
+      });
     }
 
     // Unreachable — every status handled above.

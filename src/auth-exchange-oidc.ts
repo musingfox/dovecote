@@ -19,13 +19,12 @@ import {
   expiresInToSeconds,
 } from "./contracts/tokens.js";
 import {
-  InvalidScopeError,
   KVWriteError,
-  MissingPepperError,
   type IssueResult,
 } from "./auth/api-token.js";
 import type { RateLimitResult } from "./auth/rate-limit.js";
 import { writeAudit } from "./auth/audit.js";
+import { issueTokenFlow } from "./auth/issue-token-flow.js";
 import {
   parseOidcIssuers as defaultParseOidcIssuers,
   getOidcClockToleranceSec,
@@ -251,92 +250,31 @@ export function createAuthExchangeOidcApp(services: ExchangeOidcServices) {
       );
     }
 
-    // --- 6. Issue token ---
-    try {
-      const ttlSeconds = body.expiresIn
-        ? expiresInToSeconds(body.expiresIn)
-        : undefined;
-      const result = await services.issueToken(
-        {
-          userId: user.userId,
-          scopes: user.scopes,
-          label: body.label,
-          ttlSeconds,
-        },
-        env,
-      );
-      writeAudit(env, ctx, {
-        event: "auth.exchange.oidc",
-        ok: true,
-        userId: user.userId,
-        tokenId: result.tokenId,
-        issuer: outcome.issuer,
-        authMethod: "oidc",
-        ip,
-        scope: user.scopes.join(" "),
-      });
-      return c.json(
-        {
-          token: result.token,
-          tokenId: result.tokenId,
-          userId: user.userId,
-          scopes: user.scopes,
-          expiresAt: result.expiresAt,
-          ...(body.label ? { label: body.label } : {}),
-        },
-        201,
-      );
-    } catch (err) {
-      if (err instanceof InvalidScopeError) {
-        writeAudit(env, ctx, {
-          event: "auth.exchange.oidc",
-          ok: false,
-          reason: "invalid_scope",
-          userId: user.userId,
-          issuer: outcome.issuer,
-          authMethod: "oidc",
-          ip,
-          scope: user.scopes.join(" "),
-        });
-        return c.json(
-          { error: "invalid_request", error_description: err.message },
-          400,
-        );
-      }
-      if (err instanceof MissingPepperError) {
-        writeAudit(env, ctx, {
-          event: "auth.exchange.oidc",
-          ok: false,
-          reason: "misconfigured",
-          userId: user.userId,
-          issuer: outcome.issuer,
-          authMethod: "oidc",
-          ip,
-          scope: user.scopes.join(" "),
-        });
-        return c.json(
-          {
-            error: "misconfigured",
-            error_description: "HMAC_PEPPER not configured",
-          },
-          503,
-        );
-      }
-      writeAudit(env, ctx, {
-        event: "auth.exchange.oidc",
-        ok: false,
-        reason: "internal_error",
-        userId: user.userId,
-        issuer: outcome.issuer,
-        authMethod: "oidc",
-        ip,
-        scope: user.scopes.join(" "),
-      });
-      return c.json(
-        { error: "internal_error", error_description: "internal error" },
-        500,
-      );
-    }
+    // --- 6. Issue token via shared pipeline (RL already ran in step 4 above).
+    const ttlSeconds = body.expiresIn
+      ? expiresInToSeconds(body.expiresIn)
+      : undefined;
+    return issueTokenFlow(c, {
+      env,
+      ctx,
+      ip,
+      userId: user.userId,
+      scopes: user.scopes,
+      label: body.label,
+      ttlSeconds,
+      rateLimitNamespace: "oidc",
+      authMethod: "oidc",
+      auditEvent: "auth.exchange.oidc",
+      auditExtras: { issuer: outcome.issuer },
+      auditScope: user.scopes.join(" "),
+      successStatus: 201,
+      invalidScopeOpts: { auditReason: "invalid_scope" },
+      missingPepperOpts: { auditReason: "misconfigured" },
+      services: {
+        issueToken: services.issueToken,
+        // checkRateLimit intentionally omitted — already ran in step 4.
+      },
+    });
   });
 
   return app;

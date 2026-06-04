@@ -80,8 +80,8 @@ export function parseTopLevel(argv: string[]): {
     return { command: "help", rest: [], globalFlags: global };
   }
   const command = remaining[0]!;
-  // Two-word commands: auth, channels, env, tokens
-  const TWO_WORD = new Set(["auth", "channels", "env", "tokens"]);
+  // Two-word commands: auth, channels, tokens
+  const TWO_WORD = new Set(["auth", "channels", "tokens"]);
   if (TWO_WORD.has(command) && remaining.length >= 2) {
     return {
       command,

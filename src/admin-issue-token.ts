@@ -30,13 +30,12 @@ import {
   ADMIN_ISSUE_DEFAULT_LABEL,
 } from "./contracts/admin.js";
 import {
-  InvalidScopeError,
   KVWriteError,
-  MissingPepperError,
   type IssueResult,
 } from "./auth/api-token.js";
 import type { RateLimitResult } from "./auth/rate-limit.js";
 import { writeAudit } from "./auth/audit.js";
+import { issueTokenFlow } from "./auth/issue-token-flow.js";
 
 const ADMIN_RATE_LIMIT_NAMESPACE = "admin";
 const ADMIN_RATE_LIMIT_PER_MIN = 60;
@@ -80,13 +79,20 @@ export function createAdminIssueTokenApp(services: AdminIssueTokenServices) {
     const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
 
     // 1. Rate-limit FIRST (per p4.3 ordering — avoids unauth amplification).
-    const rl = await services.checkRateLimit(
+    //    Delegated to the shared pipeline below (step 6). Kept at top of handler
+    //    via the pipeline's checkRateLimit which runs before issueToken.
+    //    We defer the full call to issueTokenFlow at step 6 with all resolved
+    //    parameters. For the early rate-limit path we rely on the pipeline
+    //    to check RL and return 429 before reaching issueToken.
+    //    To preserve the "RL first" order, we check RL here directly and bail out
+    //    before any other work, matching the original validation order.
+    const rlEarly = await services.checkRateLimit(
       env.OAUTH_KV,
       ip,
       ADMIN_RATE_LIMIT_NAMESPACE,
       ADMIN_RATE_LIMIT_PER_MIN,
     );
-    if (!rl.allowed) {
+    if (!rlEarly.allowed) {
       writeAudit(env, ctx, {
         event: "token.issue",
         ok: false,
@@ -210,92 +216,33 @@ export function createAdminIssueTokenApp(services: AdminIssueTokenServices) {
       );
     }
 
-    // 6. Mint token.
+    // 6. Mint token via shared pipeline (RL already ran in step 1 above).
     const expiresInDays = body.expiresInDays ?? ADMIN_ISSUE_DEFAULT_DAYS;
     const label = body.label ?? ADMIN_ISSUE_DEFAULT_LABEL;
     const ttlSeconds = expiresInDays * 86400;
 
-    let result: IssueResult;
-    try {
-      result = await services.issueToken(
-        {
-          userId: body.userId,
-          scopes: body.scopes,
-          label,
-          ttlSeconds,
-        },
-        env,
-      );
-    } catch (err) {
-      if (err instanceof MissingPepperError) {
-        writeAudit(env, ctx, {
-          event: "token.issue",
-          ok: false,
-          reason: "misconfigured",
-          userId: body.userId,
-          authMethod: "admin_token",
-          ip,
-          scope: ADMIN_AUDIT_SCOPE,
-        });
-        return c.json(
-          { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
-          503,
-        );
-      }
-      if (err instanceof InvalidScopeError) {
-        // Defensive — zod should have caught this. Surface as invalid_body.
-        writeAudit(env, ctx, {
-          event: "token.issue",
-          ok: false,
-          reason: "invalid_body",
-          userId: body.userId,
-          authMethod: "admin_token",
-          ip,
-          scope: ADMIN_AUDIT_SCOPE,
-        });
-        return c.json({ error: err.message }, 400);
-      }
-      if (err instanceof KVWriteError) {
-        writeAudit(env, ctx, {
-          event: "token.issue",
-          ok: false,
-          reason: "internal_error",
-          userId: body.userId,
-          authMethod: "admin_token",
-          ip,
-          scope: ADMIN_AUDIT_SCOPE,
-        });
-        return c.json(
-          { error: "internal_error", error_description: "Failed to persist token" },
-          500,
-        );
-      }
-      throw err;
-    }
-
-    writeAudit(env, ctx, {
-      event: "token.issue",
-      ok: true,
-      reason: "admin_issue",
-      userId: body.userId,
-      tokenId: result.tokenId,
-      scopes: body.scopes,
-      authMethod: "admin_token",
+    return issueTokenFlow(c, {
+      env,
+      ctx,
       ip,
-      scope: ADMIN_AUDIT_SCOPE,
-    });
-
-    return c.json(
-      {
-        token: result.token,
-        tokenId: result.tokenId,
-        userId: body.userId,
-        scopes: body.scopes,
-        expiresAt: result.expiresAt,
-        label,
+      userId: body.userId,
+      scopes: body.scopes,
+      label,
+      ttlSeconds,
+      rateLimitNamespace: ADMIN_RATE_LIMIT_NAMESPACE,
+      authMethod: "admin_token",
+      auditScope: ADMIN_AUDIT_SCOPE,
+      successStatus: 200,
+      successAuditExtras: { reason: "admin_issue" },
+      invalidScopeOpts: {
+        auditReason: "invalid_body",
+        body: (err) => ({ error: err.message }),
       },
-      200,
-    );
+      services: {
+        issueToken: services.issueToken,
+        // checkRateLimit intentionally omitted — already ran in step 1.
+      },
+    });
   });
 
   return app;

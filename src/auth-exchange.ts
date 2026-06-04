@@ -9,8 +9,6 @@ import {
 } from "./contracts/tokens.js";
 import {
   issueToken as _issueToken,
-  InvalidScopeError,
-  MissingPepperError,
   type IssueResult,
 } from "./auth/api-token.js";
 import {
@@ -18,6 +16,7 @@ import {
   type RateLimitResult,
 } from "./auth/rate-limit.js";
 import { writeAudit } from "./auth/audit.js";
+import { issueTokenFlow } from "./auth/issue-token-flow.js";
 
 export type ExchangeServices = {
   issueToken: (
@@ -190,84 +189,25 @@ export function createAuthExchangeApp(services: ExchangeServices) {
       );
     }
 
-    // Rate limit (namespace "tokens")
-    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "tokens");
-    if (!rl.allowed) {
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: false,
-        reason: "rate_limited",
-        userId: unwrapped.userId,
-        authMethod: "oauth",
-        ip,
-        scope: unwrapped.scopes.join(" "),
-      });
-      return c.json(
-        { error: "rate_limited", error_description: "Too many requests" },
-        429,
-        { "Retry-After": "60" }
-      );
-    }
-
-    try {
-      const ttlSeconds = body.expiresIn ? expiresInToSeconds(body.expiresIn) : undefined;
-      const result = await services.issueToken(
-        {
-          userId: unwrapped.userId,
-          scopes: unwrapped.scopes,
-          label: body.label,
-          ttlSeconds,
-        },
-        env
-      );
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: true,
-        userId: unwrapped.userId,
-        tokenId: result.tokenId,
-        scopes: unwrapped.scopes,
-        authMethod: "oauth",
-        ip,
-        scope: unwrapped.scopes.join(" "),
-      });
-      return c.json(
-        {
-          token: result.token,
-          tokenId: result.tokenId,
-          userId: unwrapped.userId,
-          scopes: unwrapped.scopes,
-          expiresAt: result.expiresAt,
-          ...(body.label ? { label: body.label } : {}),
-        },
-        201
-      );
-    } catch (err) {
-      if (err instanceof InvalidScopeError) {
-        return c.json(
-          { error: "invalid_request", error_description: err.message },
-          400
-        );
-      }
-      if (err instanceof MissingPepperError) {
-        return c.json(
-          { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
-          503
-        );
-      }
-      writeAudit(env, ctx, {
-        event: "token.issue",
-        ok: false,
-        reason: "internal_error",
-        userId: unwrapped.userId,
-        authMethod: "oauth",
-        ip,
-        scope: unwrapped.scopes.join(" "),
-      });
-      return c.json(
-        { error: "internal_error", error_description: "internal error" },
-        500
-      );
-    }
+    // Rate limit + token issuance delegated to the shared pipeline.
+    const ttlSeconds = body.expiresIn ? expiresInToSeconds(body.expiresIn) : undefined;
+    return issueTokenFlow(c, {
+      env,
+      ctx,
+      ip,
+      userId: unwrapped.userId,
+      scopes: unwrapped.scopes,
+      label: body.label,
+      ttlSeconds,
+      rateLimitNamespace: "tokens",
+      authMethod: "oauth",
+      auditScope: unwrapped.scopes.join(" "),
+      successStatus: 201,
+      services: {
+        issueToken: services.issueToken,
+        checkRateLimit: services.checkRateLimit,
+      },
+    });
   });
 
   return app;
