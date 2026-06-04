@@ -93,6 +93,7 @@ const oauthPaths = [
   "/admin/revoke",
   "/admin/bootstrap-client",
   "/oidc/callback",
+  "/oidc/redirect",
 ];
 
 for (const path of oauthPaths) {

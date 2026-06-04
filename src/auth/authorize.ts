@@ -9,8 +9,9 @@ import { checkRateLimit } from "./rate-limit.js";
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
 import { resolveUserId } from "./resolve-user.js";
-import { decodeOidcState } from "./oidc-rp-state.js";
+import { decodeOidcState, encodeOidcState } from "./oidc-rp-state.js";
 import { parseOidcIssuers, getOidcClockToleranceSec } from "./oidc-config.js";
+import { buildUpstreamAuthorizeUrl } from "./oidc-rp-authurl.js";
 import { verifyOidcIdToken } from "./oidc-verify.js";
 import * as jose from "jose";
 
@@ -719,6 +720,83 @@ app.get("/oidc/callback", async (c) => {
   });
 
   return Response.redirect(redirectTo, 302);
+});
+
+/**
+ * GET /oidc/redirect — OIDC RP flow initiator (turn-14).
+ *
+ * Guard order (each reject path never calls completeAuthorization):
+ *   1. no OAUTH_PROVIDER → 500 no_provider
+ *   2. OIDC_STATE_SECRET missing/short → 500 config_error
+ *   3. parseAuthRequest (reads downstream client's authRequest)
+ *   4. issuer config (parseOidcIssuers + authorization_endpoint check) → 500 config_error
+ *   5. nonce = crypto.getRandomValues based random string
+ *   6. encodeOidcState: sign state with client's redirectUri (not dovecote callback)
+ *   7. buildUpstreamAuthorizeUrl with oidcCallbackUrl (dovecote /oidc/callback) as redirect_uri
+ *   8. → 302 Location upstream authorization endpoint
+ */
+app.get("/oidc/redirect", async (c) => {
+  // Guard 1 — no provider
+  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "no_provider" }, 500);
+
+  // Guard 2 — state secret config (fail-closed)
+  const stateSecret = c.env.OIDC_STATE_SECRET;
+  if (!stateSecret || stateSecret.length < 32) {
+    return c.json({ error: "config_error" }, 500);
+  }
+
+  // Guard 3 — parse downstream client's auth request
+  const authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+
+  // Guard 4 — issuer config + authorization_endpoint
+  let issuerConfig: ReturnType<typeof parseOidcIssuers>[number];
+  try {
+    const allowList = parseOidcIssuers(c.env);
+    issuerConfig = allowList[0]!;
+  } catch {
+    return c.json({ error: "config_error" }, 500);
+  }
+  if (!issuerConfig) return c.json({ error: "config_error" }, 500);
+  if (!issuerConfig.authorization_endpoint) {
+    return c.json({ error: "config_error" }, 500);
+  }
+
+  // Guard 5 — generate nonce
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
+  const nonce = Array.from(nonceBytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // Guard 6 — sign state; redirectUri = client's redirect (NOT dovecote callback)
+  const now = Math.floor(Date.now() / 1000);
+  const signedState = await encodeOidcState(
+    {
+      redirectUri: authReq.redirectUri,   // client's redirect (confusion guard)
+      clientId: authReq.clientId,         // downstream client_id
+      scope: authReq.scope,
+      state: authReq.state,
+      codeChallenge: authReq.codeChallenge,
+      codeChallengeMethod: authReq.codeChallengeMethod,
+      responseType: authReq.responseType,
+      nonce,
+      iat: now,
+    },
+    stateSecret,
+  );
+
+  // Guard 7 — build upstream authorize URL; redirect_uri = dovecote /oidc/callback
+  const oidcCallbackUrl = new URL(c.req.url).origin + "/oidc/callback";
+  const upstreamUrl = buildUpstreamAuthorizeUrl({
+    authorizationEndpoint: issuerConfig.authorization_endpoint,
+    clientId: issuerConfig.client_id ?? authReq.clientId, // upstream RP client_id
+    redirectUri: oidcCallbackUrl,   // dovecote's own callback (confusion guard)
+    scope: authReq.scope,           // merged with openid inside buildUpstreamAuthorizeUrl
+    state: signedState,
+    nonce,
+  });
+
+  // Guard 8 — redirect
+  return Response.redirect(upstreamUrl, 302);
 });
 
 /**

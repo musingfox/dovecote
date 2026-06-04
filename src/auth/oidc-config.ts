@@ -20,6 +20,8 @@ export const oidcIssuerConfigSchema = z.object({
   client_id: z.string().optional(),
   /** OAuth client_secret for the token exchange request. */
   client_secret: z.string().optional(),
+  /** Authorization endpoint for initiating OIDC RP login. */
+  authorization_endpoint: z.string().url().optional(),
 });
 export type OidcIssuerConfig = z.infer<typeof oidcIssuerConfigSchema>;
 
