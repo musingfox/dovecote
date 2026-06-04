@@ -104,7 +104,7 @@ export async function encodeOidcState(
 export async function decodeOidcState(
   token: string,
   secret: string,
-): Promise<OidcStatePayload | null> {
+): Promise<(OidcStatePayload & { iat: number }) | null> {
   try {
     const dotIdx = token.lastIndexOf(".");
     if (dotIdx === -1) return null;
@@ -129,12 +129,13 @@ export async function decodeOidcState(
       !Array.isArray(parsed.scope) ||
       typeof parsed.state !== "string" ||
       typeof parsed.nonce !== "string" ||
-      typeof parsed.responseType !== "string"
+      typeof parsed.responseType !== "string" ||
+      typeof parsed.iat !== "number"
     ) {
       return null;
     }
 
-    return parsed;
+    return parsed as OidcStatePayload & { iat: number };
   } catch {
     return null;
   }

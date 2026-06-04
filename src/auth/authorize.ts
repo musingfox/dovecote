@@ -598,7 +598,7 @@ app.get("/oidc/callback", async (c) => {
 
   // Guard 5 — state TTL (10 minutes)
   const nowSec = Math.floor(Date.now() / 1000);
-  if (typeof payload.iat === "number" && nowSec - payload.iat > 600) {
+  if (nowSec - payload.iat > 600) {
     return c.json({ error: "state_expired" }, 400);
   }
 
