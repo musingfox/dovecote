@@ -92,6 +92,7 @@ const oauthPaths = [
   "/.well-known/oauth-protected-resource",
   "/admin/revoke",
   "/admin/bootstrap-client",
+  "/oidc/callback",
 ];
 
 for (const path of oauthPaths) {

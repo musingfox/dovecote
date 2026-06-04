@@ -556,6 +556,17 @@ app.post("/admin/bootstrap-client", async (c) => {
 });
 
 /**
+ * OIDC callback skeleton — turn-12 completes full verify/exchange flow.
+ */
+app.get("/oidc/callback", async (c) => {
+  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "no_provider" }, 500);
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  if (!code || !state) return c.json({ error: "missing_params" }, 400);
+  return c.json({ error: "not_implemented" }, 400);
+});
+
+/**
  * Fallback for unknown paths - 404
  */
 app.all("*", (c) => {
