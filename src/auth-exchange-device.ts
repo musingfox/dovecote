@@ -564,6 +564,7 @@ export function createAuthExchangeDeviceApp(services: DeviceServices) {
         auditEvent: "auth.device.exchange",
         auditScope: record.scopes.join(" "),
         successStatus: 201,
+        errorMode: "surface",
         invalidScopeOpts: { auditReason: "invalid_scope" },
         missingPepperOpts: { auditReason: "misconfigured" },
         services: {

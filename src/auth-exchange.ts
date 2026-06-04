@@ -203,6 +203,8 @@ export function createAuthExchangeApp(services: ExchangeServices) {
       authMethod: "oauth",
       auditScope: unwrapped.scopes.join(" "),
       successStatus: 201,
+      errorMode: "swallow",
+      successAuditExtras: { scopes: unwrapped.scopes },
       services: {
         issueToken: services.issueToken,
         checkRateLimit: services.checkRateLimit,

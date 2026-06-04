@@ -268,6 +268,7 @@ export function createAuthExchangeOidcApp(services: ExchangeOidcServices) {
       auditExtras: { issuer: outcome.issuer },
       auditScope: user.scopes.join(" "),
       successStatus: 201,
+      errorMode: "swallow",
       invalidScopeOpts: { auditReason: "invalid_scope" },
       missingPepperOpts: { auditReason: "misconfigured" },
       services: {

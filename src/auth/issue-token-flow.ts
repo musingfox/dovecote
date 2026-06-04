@@ -12,7 +12,7 @@
 
 import type { KVNamespace, ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
-import { InvalidScopeError, MissingPepperError, type IssueResult } from "./api-token.js";
+import { InvalidScopeError, KVWriteError, MissingPepperError, type IssueResult } from "./api-token.js";
 import { writeAudit } from "./audit.js";
 import type { RateLimitResult } from "./rate-limit.js";
 
@@ -53,12 +53,17 @@ export interface IssueTokenFlowOpts {
    */
   auditExtras?: Record<string, unknown>;
   successStatus: number;
-  /** Extra fields merged into the rate-limited JSON response body (overrides defaults) */
-  rateLimitBodyExtras?: Record<string, unknown>;
-  /** Whether to include userId in the rate-limited audit entry (default: true) */
-  rateLimitAuditUserId?: boolean;
   /** Extra fields merged into the success audit entry (on top of auditExtras) */
   successAuditExtras?: Record<string, unknown>;
+  /**
+   * Per-endpoint error disposition:
+   *   "surface" — admin / device-poll: KVWriteError -> 500 "Failed to persist token";
+   *               unknown Error -> rethrow (lets Hono default-500 handle it).
+   *   "swallow" — auth-exchange / oidc: both KVWriteError and unknown -> 500 generic
+   *               "internal error" JSON, no rethrow.
+   * Default: "swallow".
+   */
+  errorMode?: "surface" | "swallow";
   /**
    * Custom handling for InvalidScopeError.
    * If provided: emits audit with auditReason and returns the given body (400).
@@ -105,9 +110,8 @@ export async function issueTokenFlow(
     auditScope,
     auditExtras,
     successStatus,
-    rateLimitBodyExtras,
-    rateLimitAuditUserId = true,
     successAuditExtras,
+    errorMode = "swallow",
     invalidScopeOpts,
     missingPepperOpts,
     services,
@@ -121,21 +125,13 @@ export async function issueTokenFlow(
         event: auditEvent,
         ok: false,
         reason: "rate_limited",
-        ...(rateLimitAuditUserId ? { userId } : {}),
+        userId,
         authMethod: authMethod as any,
         ip,
         scope: auditScope,
         ...(auditExtras ?? {}),
       } as any);
-      const rlBody: Record<string, unknown> = {
-        error: "rate_limited",
-        error_description: "Too many requests",
-      };
-      if (rateLimitBodyExtras) {
-        // rateLimitBodyExtras can remove error_description by overwriting keys
-        Object.assign(rlBody, rateLimitBodyExtras);
-      }
-      return c.json(rlBody, 429, { "Retry-After": "60" });
+      return c.json({ error: "rate_limited", error_description: "Too many requests" }, 429, { "Retry-After": "60" });
     }
   }
 
@@ -147,7 +143,6 @@ export async function issueTokenFlow(
       ok: true,
       userId,
       tokenId: result.tokenId,
-      scopes,
       authMethod: authMethod as any,
       ip,
       scope: auditScope,
@@ -207,6 +202,32 @@ export async function issueTokenFlow(
         { error: "misconfigured", error_description: "HMAC_PEPPER not configured" },
         503,
       );
+    }
+    if (err instanceof KVWriteError) {
+      writeAudit(env, ctx, {
+        event: auditEvent,
+        ok: false,
+        reason: "internal_error",
+        userId,
+        authMethod: authMethod as any,
+        ip,
+        scope: auditScope,
+        ...(auditExtras ?? {}),
+      } as any);
+      if (errorMode === "surface") {
+        return c.json(
+          { error: "internal_error", error_description: "Failed to persist token" },
+          500,
+        );
+      }
+      return c.json(
+        { error: "internal_error", error_description: "internal error" },
+        500,
+      );
+    }
+    // Unknown error
+    if (errorMode === "surface") {
+      throw err;
     }
     writeAudit(env, ctx, {
       event: auditEvent,

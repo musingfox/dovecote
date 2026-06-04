@@ -233,7 +233,8 @@ export function createAdminIssueTokenApp(services: AdminIssueTokenServices) {
       authMethod: "admin_token",
       auditScope: ADMIN_AUDIT_SCOPE,
       successStatus: 200,
-      successAuditExtras: { reason: "admin_issue" },
+      errorMode: "surface",
+      successAuditExtras: { reason: "admin_issue", scopes: body.scopes },
       invalidScopeOpts: {
         auditReason: "invalid_body",
         body: (err) => ({ error: err.message }),
