@@ -144,7 +144,6 @@ const _ok_issue_no_scopes: AuditEvent = {
   reason: "internal_error",
 };
 
-// @ts-expect-error - Missing required channel on notify.send
 const _bad5: AuditEvent = {
   event: "notify.send",
   userId: "u",

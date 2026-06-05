@@ -156,7 +156,8 @@ test("C8: bootstrap → authorize(OIDC) → callback → token → KV non-null",
   const callbackLocation = callbackRes.headers.get("location") ?? "";
   expect(callbackLocation).toContain("code=");
 
-  // ── Step 7: Extract auth code ─────────────────────────────────────────────
+  // ── Step 7: Extract auth code + verify client state round-trip ──────────
+  expect(new URL(callbackLocation).searchParams.get("state")).toBe("integration-state-c8");
   const code = new URL(callbackLocation).searchParams.get("code");
   expect(code).toBeTruthy();
 
