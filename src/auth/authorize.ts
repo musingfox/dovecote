@@ -15,6 +15,15 @@ import { buildUpstreamAuthorizeUrl } from "./oidc-rp-authurl.js";
 import { verifyOidcIdToken } from "./oidc-verify.js";
 import * as jose from "jose";
 
+/**
+ * 解析 OIDC callback URL：env.OIDC_CALLBACK_BASE_URL 有設且非空則直接回傳，
+ * 否則從請求 URL 的 origin 推導。
+ */
+export function resolveCallbackUrl(reqUrl: string, env: Env): string {
+  if (env.OIDC_CALLBACK_BASE_URL) return env.OIDC_CALLBACK_BASE_URL;
+  return new URL(reqUrl).origin + "/oidc/callback";
+}
+
 // Extend Env to include the OAUTH_PROVIDER helper
 interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
@@ -622,7 +631,7 @@ app.get("/oidc/callback", async (c) => {
   // not the client's redirect URI stored in payload.redirectUri (RFC 6749 §4.1.3).
   const tokenEndpoint = issuerConfig.token_endpoint ?? `${issuerConfig.issuer}/token`;
   const formParams = new URLSearchParams({ grant_type: "authorization_code", code });
-  const oidcCallbackUrl = new URL(c.req.url).origin + "/oidc/callback";
+  const oidcCallbackUrl = resolveCallbackUrl(c.req.url, c.env);
   formParams.set("redirect_uri", oidcCallbackUrl);
   if (issuerConfig.client_id ?? payload.clientId) {
     formParams.set("client_id", issuerConfig.client_id ?? payload.clientId);
@@ -791,7 +800,7 @@ app.get("/oidc/redirect", async (c) => {
   // identityScope: send only identity scopes to upstream IdP; resource scopes
   // (e.g. dovecote:notify) are downstream-only and must not go to the IdP.
   const identityScope = ["openid", "profile", "email"];
-  const oidcCallbackUrl = new URL(c.req.url).origin + "/oidc/callback";
+  const oidcCallbackUrl = resolveCallbackUrl(c.req.url, c.env);
   const upstreamUrl = buildUpstreamAuthorizeUrl({
     authorizationEndpoint: issuerConfig.authorization_endpoint,
     clientId: issuerConfig.client_id ?? authReq.clientId, // upstream RP client_id

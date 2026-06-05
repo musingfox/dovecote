@@ -23,6 +23,12 @@ export interface Env {
    * Must be at least 32 characters. Missing or short → 500 config_error (fail-closed).
    */
   OIDC_STATE_SECRET?: string;
+  /**
+   * 完整的 dovecote OIDC callback URL（如 https://dovecote.example.com/oidc/callback）;
+   * 設了直接用,未設則從請求 origin 推導。proxy/多域部署需設此以保證 redirect leg 與
+   * callback leg 送 IdP 的 redirect_uri 一致（RFC 6749 §4.1.3）。
+   */
+  OIDC_CALLBACK_BASE_URL?: string;
 }
 
 export interface ChannelConfig {
