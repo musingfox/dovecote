@@ -11,11 +11,12 @@ export interface E2EConfig {
   expectedChannels: string[];
 }
 
-function parseDevVars(path: string): Record<string, string> {
+export function parseDevVars(path: string): Record<string, string> {
   let content: string;
   try {
     content = readFileSync(path, "utf-8");
-  } catch {
+  } catch (e) {
+    if ((e as { code?: string }).code !== "ENOENT") throw e;
     return {};
   }
   const vars: Record<string, string> = {};

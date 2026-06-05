@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { parseDevVars } from "./config";
 
 describe("E2E Config", () => {
   let originalBaseUrl: string | undefined;
@@ -26,6 +27,22 @@ describe("E2E Config", () => {
 
     // Clear module cache to force reload
     delete require.cache[require.resolve("./config")];
+  });
+
+  it("parseDevVars returns {} for nonexistent path", () => {
+    const result = parseDevVars("/nonexistent/__spiral_probe__/x");
+    expect(result).toEqual({});
+  });
+
+  it("parseDevVars rethrows non-ENOENT errors", () => {
+    expect(() => parseDevVars(import.meta.dir)).toThrow();
+    let thrown: unknown;
+    try {
+      parseDevVars(import.meta.dir);
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { code?: string }).code).toBe("EISDIR");
   });
 
   it("loads local mode config when no TEST_BASE_URL", () => {
