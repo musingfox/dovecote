@@ -30,7 +30,9 @@ const CLIENT_STATE = "client-state-abc";
 const RP_NONCE = "rp-nonce-e14";
 const TOKEN_ENDPOINT = `${ISSUER}/token`;
 const JWKS_URI = `${ISSUER}/jwks`;
-const REDIRECT_URI = "https://dovecote.example/oidc/callback";
+// Two distinct URIs: client's redirect (stored in state payload) vs. dovecote's own callback.
+const CLIENT_REDIRECT_URI = "https://client.example/callback";
+const DOVECOTE_CALLBACK = "https://dovecote.example/oidc/callback";
 
 // ---- key pair (generated once) ------------------------------------------------
 
@@ -58,6 +60,9 @@ interface MockConfig {
 
 let mockConfig: MockConfig = {};
 
+// Captures the last token endpoint POST body for redirect_uri assertions.
+let lastExchangeBody: string | null = null;
+
 beforeAll(async () => {
   kp = await jose.generateKeyPair("RS256", { extractable: true });
   pubJwk = await jose.exportJWK(kp.publicKey);
@@ -77,6 +82,8 @@ beforeAll(async () => {
           : (input as Request).url;
 
     if (url === TOKEN_ENDPOINT || url.startsWith(TOKEN_ENDPOINT + "?")) {
+      // Capture POST body for redirect_uri assertions.
+      lastExchangeBody = (init?.body as string) ?? null;
       // Allow full override first.
       if (mockConfig.tokenResponse) {
         return mockConfig.tokenResponse.clone();
@@ -129,7 +136,7 @@ function makeProvider(): OAuthHelpers {
     parseAuthRequest: async () =>
       ({
         clientId: "cid",
-        redirectUri: REDIRECT_URI,
+        redirectUri: CLIENT_REDIRECT_URI,
         state: CLIENT_STATE,
         scope: ["dovecote:notify"],
         responseType: "code",
@@ -137,7 +144,7 @@ function makeProvider(): OAuthHelpers {
     completeAuthorization: async (params: any) => {
       lastCompleteAuthCall = params;
       const code = "dvc_" + "x".repeat(32);
-      return { redirectTo: `${REDIRECT_URI}?code=${code}&state=${CLIENT_STATE}` };
+      return { redirectTo: `${CLIENT_REDIRECT_URI}?code=${code}&state=${CLIENT_STATE}` };
     },
     lookupClient: async () => null,
     createClient: async () => ({}) as any,
@@ -176,7 +183,7 @@ async function makeValidStateToken(overrides: {
   return encodeOidcState(
     {
       clientId: "cid",
-      redirectUri: REDIRECT_URI,
+      redirectUri: CLIENT_REDIRECT_URI,  // client's redirect stored in state (NOT dovecote callback)
       scope: ["dovecote:notify"],
       state: CLIENT_STATE,
       nonce: overrides.nonce ?? RP_NONCE,
@@ -506,7 +513,7 @@ test("Eiat_missing (1) correctly-HMAC-signed token without iat → decodeOidcSta
   const noIatToken = await signStatePayloadNoIat(
     {
       clientId: "cid",
-      redirectUri: REDIRECT_URI,
+      redirectUri: CLIENT_REDIRECT_URI,
       scope: ["dovecote:notify"],
       state: CLIENT_STATE,
       nonce: RP_NONCE,
@@ -524,7 +531,7 @@ test("Eiat_missing (2) no-iat state → wired handler → 400 invalid_state, com
   const noIatToken = await signStatePayloadNoIat(
     {
       clientId: "cid",
-      redirectUri: REDIRECT_URI,
+      redirectUri: CLIENT_REDIRECT_URI,
       scope: ["dovecote:notify"],
       state: CLIENT_STATE,
       nonce: RP_NONCE,
@@ -549,6 +556,7 @@ test("Eiat_missing (2) no-iat state → wired handler → 400 invalid_state, com
 
 test("E14 happy path: valid state+code → 302 with code=dvc_ and state=clientstate", async () => {
   lastCompleteAuthCall = null;
+  lastExchangeBody = null;
   const env = makeEnv();
   const stateToken = await makeValidStateToken();
 
@@ -572,4 +580,8 @@ test("E14 happy path: valid state+code → 302 with code=dvc_ and state=clientst
   expect(request.codeChallenge).toBe("ch");
   expect(request.clientId).toBe("cid");
   expect(request.codeChallengeMethod).toBe("S256");
+
+  // EX-A/EX-B: token exchange POST redirect_uri must be DOVECOTE_CALLBACK, not client redirect.
+  expect(lastExchangeBody).not.toBeNull();
+  expect(new URLSearchParams(lastExchangeBody!).get("redirect_uri")).toBe(DOVECOTE_CALLBACK);
 });

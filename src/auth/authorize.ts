@@ -618,9 +618,12 @@ app.get("/oidc/callback", async (c) => {
   if (!issuerConfig) return c.json({ error: "config_error" }, 500);
 
   // Guard 6 — upstream code→token exchange
+  // redirect_uri must match what was sent in the redirect leg (dovecote's own callback),
+  // not the client's redirect URI stored in payload.redirectUri (RFC 6749 §4.1.3).
   const tokenEndpoint = issuerConfig.token_endpoint ?? `${issuerConfig.issuer}/token`;
   const formParams = new URLSearchParams({ grant_type: "authorization_code", code });
-  if (payload.redirectUri) formParams.set("redirect_uri", payload.redirectUri);
+  const oidcCallbackUrl = new URL(c.req.url).origin + "/oidc/callback";
+  formParams.set("redirect_uri", oidcCallbackUrl);
   if (issuerConfig.client_id ?? payload.clientId) {
     formParams.set("client_id", issuerConfig.client_id ?? payload.clientId);
   }
@@ -785,12 +788,15 @@ app.get("/oidc/redirect", async (c) => {
   );
 
   // Guard 7 — build upstream authorize URL; redirect_uri = dovecote /oidc/callback
+  // identityScope: send only identity scopes to upstream IdP; resource scopes
+  // (e.g. dovecote:notify) are downstream-only and must not go to the IdP.
+  const identityScope = ["openid", "profile", "email"];
   const oidcCallbackUrl = new URL(c.req.url).origin + "/oidc/callback";
   const upstreamUrl = buildUpstreamAuthorizeUrl({
     authorizationEndpoint: issuerConfig.authorization_endpoint,
     clientId: issuerConfig.client_id ?? authReq.clientId, // upstream RP client_id
     redirectUri: oidcCallbackUrl,   // dovecote's own callback (confusion guard)
-    scope: authReq.scope,           // merged with openid inside buildUpstreamAuthorizeUrl
+    scope: identityScope,
     state: signedState,
     nonce,
   });

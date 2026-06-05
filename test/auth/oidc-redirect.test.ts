@@ -137,6 +137,9 @@ test("R1 oidc-redirect: Location contains response_type=code, upstream client_id
   const scopes = (params.get("scope") ?? "").split(" ");
   expect(scopes).toContain("openid");
 
+  // EX-C: upstream scope must NOT contain dovecote:notify (resource scopes are downstream-only).
+  expect(scopes).not.toContain("dovecote:notify");
+
   // state and nonce must be non-empty
   expect((params.get("state") ?? "").length).toBeGreaterThan(0);
   expect((params.get("nonce") ?? "").length).toBeGreaterThan(0);
