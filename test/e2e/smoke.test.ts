@@ -1,25 +1,101 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import * as jose from "jose";
 import app from "../../src/index.js";
 import { config } from "./config.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce.js";
+import { decodeOidcState } from "../../src/auth/oidc-rp-state.js";
 
 /**
  * Smoke tests: basic OAuth and MCP flow validation
  * - Can run against local (in-process with MockKV) or remote deployed worker
  * - Set TEST_BASE_URL for remote testing
+ * - C5/C6 use OIDC flow (form POST retired in turn-17)
  */
 
-async function doFetch(path: string, init?: RequestInit): Promise<Response> {
+// ---- OIDC upstream mock (local only) -----------------------------------------
+
+const ISSUER = "https://idp.smoke-test.example";
+const AUDIENCE = "rp-smoke-client";
+const RP_CLIENT_ID = "rp-smoke-client";
+const TOKEN_ENDPOINT = `${ISSUER}/token`;
+const JWKS_URI = `${ISSUER}/jwks`;
+const STATE_SECRET = "smoke-state-secret-32-chars-min!!";
+
+let kp: jose.GenerateKeyPairResult;
+let pubJwk: jose.JWK;
+const originalFetch = globalThis.fetch;
+let capturedNonce = "";
+
+beforeAll(async () => {
+  kp = await jose.generateKeyPair("RS256", { extractable: true });
+  pubJwk = await jose.exportJWK(kp.publicKey);
+  pubJwk.kid = "smoke-kid";
+  pubJwk.alg = "RS256";
+  pubJwk.use = "sig";
+
+  (globalThis as any).fetch = async (
+    input: Parameters<typeof fetch>[0],
+    init?: RequestInit,
+  ) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as Request).url;
+
+    if (url === TOKEN_ENDPOINT || url.startsWith(TOKEN_ENDPOINT + "?")) {
+      const now = Math.floor(Date.now() / 1000);
+      const idToken = await new jose.SignJWT({ nonce: capturedNonce })
+        .setProtectedHeader({ alg: "RS256", kid: "smoke-kid" })
+        .setIssuer(ISSUER)
+        .setAudience(AUDIENCE)
+        .setSubject("alice")
+        .setIssuedAt(now - 10)
+        .setExpirationTime(now + 3600)
+        .sign(kp.privateKey);
+      return new Response(JSON.stringify({ id_token: idToken }), { status: 200 });
+    }
+
+    if (url === JWKS_URI || url.startsWith(JWKS_URI + "?")) {
+      return new Response(JSON.stringify({ keys: [pubJwk] }), { status: 200 });
+    }
+
+    return originalFetch(input as any, init);
+  };
+});
+
+afterAll(() => {
+  (globalThis as any).fetch = originalFetch;
+});
+
+// ---- env helpers --------------------------------------------------------------
+
+function makeOidcEnv() {
+  return {
+    ...config.env,
+    OIDC_STATE_SECRET: STATE_SECRET,
+    OIDC_ISSUERS: JSON.stringify([
+      {
+        issuer: ISSUER,
+        jwks_uri: JWKS_URI,
+        audience: AUDIENCE,
+        client_id: RP_CLIENT_ID,
+        authorization_endpoint: `${ISSUER}/authorize`,
+      },
+    ]),
+  };
+}
+
+async function doFetch(path: string, init?: RequestInit, env?: any): Promise<Response> {
   if (config.isRemote) {
-    // Remote mode: use global fetch
     const url = `${config.baseUrl}${path}`;
     return fetch(url, init);
   } else {
-    // Local mode: use app.fetch
     const url = `http://localhost${path}`;
     const ctx = createMockExecutionCtx();
-    return app.fetch(new Request(url, init), config.env, ctx as any);
+    return app.fetch(new Request(url, init), env ?? config.env, ctx as any);
   }
 }
 
@@ -45,14 +121,12 @@ test("C3: POST /register is closed (returns 4xx)", async () => {
     }),
   });
 
-  // DCR is closed, so we expect a 4xx error (exact code not specified by library)
   expect(res.status).toBeGreaterThanOrEqual(400);
   expect(res.status).toBeLessThan(500);
 });
 
 test("C4: POST /admin/bootstrap-client returns 404 when ENABLE_CLIENT_BOOTSTRAP is unset", async () => {
   if (config.isRemote) {
-    // Remote mode: assume production doesn't have ENABLE_CLIENT_BOOTSTRAP set
     const res = await doFetch("/admin/bootstrap-client", {
       method: "POST",
       headers: {
@@ -67,7 +141,6 @@ test("C4: POST /admin/bootstrap-client returns 404 when ENABLE_CLIENT_BOOTSTRAP 
 
     expect(res.status).toBe(404);
   } else {
-    // Local mode: temporarily unset ENABLE_CLIENT_BOOTSTRAP
     const originalValue = config.env.ENABLE_CLIENT_BOOTSTRAP;
     config.env.ENABLE_CLIENT_BOOTSTRAP = undefined;
 
@@ -85,27 +158,30 @@ test("C4: POST /admin/bootstrap-client returns 404 when ENABLE_CLIENT_BOOTSTRAP 
 
     expect(res.status).toBe(404);
 
-    // Restore original value
     config.env.ENABLE_CLIENT_BOOTSTRAP = originalValue;
   }
 });
 
-test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async () => {
-  // Ensure ENABLE_CLIENT_BOOTSTRAP is set for local testing
-  config.env.ENABLE_CLIENT_BOOTSTRAP = "1";
+test.skipIf(config.isRemote)("C5: Full OAuth flow via OIDC succeeds (local only)", async () => {
+  const env = makeOidcEnv();
+  env.ENABLE_CLIENT_BOOTSTRAP = "1";
 
   // Step 1: Bootstrap client
-  const bootstrapRes = await doFetch("/admin/bootstrap-client", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.env.ADMIN_REVOKE_TOKEN}`,
+  const bootstrapRes = await doFetch(
+    "/admin/bootstrap-client",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.ADMIN_REVOKE_TOKEN}`,
+      },
+      body: JSON.stringify({
+        clientName: "smoke-test-client",
+        redirectUris: ["https://test.local/callback"],
+      }),
     },
-    body: JSON.stringify({
-      clientName: "smoke-test-client",
-      redirectUris: ["https://test.local/callback"],
-    }),
-  });
+    env,
+  );
 
   expect(bootstrapRes.status).toBe(200);
   const clientInfo: any = await bootstrapRes.json();
@@ -115,51 +191,45 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-  // Step 3: GET /authorize
-  const authorizeGetRes = await doFetch(
+  // Step 3: GET /authorize → 302 OIDC redirect (not form)
+  const authorizeRes = await doFetch(
     `/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       "https://test.local/callback"
-    )}&response_type=code&state=s1&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:notify`
+    )}&response_type=code&state=s1&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:notify`,
+    undefined,
+    env,
   );
 
-  expect(authorizeGetRes.status).toBe(200);
-  const html = await authorizeGetRes.text();
-  const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
-  expect(csrfMatch).toBeTruthy();
-  const csrfToken = csrfMatch![1]!;
+  expect(authorizeRes.status).toBe(302);
 
-  const setCookie = authorizeGetRes.headers.get("Set-Cookie");
-  expect(setCookie).toBeTruthy();
-  const cookieMatch = setCookie!.match(/csrf=([^;]+)/);
-  expect(cookieMatch).toBeTruthy();
-  const cookieValue = cookieMatch![1]!;
+  const upstreamLoc = authorizeRes.headers.get("Location") ?? "";
+  expect(upstreamLoc.startsWith(`${ISSUER}/authorize`)).toBe(true);
 
-  // Step 4: POST /authorize
-  const authorizeFormData = new FormData();
-  authorizeFormData.append("csrf_token", csrfToken);
-  authorizeFormData.append("password", config.env.OAUTH_PASSWORD);
-  authorizeFormData.append("response_type", "code");
-  authorizeFormData.append("client_id", clientId);
-  authorizeFormData.append("redirect_uri", "https://test.local/callback");
-  authorizeFormData.append("state", "s1");
-  authorizeFormData.append("scope", "dovecote:notify");
-  authorizeFormData.append("code_challenge", codeChallenge);
-  authorizeFormData.append("code_challenge_method", "S256");
+  // Step 4: Decode state to extract nonce
+  const upstreamParams = new URL(upstreamLoc).searchParams;
+  const signedState = upstreamParams.get("state") ?? "";
+  expect(signedState.length).toBeGreaterThan(0);
 
-  const authorizePostRes = await doFetch("/authorize", {
-    method: "POST",
-    headers: { Cookie: `csrf=${cookieValue}` },
-    body: authorizeFormData,
-  });
+  const decoded = await decodeOidcState(signedState, STATE_SECRET);
+  expect(decoded).not.toBeNull();
+  capturedNonce = decoded!.nonce ?? "";
+  expect(capturedNonce.length).toBeGreaterThan(0);
 
-  expect(authorizePostRes.status).toBe(302);
-  const location = authorizePostRes.headers.get("Location");
-  expect(location).toBeTruthy();
-  const locationUrl = new URL(location!);
-  const code = locationUrl.searchParams.get("code");
+  // Step 5: Simulate IdP callback → GET /oidc/callback
+  const callbackRes = await doFetch(
+    `/oidc/callback?code=upstream-code&state=${encodeURIComponent(signedState)}`,
+    undefined,
+    env,
+  );
+  expect(callbackRes.status).toBe(302);
+
+  const callbackLocation = callbackRes.headers.get("Location") ?? "";
+  expect(callbackLocation).toContain("code=");
+  const callbackLocationUrl = new URL(callbackLocation);
+  const code = callbackLocationUrl.searchParams.get("code");
   expect(code).toBeTruthy();
 
-  // Step 5: Exchange code for token
+  // Step 6: Exchange code for token
   const tokenFormData = new URLSearchParams();
   tokenFormData.set("grant_type", "authorization_code");
   tokenFormData.set("code", code!);
@@ -167,41 +237,46 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
   tokenFormData.set("client_id", clientId);
   tokenFormData.set("code_verifier", codeVerifier);
 
-  const tokenRes = await doFetch("/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: tokenFormData.toString(),
-  });
+  const tokenRes = await doFetch(
+    "/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenFormData.toString(),
+    },
+    env,
+  );
 
   expect(tokenRes.status).toBe(200);
   const tokenData: any = await tokenRes.json();
   expect(tokenData.access_token).toBeTruthy();
 
-  // Step 6: Use access token to call MCP list_channels
-  const mcpReq = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: {
-      name: "list_channels",
-      arguments: {},
+  // Step 7: Use access token to call MCP list_channels
+  const mcpRes = await doFetch(
+    "/mcp",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${tokenData.access_token}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "list_channels",
+          arguments: {},
+        },
+      }),
     },
-  };
-
-  const mcpRes = await doFetch("/mcp", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      Authorization: `Bearer ${tokenData.access_token}`,
-    },
-    body: JSON.stringify(mcpReq),
-  });
+    env,
+  );
 
   expect(mcpRes.status).toBe(200);
   const mcpText = await mcpRes.text();
 
-  // Parse SSE response
   const dataLine = mcpText
     .split("\n")
     .find((line) => line.startsWith("data: "));
@@ -209,32 +284,33 @@ test.skipIf(config.isRemote)("C5: Full OAuth flow succeeds (local only)", async 
 
   const mcpData = JSON.parse(dataLine!.slice(6));
 
-  // We expect a result (not an auth error)
-  // It may be an error result (e.g. channel not found), but should not be 401/403
   expect(mcpData.result || mcpData.error).toBeTruthy();
   if (mcpData.error) {
-    // If it's an error, it should not be an auth error
     expect(mcpData.error.code).not.toBe(401);
     expect(mcpData.error.code).not.toBe(403);
   }
 });
 
-test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local only)", async () => {
-  // This test depends on C5, so we repeat the full flow to get a token
-  config.env.ENABLE_CLIENT_BOOTSTRAP = "1";
+test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token via OIDC flow (local only)", async () => {
+  const env = makeOidcEnv();
+  env.ENABLE_CLIENT_BOOTSTRAP = "1";
 
-  // Step 1-5: Get access token (same as C5)
-  const bootstrapRes = await doFetch("/admin/bootstrap-client", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.env.ADMIN_REVOKE_TOKEN}`,
+  // Step 1-5: Get access token via OIDC (same as C5)
+  const bootstrapRes = await doFetch(
+    "/admin/bootstrap-client",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.ADMIN_REVOKE_TOKEN}`,
+      },
+      body: JSON.stringify({
+        clientName: "revoke-test-client",
+        redirectUris: ["https://test.local/callback"],
+      }),
     },
-    body: JSON.stringify({
-      clientName: "revoke-test-client",
-      redirectUris: ["https://test.local/callback"],
-    }),
-  });
+    env,
+  );
 
   const clientInfo: any = await bootstrapRes.json();
   const clientId = clientInfo.client_id;
@@ -242,39 +318,34 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-  const authorizeGetRes = await doFetch(
+  const authorizeRes = await doFetch(
     `/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       "https://test.local/callback"
-    )}&response_type=code&state=s2&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:notify`
+    )}&response_type=code&state=s2&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=dovecote:notify`,
+    undefined,
+    env,
   );
 
-  const html = await authorizeGetRes.text();
-  const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
-  const csrfToken = csrfMatch![1]!;
-  const setCookie = authorizeGetRes.headers.get("Set-Cookie")!;
-  const cookieMatch = setCookie.match(/csrf=([^;]+)/);
-  const cookieValue = cookieMatch![1]!;
+  expect(authorizeRes.status).toBe(302);
 
-  const authorizeFormData = new FormData();
-  authorizeFormData.append("csrf_token", csrfToken);
-  authorizeFormData.append("password", config.env.OAUTH_PASSWORD);
-  authorizeFormData.append("response_type", "code");
-  authorizeFormData.append("client_id", clientId);
-  authorizeFormData.append("redirect_uri", "https://test.local/callback");
-  authorizeFormData.append("state", "s2");
-  authorizeFormData.append("scope", "dovecote:notify");
-  authorizeFormData.append("code_challenge", codeChallenge);
-  authorizeFormData.append("code_challenge_method", "S256");
+  const upstreamLoc = authorizeRes.headers.get("Location") ?? "";
+  const upstreamParams = new URL(upstreamLoc).searchParams;
+  const signedState = upstreamParams.get("state") ?? "";
 
-  const authorizePostRes = await doFetch("/authorize", {
-    method: "POST",
-    headers: { Cookie: `csrf=${cookieValue}` },
-    body: authorizeFormData,
-  });
+  const decoded = await decodeOidcState(signedState, STATE_SECRET);
+  expect(decoded).not.toBeNull();
+  capturedNonce = decoded!.nonce ?? "";
 
-  const location = authorizePostRes.headers.get("Location")!;
-  const locationUrl = new URL(location);
-  const code = locationUrl.searchParams.get("code")!;
+  const callbackRes = await doFetch(
+    `/oidc/callback?code=upstream-code-revoke&state=${encodeURIComponent(signedState)}`,
+    undefined,
+    env,
+  );
+  expect(callbackRes.status).toBe(302);
+
+  const callbackLocation = callbackRes.headers.get("Location") ?? "";
+  const callbackLocationUrl = new URL(callbackLocation);
+  const code = callbackLocationUrl.searchParams.get("code")!;
 
   const tokenFormData = new URLSearchParams();
   tokenFormData.set("grant_type", "authorization_code");
@@ -283,17 +354,20 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
   tokenFormData.set("client_id", clientId);
   tokenFormData.set("code_verifier", codeVerifier);
 
-  const tokenRes = await doFetch("/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: tokenFormData.toString(),
-  });
+  const tokenRes = await doFetch(
+    "/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenFormData.toString(),
+    },
+    env,
+  );
 
   const tokenData: any = await tokenRes.json();
   const accessToken = tokenData.access_token;
 
-  // Step 6: Extract grantId from access token
-  // The access token format is {userId}:{grantId}:{tokenSecret}
+  // Extract grantId from access token (format: {userId}:{grantId}:{tokenSecret})
   const tokenParts = accessToken.split(":");
   expect(tokenParts.length).toBeGreaterThanOrEqual(2);
   const grantId = tokenParts[1];
@@ -303,67 +377,75 @@ test.skipIf(config.isRemote)("C6: Admin revoke invalidates access token (local o
     return;
   }
 
+  // The OIDC user is auto-provisioned as normalized subject ("alice")
+  const userId = "alice";
+
   // Verify grant exists in KV before revocation
-  const kv = config.env.OAUTH_KV as any;
-  const grantKey = `grant:operator:${grantId}`;
+  const kv = env.OAUTH_KV as any;
+  const grantKey = `grant:${userId}:${grantId}`;
   const grantBeforeRevoke = await kv.get(grantKey);
   expect(grantBeforeRevoke).not.toBeNull();
 
-  // Step 7: Revoke the grant
-  const revokeRes = await doFetch("/admin/revoke", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.env.ADMIN_REVOKE_TOKEN}`,
-    },
-    body: JSON.stringify({ grantId }),
-  });
-
-  expect(revokeRes.status).toBe(200);
-
-  // Step 8: Verify grant was deleted from KV
-  const grantAfterRevoke = await kv.get(grantKey);
-  expect(grantAfterRevoke).toBeNull();
-
-  // Step 9: Verify token keys were deleted from KV
-  const tokenKeys = await kv.list({ prefix: `token:operator:${grantId}:` });
-  expect(tokenKeys.keys.length).toBe(0);
-
-  // Step 10: Poll until access token is invalid
-  // In local mode with MockKV, revocation should be immediate or very fast
-  const pollStart = Date.now();
-  const pollTimeout = 10000; // 10 seconds
-  let isRevoked = false;
-
-  while (Date.now() - pollStart < pollTimeout) {
-    const mcpRes = await doFetch("/mcp", {
+  // Revoke the grant (userId required by revoke schema)
+  const revokeRes = await doFetch(
+    "/admin/revoke",
+    {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${env.ADMIN_REVOKE_TOKEN}`,
       },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "test", version: "1.0" },
+      body: JSON.stringify({ grantId, userId }),
+    },
+    env,
+  );
+
+  expect(revokeRes.status).toBe(200);
+
+  // Verify grant was deleted from KV
+  const grantAfterRevoke = await kv.get(grantKey);
+  expect(grantAfterRevoke).toBeNull();
+
+  // Verify token keys were deleted
+  const tokenKeys = await kv.list({ prefix: `token:${userId}:${grantId}:` });
+  expect(tokenKeys.keys.length).toBe(0);
+
+  // Poll until access token is invalid
+  const pollStart = Date.now();
+  const pollTimeout = 10000;
+  let isRevoked = false;
+
+  while (Date.now() - pollStart < pollTimeout) {
+    const mcpRes = await doFetch(
+      "/mcp",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${accessToken}`,
         },
-      }),
-    });
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "initialize",
+          params: {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: { name: "test", version: "1.0" },
+          },
+        }),
+      },
+      env,
+    );
 
     if (mcpRes.status === 401) {
       isRevoked = true;
       break;
     }
 
-    // Wait 500ms before next poll
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   expect(isRevoked).toBe(true);
 });
-

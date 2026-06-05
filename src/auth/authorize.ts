@@ -1,15 +1,14 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { generateCSRF, validateCSRF } from "./csrf.js";
-import { SCOPES_SUPPORTED, SCOPE_DESCRIPTIONS } from "./scopes.js";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
 import { resolveUserId } from "./resolve-user.js";
-import { decodeOidcState, encodeOidcState } from "./oidc-rp-state.js";
+import { encodeOidcState, decodeOidcState } from "./oidc-rp-state.js";
 import { parseOidcIssuers, getOidcClockToleranceSec } from "./oidc-config.js";
 import { buildUpstreamAuthorizeUrl } from "./oidc-rp-authurl.js";
 import { verifyOidcIdToken } from "./oidc-verify.js";
@@ -29,14 +28,89 @@ interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
 }
 
-const securityHeaders = {
-  "Content-Security-Policy": "frame-ancestors 'none'",
-  "X-Frame-Options": "DENY",
-  "Referrer-Policy": "no-referrer",
-} as const;
-
 /** Module-level JWKS cache for the callback handler (keyed by jwks_uri). */
 const callbackJwksCache = new Map<string, jose.JWTVerifyGetKey>();
+
+/**
+ * handleOidcInitiate — shared OIDC redirect initiator.
+ *
+ * Used by both GET /authorize and GET /oidc/redirect.
+ * Guard order:
+ *   1. no OAUTH_PROVIDER → 500 no_provider
+ *   2. OIDC_STATE_SECRET missing/short → 500 config_error
+ *   3. parseAuthRequest (reads downstream client's authRequest)
+ *   4. issuer config (parseOidcIssuers + authorization_endpoint check) → 500 config_error
+ *   5. nonce = crypto.getRandomValues based random string
+ *   6. encodeOidcState: sign state with client's redirectUri (not dovecote callback)
+ *   7. buildUpstreamAuthorizeUrl with oidcCallbackUrl (dovecote /oidc/callback) as redirect_uri
+ *   8. → 302 Location upstream authorization endpoint
+ */
+async function handleOidcInitiate(c: Context<{ Bindings: AuthEnv }>): Promise<Response> {
+  // Guard 1 — no provider
+  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "no_provider" }, 500);
+
+  // Guard 2 — state secret config (fail-closed)
+  const stateSecret = c.env.OIDC_STATE_SECRET;
+  if (!stateSecret || stateSecret.length < 32) {
+    return c.json({ error: "config_error" }, 500);
+  }
+
+  // Guard 3 — parse downstream client's auth request
+  const authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+
+  // Guard 4 — issuer config + authorization_endpoint
+  let issuerConfig: ReturnType<typeof parseOidcIssuers>[number];
+  try {
+    const allowList = parseOidcIssuers(c.env);
+    issuerConfig = allowList[0]!;
+  } catch {
+    return c.json({ error: "config_error" }, 500);
+  }
+  if (!issuerConfig) return c.json({ error: "config_error" }, 500);
+  if (!issuerConfig.authorization_endpoint) {
+    return c.json({ error: "config_error" }, 500);
+  }
+
+  // Guard 5 — generate nonce
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
+  const nonce = Array.from(nonceBytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // Guard 6 — sign state; redirectUri = client's redirect (NOT dovecote callback)
+  const now = Math.floor(Date.now() / 1000);
+  const signedState = await encodeOidcState(
+    {
+      redirectUri: authReq.redirectUri,   // client's redirect (confusion guard)
+      clientId: authReq.clientId,         // downstream client_id
+      scope: authReq.scope,
+      state: authReq.state,
+      codeChallenge: authReq.codeChallenge,
+      codeChallengeMethod: authReq.codeChallengeMethod,
+      responseType: authReq.responseType,
+      nonce,
+      iat: now,
+    },
+    stateSecret,
+  );
+
+  // Guard 7 — build upstream authorize URL; redirect_uri = dovecote /oidc/callback
+  // identityScope: send only identity scopes to upstream IdP; resource scopes
+  // (e.g. dovecote:notify) are downstream-only and must not go to the IdP.
+  const identityScope = ["openid", "profile", "email"];
+  const oidcCallbackUrl = resolveCallbackUrl(c.req.url, c.env);
+  const upstreamUrl = buildUpstreamAuthorizeUrl({
+    authorizationEndpoint: issuerConfig.authorization_endpoint,
+    clientId: issuerConfig.client_id ?? authReq.clientId, // upstream RP client_id
+    redirectUri: oidcCallbackUrl,   // dovecote's own callback (confusion guard)
+    scope: identityScope,
+    state: signedState,
+    nonce,
+  });
+
+  // Guard 8 — redirect
+  return Response.redirect(upstreamUrl, 302);
+}
 
 const app = new Hono<{ Bindings: AuthEnv }>();
 
@@ -53,148 +127,10 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * GET /authorize - Display authorization form
+ * GET /authorize - OIDC redirect initiator (replaces form; uses shared handleOidcInitiate)
  */
 app.get("/authorize", async (c) => {
-  try {
-    const authRequest = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
-
-    // Validate scopes
-    const hasInvalidScope = authRequest.scope.some(
-      (s) => !(SCOPES_SUPPORTED as readonly string[]).includes(s)
-    );
-    if (hasInvalidScope) {
-      return c.text("Bad Request: Invalid scope requested", 400, securityHeaders);
-    }
-
-    // Generate CSRF token
-    const { token: csrfToken, cookie } = await generateCSRF({
-      secretKey: c.env.COOKIE_ENCRYPTION_KEY,
-    });
-
-    // Render HTML form
-    const html = renderAuthorizationForm(authRequest, csrfToken);
-
-    return c.html(html, 200, {
-      ...securityHeaders,
-      "Set-Cookie": cookie,
-    });
-  } catch (error) {
-    return c.text("Bad Request: Invalid authorization request", 400, securityHeaders);
-  }
-});
-
-/**
- * POST /authorize - Process authorization form submission
- */
-app.post("/authorize", async (c) => {
-  // Validate CSRF
-  const isValidCSRF = await validateCSRF({
-    request: c.req.raw,
-    secretKey: c.env.COOKIE_ENCRYPTION_KEY,
-  });
-
-  if (!isValidCSRF) {
-    return c.text("Forbidden: Invalid CSRF token", 403);
-  }
-
-  const formData = await c.req.formData();
-  const username = formData.get("username");
-  const password = formData.get("password");
-
-  if (typeof username !== "string" || username.length === 0) {
-    return c.text("Forbidden: Invalid credentials", 403);
-  }
-  if (typeof password !== "string") {
-    return c.text("Forbidden: Invalid credentials", 403);
-  }
-
-  const requestedScopes: string[] = (formData.get("scope") as string)?.split(" ") || [];
-
-  // Resolve user via the seam (Contract H → Contract A)
-  const authed = await resolveUserId(
-    { kind: "form", username, password },
-    c.env,
-  );
-  if (!authed) {
-    return c.text("Forbidden: Invalid credentials", 403);
-  }
-
-  // Filter requested scopes to only supported ones AND only those granted to the user
-  const userScopeSet = new Set(authed.scopes);
-  const effectiveScopes = requestedScopes
-    .filter((s) => (SCOPES_SUPPORTED as readonly string[]).includes(s))
-    .filter((s) => userScopeSet.has(s));
-
-  // If the user requested any scope they don't have → reject
-  const requestedSupported = requestedScopes.filter((s) =>
-    (SCOPES_SUPPORTED as readonly string[]).includes(s),
-  );
-  const missingScopes = requestedSupported.filter((s) => !userScopeSet.has(s));
-  if (missingScopes.length > 0) {
-    return c.text("Forbidden: Insufficient scope", 403);
-  }
-
-  const authRequest: AuthRequest = {
-    responseType: formData.get("response_type") as string,
-    clientId: formData.get("client_id") as string,
-    redirectUri: formData.get("redirect_uri") as string,
-    state: formData.get("state") as string,
-    scope: requestedScopes,
-    codeChallenge: (formData.get("code_challenge") as string) || undefined,
-    codeChallengeMethod: (formData.get("code_challenge_method") as string) || undefined,
-  };
-
-  // Handle optional resource parameter
-  const resourceParam = formData.get("resource");
-  if (resourceParam) {
-    authRequest.resource = resourceParam as string;
-  }
-
-  try {
-    // Complete authorization
-    const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
-      request: authRequest,
-      userId: authed.userId,
-      scope: effectiveScopes,
-      metadata: { label: authed.userId },
-      props: {
-        userId: authed.userId,
-        scopes: effectiveScopes,
-        authMethod: "oauth",
-        ip: c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown",
-      },
-    });
-
-    // Emit audit event on success
-    // Shim for c.executionCtx if not available (e.g., in Hono subrouters or tests)
-    let ctx: ExecutionContext;
-    try {
-      ctx = c.executionCtx;
-    } catch {
-      // ExecutionContext not available (e.g., in tests)
-      ctx = {
-        waitUntil: (p: Promise<any>) => {
-          p.catch(() => {});
-        },
-        passThroughOnException: () => {},
-      } as any;
-    }
-
-    writeAudit(c.env, ctx, {
-      event: "authorize",
-      userId: authed.userId,
-      ok: true,
-      authMethod: "none",
-      ip: c.req.raw.headers.get("CF-Connecting-IP") ?? "unknown",
-      scope: effectiveScopes.join(" "),
-    });
-
-    // Redirect to callback URL
-    return c.redirect(redirectTo, 302);
-  } catch (error) {
-    return c.text("Bad Request: Failed to complete authorization", 400);
-  }
+  return handleOidcInitiate(c);
 });
 
 /**
@@ -736,82 +672,10 @@ app.get("/oidc/callback", async (c) => {
 
 /**
  * GET /oidc/redirect — OIDC RP flow initiator (turn-14).
- *
- * Guard order (each reject path never calls completeAuthorization):
- *   1. no OAUTH_PROVIDER → 500 no_provider
- *   2. OIDC_STATE_SECRET missing/short → 500 config_error
- *   3. parseAuthRequest (reads downstream client's authRequest)
- *   4. issuer config (parseOidcIssuers + authorization_endpoint check) → 500 config_error
- *   5. nonce = crypto.getRandomValues based random string
- *   6. encodeOidcState: sign state with client's redirectUri (not dovecote callback)
- *   7. buildUpstreamAuthorizeUrl with oidcCallbackUrl (dovecote /oidc/callback) as redirect_uri
- *   8. → 302 Location upstream authorization endpoint
+ * Delegates to shared handleOidcInitiate (same logic as GET /authorize).
  */
 app.get("/oidc/redirect", async (c) => {
-  // Guard 1 — no provider
-  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "no_provider" }, 500);
-
-  // Guard 2 — state secret config (fail-closed)
-  const stateSecret = c.env.OIDC_STATE_SECRET;
-  if (!stateSecret || stateSecret.length < 32) {
-    return c.json({ error: "config_error" }, 500);
-  }
-
-  // Guard 3 — parse downstream client's auth request
-  const authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
-
-  // Guard 4 — issuer config + authorization_endpoint
-  let issuerConfig: ReturnType<typeof parseOidcIssuers>[number];
-  try {
-    const allowList = parseOidcIssuers(c.env);
-    issuerConfig = allowList[0]!;
-  } catch {
-    return c.json({ error: "config_error" }, 500);
-  }
-  if (!issuerConfig) return c.json({ error: "config_error" }, 500);
-  if (!issuerConfig.authorization_endpoint) {
-    return c.json({ error: "config_error" }, 500);
-  }
-
-  // Guard 5 — generate nonce
-  const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
-  const nonce = Array.from(nonceBytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  // Guard 6 — sign state; redirectUri = client's redirect (NOT dovecote callback)
-  const now = Math.floor(Date.now() / 1000);
-  const signedState = await encodeOidcState(
-    {
-      redirectUri: authReq.redirectUri,   // client's redirect (confusion guard)
-      clientId: authReq.clientId,         // downstream client_id
-      scope: authReq.scope,
-      state: authReq.state,
-      codeChallenge: authReq.codeChallenge,
-      codeChallengeMethod: authReq.codeChallengeMethod,
-      responseType: authReq.responseType,
-      nonce,
-      iat: now,
-    },
-    stateSecret,
-  );
-
-  // Guard 7 — build upstream authorize URL; redirect_uri = dovecote /oidc/callback
-  // identityScope: send only identity scopes to upstream IdP; resource scopes
-  // (e.g. dovecote:notify) are downstream-only and must not go to the IdP.
-  const identityScope = ["openid", "profile", "email"];
-  const oidcCallbackUrl = resolveCallbackUrl(c.req.url, c.env);
-  const upstreamUrl = buildUpstreamAuthorizeUrl({
-    authorizationEndpoint: issuerConfig.authorization_endpoint,
-    clientId: issuerConfig.client_id ?? authReq.clientId, // upstream RP client_id
-    redirectUri: oidcCallbackUrl,   // dovecote's own callback (confusion guard)
-    scope: identityScope,
-    state: signedState,
-    nonce,
-  });
-
-  // Guard 8 — redirect
-  return Response.redirect(upstreamUrl, 302);
+  return handleOidcInitiate(c);
 });
 
 /**
@@ -820,146 +684,5 @@ app.get("/oidc/redirect", async (c) => {
 app.all("*", (c) => {
   return c.text("Not Found", 404);
 });
-
-/**
- * Render the authorization form HTML
- */
-function renderAuthorizationForm(authRequest: AuthRequest, csrfToken: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize Access - Dovecote</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      max-width: 400px;
-      margin: 80px auto;
-      padding: 20px;
-      background: #f5f5f5;
-    }
-    .form-container {
-      background: white;
-      padding: 30px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    h1 {
-      margin-top: 0;
-      font-size: 24px;
-      color: #333;
-    }
-    .info {
-      margin: 20px 0;
-      padding: 15px;
-      background: #f0f0f0;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .info-label {
-      font-weight: bold;
-      color: #666;
-    }
-    .info-value {
-      color: #333;
-      word-break: break-all;
-    }
-    .scope-warning {
-      color: #d32f2f;
-      font-size: 13px;
-      margin-top: 6px;
-    }
-    label {
-      display: block;
-      margin-top: 20px;
-      margin-bottom: 8px;
-      font-weight: 500;
-      color: #333;
-    }
-    input[type="text"],
-    input[type="password"] {
-      width: 100%;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-      box-sizing: border-box;
-    }
-    button {
-      width: 100%;
-      margin-top: 20px;
-      padding: 12px;
-      background: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 16px;
-      font-weight: 500;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #0056b3;
-    }
-  </style>
-</head>
-<body>
-  <div class="form-container">
-    <h1>Authorize Access</h1>
-    <div class="info">
-      <div class="info-label">Client:</div>
-      <div class="info-value">${escapeHtml(authRequest.clientId)}</div>
-    </div>
-    ${
-      authRequest.scope && authRequest.scope.length > 0
-        ? authRequest.scope.map((scopeName) => {
-            const scopeInfo = SCOPE_DESCRIPTIONS[scopeName as keyof typeof SCOPE_DESCRIPTIONS];
-            const description = scopeInfo.description;
-            const warning = scopeInfo.warning;
-            return `<div class="info">
-      <div class="info-label">${escapeHtml(scopeName)}</div>
-      <div class="info-value">${escapeHtml(description)}</div>
-      ${warning ? `<div class="scope-warning">${escapeHtml(warning)}</div>` : ""}
-    </div>`;
-          }).join("")
-        : ""
-    }
-    <form method="POST" action="/authorize">
-      <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
-      <input type="hidden" name="response_type" value="${escapeHtml(authRequest.responseType)}">
-      <input type="hidden" name="client_id" value="${escapeHtml(authRequest.clientId)}">
-      <input type="hidden" name="redirect_uri" value="${escapeHtml(authRequest.redirectUri)}">
-      <input type="hidden" name="state" value="${escapeHtml(authRequest.state)}">
-      <input type="hidden" name="scope" value="${escapeHtml(authRequest.scope?.join(" ") || "")}">
-      ${authRequest.codeChallenge ? `<input type="hidden" name="code_challenge" value="${escapeHtml(authRequest.codeChallenge)}">` : ""}
-      ${authRequest.codeChallengeMethod ? `<input type="hidden" name="code_challenge_method" value="${escapeHtml(authRequest.codeChallengeMethod)}">` : ""}
-      ${authRequest.resource ? `<input type="hidden" name="resource" value="${escapeHtml(typeof authRequest.resource === "string" ? authRequest.resource : authRequest.resource[0] ?? "")}">` : ""}
-
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required autofocus autocomplete="username">
-
-      <label for="password">Password:</label>
-      <input type="password" id="password" name="password" required autocomplete="current-password">
-
-      <button type="submit">Authorize</button>
-    </form>
-  </div>
-</body>
-</html>`;
-}
-
-/**
- * Escape HTML to prevent XSS
- */
-function escapeHtml(str: string): string {
-  const map: Record<string, string> = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  };
-  return str.replace(/[&<>"']/g, (char) => map[char] ?? char);
-}
 
 export default app;
