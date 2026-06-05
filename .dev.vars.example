@@ -14,6 +14,12 @@ COOKIE_ENCRYPTION_KEY=
 # HMAC pepper for API token hashing (generate with: openssl rand -base64 32)
 HMAC_PEPPER=your-32-character-hmac-pepper-here
 
+# OIDC state secret for OAuth flow CSRF protection (generate with: openssl rand -base64 32)
+OIDC_STATE_SECRET=
+
+# OIDC issuers configuration (JSON array of issuer objects)
+OIDC_ISSUERS=
+
 # Telegram Instances (JSON array)
 # Each instance must have: id (lowercase alphanumeric with dashes), botToken, chatId
 TELEGRAM_INSTANCES=[{"id":"default","botToken":"123456789:ABCdefGHIjklMNOpqrsTUVwxyz","chatId":"123456789"}]

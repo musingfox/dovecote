@@ -12,7 +12,12 @@ export interface E2EConfig {
 }
 
 function parseDevVars(path: string): Record<string, string> {
-  const content = readFileSync(path, "utf-8");
+  let content: string;
+  try {
+    content = readFileSync(path, "utf-8");
+  } catch {
+    return {};
+  }
   const vars: Record<string, string> = {};
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
