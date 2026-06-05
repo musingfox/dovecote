@@ -1,10 +1,93 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import * as jose from "jose";
 import app from "../../src/index";
 import apiApp from "../../src/api";
 import type { Env } from "../../src/types";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import { config } from "./config";
 import { MockKV } from "../helpers/mock-kv";
+import { decodeOidcState } from "../../src/auth/oidc-rp-state";
+import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce";
+
+// ── OIDC mock config ──────────────────────────────────────────────────────────
+
+const ISSUER = "https://idp.notifications-test.example";
+const AUDIENCE = "rp-client-notifications";
+const RP_CLIENT_ID = "rp-client-notifications";
+const TOKEN_ENDPOINT = `${ISSUER}/token`;
+const JWKS_URI = `${ISSUER}/jwks`;
+const STATE_SECRET = "notifications-oidc-state-secret-32!";
+const SUBJECT = "notif-test-user";
+
+let kp: jose.GenerateKeyPairResult;
+let pubJwk: jose.JWK;
+const originalFetch = globalThis.fetch;
+
+// Nonce captured per flow
+let capturedNonce = "";
+
+beforeAll(async () => {
+  kp = await jose.generateKeyPair("RS256", { extractable: true });
+  pubJwk = await jose.exportJWK(kp.publicKey);
+  pubJwk.kid = "notif-kid";
+  pubJwk.alg = "RS256";
+  pubJwk.use = "sig";
+
+  // Override globalThis.fetch to intercept OIDC token + JWKS requests
+  (globalThis as any).fetch = async (
+    input: Parameters<typeof fetch>[0],
+    init?: RequestInit,
+  ) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as Request).url;
+
+    if (url === TOKEN_ENDPOINT || url.startsWith(TOKEN_ENDPOINT + "?")) {
+      const now = Math.floor(Date.now() / 1000);
+      const idToken = await new jose.SignJWT({ nonce: capturedNonce })
+        .setProtectedHeader({ alg: "RS256", kid: "notif-kid" })
+        .setIssuer(ISSUER)
+        .setAudience(AUDIENCE)
+        .setSubject(SUBJECT)
+        .setIssuedAt(now - 10)
+        .setExpirationTime(now + 3600)
+        .sign(kp.privateKey);
+      return new Response(JSON.stringify({ id_token: idToken }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url === JWKS_URI || url.startsWith(JWKS_URI + "?")) {
+      return new Response(JSON.stringify({ keys: [pubJwk] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return originalFetch(input as any, init);
+  };
+
+  // Inject OIDC config into config.env so doFetch shares the same KV
+  (config.env as any).OIDC_STATE_SECRET = STATE_SECRET;
+  (config.env as any).OIDC_ISSUERS = JSON.stringify([
+    {
+      issuer: ISSUER,
+      jwks_uri: JWKS_URI,
+      audience: AUDIENCE,
+      client_id: RP_CLIENT_ID,
+      authorization_endpoint: `${ISSUER}/authorize`,
+      token_endpoint: TOKEN_ENDPOINT,
+    },
+  ]);
+});
+
+afterAll(() => {
+  (globalThis as any).fetch = originalFetch;
+});
 
 const oauthDefaults = {
   OAUTH_KV: new MockKV() as any,
@@ -21,87 +104,55 @@ const authenticatedCtx = {
   passThroughOnException: () => {},
 } as ExecutionContext;
 
-// Helper to get an OAuth access token for local testing via full OAuth flow
-let cachedAccessToken: string | null = null;
-async function getTestAccessToken(): Promise<string> {
-  if (cachedAccessToken) return cachedAccessToken;
+// ── OIDC flow helper ──────────────────────────────────────────────────────────
 
-  // Step 1: Bootstrap client
-  const bootstrapReq = new Request("http://localhost/admin/bootstrap-client", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer admin-test-token`,
-    },
-    body: JSON.stringify({
-      clientName: "e2e-test-client",
-      redirectUris: ["https://test.local/callback"],
-    }),
-  });
-
-  const bootstrapRes = await doFetch(bootstrapReq);
-  if (bootstrapRes.status !== 200) {
-    throw new Error(`Bootstrap failed: ${bootstrapRes.status} ${await bootstrapRes.text()}`);
-  }
-
-  const clientInfo = await bootstrapRes.json() as { client_id: string };
-  const clientId = clientInfo.client_id;
-
-  // Step 2: Generate PKCE challenge
+/**
+ * Run full OIDC flow against the in-process app to obtain an access token.
+ * Uses config.env (shared KV) and globalThis.fetch override for OIDC endpoints.
+ */
+async function runOidcFlow(clientId: string, scope: string, stateVal: string): Promise<string> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-  // Step 3: GET /authorize to get CSRF token
+  // GET /authorize → 302 to fake IdP
   const authorizeUrl = new URL("http://localhost/authorize");
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("redirect_uri", "https://test.local/callback");
   authorizeUrl.searchParams.set("response_type", "code");
-  authorizeUrl.searchParams.set("state", "test-state");
+  authorizeUrl.searchParams.set("state", stateVal);
   authorizeUrl.searchParams.set("code_challenge", codeChallenge);
   authorizeUrl.searchParams.set("code_challenge_method", "S256");
-  authorizeUrl.searchParams.set("scope", "dovecote:notify");
+  authorizeUrl.searchParams.set("scope", scope);
 
-  const authorizeGetReq = new Request(authorizeUrl.toString());
-  const authorizeGetRes = await doFetch(authorizeGetReq);
+  const authorizeRes = await doFetch(new Request(authorizeUrl.toString()));
+  if (authorizeRes.status !== 302) {
+    throw new Error(`authorize returned ${authorizeRes.status}: ${await authorizeRes.text()}`);
+  }
 
-  const html = await authorizeGetRes.text();
-  const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
-  if (!csrfMatch) throw new Error("CSRF token not found");
-  const csrfToken = csrfMatch[1]!;
+  const upstreamLoc = authorizeRes.headers.get("Location") ?? "";
+  const signedState = new URL(upstreamLoc).searchParams.get("state") ?? "";
+  if (!signedState) throw new Error("No state in authorize redirect");
 
-  const setCookie = authorizeGetRes.headers.get("Set-Cookie");
-  if (!setCookie) throw new Error("Cookie not found");
-  const cookieMatch = setCookie.match(/csrf=([^;]+)/);
-  if (!cookieMatch) throw new Error("CSRF cookie not found");
-  const cookieValue = cookieMatch[1]!;
+  // Decode state to get nonce for id_token
+  const decoded = await decodeOidcState(signedState, STATE_SECRET);
+  if (!decoded) throw new Error("Failed to decode OIDC state");
+  capturedNonce = decoded.nonce;
 
-  // Step 4: POST /authorize with password
-  const authorizeFormData = new FormData();
-  authorizeFormData.append("csrf_token", csrfToken);
-  authorizeFormData.append("password", "test-password");
-  authorizeFormData.append("response_type", "code");
-  authorizeFormData.append("client_id", clientId);
-  authorizeFormData.append("redirect_uri", "https://test.local/callback");
-  authorizeFormData.append("state", "test-state");
-  authorizeFormData.append("scope", "dovecote:notify");
-  authorizeFormData.append("code_challenge", codeChallenge);
-  authorizeFormData.append("code_challenge_method", "S256");
+  // GET /oidc/callback — simulates user having authenticated at IdP
+  const callbackUrl = new URL("http://localhost/oidc/callback");
+  callbackUrl.searchParams.set("code", "upstream-code-notif");
+  callbackUrl.searchParams.set("state", signedState);
 
-  const authorizePostReq = new Request("http://localhost/authorize", {
-    method: "POST",
-    headers: { Cookie: `csrf=${cookieValue}` },
-    body: authorizeFormData,
-  });
+  const callbackRes = await doFetch(new Request(callbackUrl.toString()));
+  if (callbackRes.status !== 302) {
+    throw new Error(`oidc/callback returned ${callbackRes.status}: ${await callbackRes.text()}`);
+  }
 
-  const authorizePostRes = await doFetch(authorizePostReq);
-  const location = authorizePostRes.headers.get("Location");
-  if (!location) throw new Error("No redirect location");
+  const callbackLocation = callbackRes.headers.get("Location") ?? "";
+  const code = new URL(callbackLocation).searchParams.get("code");
+  if (!code) throw new Error("No authorization code in callback redirect");
 
-  const locationUrl = new URL(location);
-  const code = locationUrl.searchParams.get("code");
-  if (!code) throw new Error("No authorization code");
-
-  // Step 5: Exchange code for token
+  // POST /token
   const tokenFormData = new URLSearchParams();
   tokenFormData.set("grant_type", "authorization_code");
   tokenFormData.set("code", code);
@@ -120,27 +171,38 @@ async function getTestAccessToken(): Promise<string> {
     throw new Error(`Token exchange failed: ${tokenRes.status} ${await tokenRes.text()}`);
   }
 
-  const tokenData = await tokenRes.json() as { access_token: string };
-  cachedAccessToken = tokenData.access_token;
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+  return tokenData.access_token;
+}
+
+// Helper to get an OAuth access token for local testing via OIDC flow
+let cachedAccessToken: string | null = null;
+async function getTestAccessToken(): Promise<string> {
+  if (cachedAccessToken) return cachedAccessToken;
+
+  // Bootstrap client
+  const bootstrapReq = new Request("http://localhost/admin/bootstrap-client", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer admin-test-token`,
+    },
+    body: JSON.stringify({
+      clientName: "e2e-test-client",
+      redirectUris: ["https://test.local/callback"],
+    }),
+  });
+
+  const bootstrapRes = await doFetch(bootstrapReq);
+  if (bootstrapRes.status !== 200) {
+    throw new Error(`Bootstrap failed: ${bootstrapRes.status} ${await bootstrapRes.text()}`);
+  }
+
+  const clientInfo = (await bootstrapRes.json()) as { client_id: string };
+  const clientId = clientInfo.client_id;
+
+  cachedAccessToken = await runOidcFlow(clientId, "dovecote:notify", "test-state");
   return cachedAccessToken;
-}
-
-function generateCodeVerifier(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return base64UrlEncode(array);
-}
-
-async function generateCodeChallenge(verifier: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return base64UrlEncode(new Uint8Array(hash));
-}
-
-function base64UrlEncode(buffer: Uint8Array): string {
-  const base64 = btoa(String.fromCharCode(...buffer));
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 // Cache for narrow-scope tokens, keyed by scope string
@@ -172,85 +234,12 @@ async function getTestAccessTokenForScope(scope: string): Promise<string> {
     throw new Error(`Bootstrap failed: ${bootstrapRes.status} ${await bootstrapRes.text()}`);
   }
 
-  const clientInfo = await bootstrapRes.json() as { client_id: string };
+  const clientInfo = (await bootstrapRes.json()) as { client_id: string };
   const clientId = clientInfo.client_id;
 
-  // PKCE challenge
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = await generateCodeChallenge(codeVerifier);
-
-  // GET /authorize to get CSRF token
-  const authorizeUrl = new URL("http://localhost/authorize");
-  authorizeUrl.searchParams.set("client_id", clientId);
-  authorizeUrl.searchParams.set("redirect_uri", "https://test.local/callback");
-  authorizeUrl.searchParams.set("response_type", "code");
-  authorizeUrl.searchParams.set("state", "test-state-narrow");
-  authorizeUrl.searchParams.set("code_challenge", codeChallenge);
-  authorizeUrl.searchParams.set("code_challenge_method", "S256");
-  authorizeUrl.searchParams.set("scope", scope);
-
-  const authorizeGetReq = new Request(authorizeUrl.toString());
-  const authorizeGetRes = await doFetch(authorizeGetReq);
-
-  const html = await authorizeGetRes.text();
-  const csrfMatch = html.match(/name="csrf_token" value="([^"]+)"/);
-  if (!csrfMatch) throw new Error("CSRF token not found in narrow-scope flow");
-  const csrfToken = csrfMatch[1]!;
-
-  const setCookie = authorizeGetRes.headers.get("Set-Cookie");
-  if (!setCookie) throw new Error("Cookie not found in narrow-scope flow");
-  const cookieMatch = setCookie.match(/csrf=([^;]+)/);
-  if (!cookieMatch) throw new Error("CSRF cookie not found in narrow-scope flow");
-  const cookieValue = cookieMatch[1]!;
-
-  // POST /authorize with password
-  const authorizeFormData = new FormData();
-  authorizeFormData.append("csrf_token", csrfToken);
-  authorizeFormData.append("password", "test-password");
-  authorizeFormData.append("response_type", "code");
-  authorizeFormData.append("client_id", clientId);
-  authorizeFormData.append("redirect_uri", "https://test.local/callback");
-  authorizeFormData.append("state", "test-state-narrow");
-  authorizeFormData.append("scope", scope);
-  authorizeFormData.append("code_challenge", codeChallenge);
-  authorizeFormData.append("code_challenge_method", "S256");
-
-  const authorizePostReq = new Request("http://localhost/authorize", {
-    method: "POST",
-    headers: { Cookie: `csrf=${cookieValue}` },
-    body: authorizeFormData,
-  });
-
-  const authorizePostRes = await doFetch(authorizePostReq);
-  const location = authorizePostRes.headers.get("Location");
-  if (!location) throw new Error("No redirect location in narrow-scope flow");
-
-  const locationUrl = new URL(location);
-  const code = locationUrl.searchParams.get("code");
-  if (!code) throw new Error("No authorization code in narrow-scope flow");
-
-  // Exchange code for token
-  const tokenFormData = new URLSearchParams();
-  tokenFormData.set("grant_type", "authorization_code");
-  tokenFormData.set("code", code);
-  tokenFormData.set("redirect_uri", "https://test.local/callback");
-  tokenFormData.set("client_id", clientId);
-  tokenFormData.set("code_verifier", codeVerifier);
-
-  const tokenReq = new Request("http://localhost/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: tokenFormData.toString(),
-  });
-
-  const tokenRes = await doFetch(tokenReq);
-  if (tokenRes.status !== 200) {
-    throw new Error(`Token exchange failed in narrow-scope flow: ${tokenRes.status} ${await tokenRes.text()}`);
-  }
-
-  const tokenData = await tokenRes.json() as { access_token: string };
-  narrowScopeTokenCache.set(scope, tokenData.access_token);
-  return tokenData.access_token;
+  const token = await runOidcFlow(clientId, scope, "test-state-narrow");
+  narrowScopeTokenCache.set(scope, token);
+  return token;
 }
 
 /**
@@ -275,7 +264,7 @@ async function doFetch(req: Request): Promise<Response> {
     } as RequestInit);
     return fetch(newReq);
   } else {
-    // Local mode: use app.fetch with authenticated context
+    // Local mode: use app.fetch with shared config.env (contains OAUTH_KV + OIDC config)
     const ctx = {
       props: { userId: "test-user", scopes: ["dovecote:notify"] },
       waitUntil: () => {},
@@ -289,7 +278,7 @@ async function mcpRequest(
   method: string,
   params: Record<string, unknown>,
   id: number,
-  token?: string
+  token?: string,
 ) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -298,7 +287,6 @@ async function mcpRequest(
 
   let t = token;
   if (!t && !config.isRemote) {
-    // For local testing, get or create an OAuth token
     t = await getTestAccessToken();
   } else if (!t && config.isRemote) {
     t = config.authToken || undefined;
@@ -383,7 +371,7 @@ describe("E2E: MCP Initialize", () => {
         capabilities: {},
         clientInfo: { name: "e2e-test", version: "1.0.0" },
       },
-      1
+      1,
     );
     const res = await doFetch(req);
     expect(res.status).toBe(200);
@@ -416,7 +404,7 @@ describe("E2E: list_channels", () => {
 
 describe("E2E: send_notification → Telegram", () => {
   it("sends message and verifies receipt via API response", async () => {
-    const telegramChannel = config.expectedChannels.find(c => c.startsWith("telegram-"));
+    const telegramChannel = config.expectedChannels.find((c) => c.startsWith("telegram-"));
     if (!telegramChannel) {
       console.log("Skipping: No Telegram instance configured");
       return;
@@ -429,7 +417,7 @@ describe("E2E: send_notification → Telegram", () => {
         name: "send_notification",
         arguments: { channel: telegramChannel, content: { text: sentMessage } },
       },
-      3
+      3,
     );
     const res = await doFetch(req);
     expect(res.status).toBe(200);
@@ -447,7 +435,7 @@ describe("E2E: send_notification → Telegram", () => {
 
 describe("E2E: send_notification → Discord", () => {
   it("sends message and verifies receipt via API response", async () => {
-    const discordChannel = config.expectedChannels.find(c => c.startsWith("discord-"));
+    const discordChannel = config.expectedChannels.find((c) => c.startsWith("discord-"));
     if (!discordChannel) {
       console.log("Skipping: No Discord instance configured");
       return;
@@ -460,7 +448,7 @@ describe("E2E: send_notification → Discord", () => {
         name: "send_notification",
         arguments: { channel: discordChannel, content: { text: sentMessage } },
       },
-      4
+      4,
     );
     const res = await doFetch(req);
     expect(res.status).toBe(200);
@@ -484,7 +472,7 @@ describe("E2E: send_notification → unknown channel", () => {
         name: "send_notification",
         arguments: { channel: "slack", content: { text: "should fail" } },
       },
-      5
+      5,
     );
     const res = await doFetch(req);
     expect(res.status).toBe(200);
@@ -533,7 +521,7 @@ describe("E2E: no Telegram config", () => {
     const req = await mcpRequest(
       "tools/call",
       { name: "send_notification", arguments: { channel: "telegram-default", content: { text: "test" } } },
-      11
+      11,
     );
     const res = await app.fetch(req, envNoTelegram, authenticatedCtx);
     expect(res.status).toBe(200);
@@ -577,7 +565,7 @@ describe("E2E: no Discord config", () => {
     const req = await mcpRequest(
       "tools/call",
       { name: "send_notification", arguments: { channel: "discord-default", content: { text: "test" } } },
-      21
+      21,
     );
     const res = await app.fetch(req, envNoDiscord, authenticatedCtx);
     expect(res.status).toBe(200);
@@ -619,7 +607,7 @@ describe("E2E: no channel config at all", () => {
       const req = await mcpRequest(
         "tools/call",
         { name: "send_notification", arguments: { channel, content: { text: "test" } } },
-        31
+        31,
       );
       const res = await app.fetch(req, envEmpty, authenticatedCtx);
       expect(res.status).toBe(200);

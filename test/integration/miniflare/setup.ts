@@ -26,7 +26,9 @@ export function getMiniflare(): Miniflare {
   return mf;
 }
 
-export async function initMiniflare(): Promise<Miniflare> {
+export async function initMiniflare(
+  oidcBindings?: Record<string, string>,
+): Promise<Miniflare> {
   if (!fs.existsSync(DIST_BUNDLE)) {
     throw new Error(
       `Bundle not found at ${DIST_BUNDLE}.\n` +
@@ -45,6 +47,7 @@ export async function initMiniflare(): Promise<Miniflare> {
       COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
       ADMIN_REVOKE_TOKEN: "admin-token-123",
       ENABLE_CLIENT_BOOTSTRAP: "1",
+      ...(oidcBindings ?? {}),
     },
   });
 
