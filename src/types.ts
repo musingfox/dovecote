@@ -18,6 +18,10 @@ export interface Env {
   OIDC_ISSUERS?: string;
   /** Clock-skew tolerance (seconds) for OIDC iat/exp validation. Default 60. */
   OIDC_CLOCK_TOLERANCE_SEC?: string;
+  /** Expected `aud` claim for GitHub Actions OIDC tokens. Missing → 503. */
+  GITHUB_OIDC_EXPECTED_AUD?: string;
+  /** Allowed GitHub organisation/owner in `repository_owner` claim. Missing → 503. */
+  GITHUB_OIDC_ALLOWED_OWNER?: string;
   /**
    * Secret used to HMAC-sign the OIDC RP state token (GET /oidc/callback).
    * Must be at least 32 characters. Missing or short → 500 config_error (fail-closed).

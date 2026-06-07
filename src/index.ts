@@ -12,6 +12,7 @@ import {
   makeDefaultOAuthUnwrapper,
 } from "./auth-exchange.js";
 import { createAuthExchangeOidcApp } from "./auth-exchange-oidc.js";
+import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
 import { createAuthExchangeDeviceApp } from "./auth-exchange-device.js";
 import { createDeviceVerificationApp } from "./device-verification.js";
 import { createAdminIssueTokenApp } from "./admin-issue-token.js";
@@ -54,6 +55,14 @@ const authExchangeOidcApp = createAuthExchangeOidcApp({
   checkRateLimit,
 });
 app.route("/", authExchangeOidcApp);
+
+// Carve-out: /v1/auth/github-oidc verifies a GitHub Actions OIDC id_token,
+// so it too must precede the /v1/* bearer middleware (ADR 0001).
+const authGithubOidcApp = createAuthGithubOidcApp({
+  issueToken,
+  checkRateLimit,
+});
+app.route("/", authGithubOidcApp);
 
 // Carve-out: /v1/auth/device-authorize + /v1/auth/exchange-device authenticate
 // by `device_code`, not `dvct_*`, so they too must precede the bearer middleware.
