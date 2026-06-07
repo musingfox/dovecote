@@ -69,6 +69,13 @@ async function handleOidcInitiate(c: Context<{ Bindings: AuthEnv }>): Promise<Re
     throw err;
   }
 
+  // Guard 3.5 — RFC 6749 §4.1.1: client_id is REQUIRED; library skips redirect_uri
+  // validation when clientId is empty (oauth-provider.js:1633 `if(clientId)`), so
+  // an evil redirect_uri could be signed into state.  Reject here before signing.
+  if (!authReq.clientId) {
+    return c.json({ error: "invalid_redirect_uri" }, 400);
+  }
+
   // Guard 4 — issuer config + authorization_endpoint
   let issuerConfig: ReturnType<typeof parseOidcIssuers>[number];
   try {
