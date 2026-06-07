@@ -28,7 +28,7 @@ function makeMockProvider(scope: string[] = ["dovecote:notify"]): OAuthHelpers {
         redirectTo: `https://claude.ai/api/mcp/auth_callback?code=test-code&state=xyz`,
       };
     },
-    lookupClient: async () => null,
+    lookupClient: async () => ({ redirectUris: ["https://claude.ai/api/mcp/auth_callback", "https://example.com"] } as any),
     createClient: async () => ({} as any),
     listClients: async () => ({ items: [] }),
     updateClient: async () => null,

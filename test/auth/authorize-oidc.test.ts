@@ -44,7 +44,7 @@ function makeProvider(): OAuthHelpers {
     completeAuthorization: async (params: any) => {
       return { redirectTo: `${CLIENT_REDIRECT_URI}?code=xxx&state=${CLIENT_STATE}` };
     },
-    lookupClient: async () => null,
+    lookupClient: async (_clientId: string) => ({ redirectUris: [CLIENT_REDIRECT_URI] } as any),
     createClient: async () => ({}) as any,
     listClients: async () => ({ items: [] }),
     updateClient: async () => null,
