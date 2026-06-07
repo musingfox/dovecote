@@ -56,17 +56,17 @@ async function handleOidcInitiate(c: Context<{ Bindings: AuthEnv }>): Promise<Re
   }
 
   // Guard 3 — parse downstream client's auth request
-  const authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
-
-  // Guard 3.5 — redirect_uri allowlist: loopback OR registered client URI
-  const LOOPBACK_RE = /^http:\/\/(127\.0\.0\.1|\[::1\]):\d+(\/.*)?$/;
-  const redirectUri = authReq.redirectUri ?? "";
-  if (!LOOPBACK_RE.test(redirectUri)) {
-    const clientInfo = await c.env.OAUTH_PROVIDER.lookupClient(authReq.clientId);
-    const registered: string[] = (clientInfo as any)?.redirectUris ?? [];
-    if (!registered.includes(redirectUri)) {
+  // Library throws with discriminating messages for invalid redirect/client errors;
+  // catch maps "Invalid redirect URI" / "Invalid client" → 400, re-throws everything else.
+  let authReq: AuthRequest;
+  try {
+    authReq = await c.env.OAUTH_PROVIDER.parseAuthRequest(c.req.raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
       return c.json({ error: "invalid_redirect_uri" }, 400);
     }
+    throw err;
   }
 
   // Guard 4 — issuer config + authorization_endpoint
