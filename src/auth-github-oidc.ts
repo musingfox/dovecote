@@ -205,7 +205,7 @@ export function createAuthGithubOidcApp(services: GithubOidcServices) {
       );
     }
 
-    // --- 5. Owner check (AFTER verify, BEFORE issueToken) ---
+    // --- 6. Owner check (AFTER verify, BEFORE issueToken) ---
     const repositoryOwner = outcome.claims.repository_owner;
     if (
       typeof repositoryOwner !== "string" ||
@@ -223,7 +223,7 @@ export function createAuthGithubOidcApp(services: GithubOidcServices) {
       return c.json({ error: "forbidden" }, 403);
     }
 
-    // --- 6. Resolve userId (auto-provision on first login) ---
+    // --- 7. Resolve userId (auto-provision on first login) ---
     let user: AuthenticatedUser | null;
     try {
       user = await resolve(
@@ -275,7 +275,6 @@ export function createAuthGithubOidcApp(services: GithubOidcServices) {
       userId: user.userId,
       scopes,
       ttlSeconds,
-      rateLimitNamespace: "github-oidc",
       authMethod: "oidc",
       auditEvent: "auth.exchange.oidc",
       auditExtras: { issuer: outcome.issuer },

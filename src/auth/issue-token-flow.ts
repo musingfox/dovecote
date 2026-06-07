@@ -37,7 +37,7 @@ export interface IssueTokenFlowOpts {
   scopes: string[];
   label?: string;
   ttlSeconds?: number;
-  rateLimitNamespace: string;
+  rateLimitNamespace?: string;
   rateLimitLimit?: number;
   authMethod: string;
   /**
@@ -138,7 +138,7 @@ export async function issueTokenFlow(
 
   // 1. Rate limit (optional — omit from services to skip)
   if (services.checkRateLimit) {
-    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, rateLimitNamespace, rateLimitLimit);
+    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, rateLimitNamespace ?? "", rateLimitLimit);
     if (!rl.allowed) {
       writeAudit(env, ctx, {
         event: auditEvent,

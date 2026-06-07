@@ -1,15 +1,25 @@
 name: "Setup dovecote"
 description: "Install the dovecote CLI and verify checksum + reachability."
+# Usage notes:
+#   Legacy mode:  provide `token` input — the token is exported directly, no HTTP exchange.
+#   OIDC mode:    provide `oidc-audience` (and leave `token` empty); `server-url` is required.
+#                 The job must declare `permissions: id-token: write`.
+#                 Constraint-4: place this step immediately before first dovecote CLI usage,
+#                 not at job start, to minimise the live-token window.
+#   Mutual exclusion: setting both `token` and `oidc-audience` is an error.
 
 inputs:
   version:
     description: "Release version to install (e.g., 0.1.0)."
     required: true
   token:
-    description: "DOVECOTE_TOKEN to export into env. If unset, the action leaves the caller's DOVECOTE_TOKEN env var (if any) untouched."
+    description: "DOVECOTE_TOKEN to export into env (legacy mode). If unset, the action leaves the caller's DOVECOTE_TOKEN env var (if any) untouched, unless oidc-audience is provided."
+    required: false
+  oidc-audience:
+    description: "Audience for GitHub Actions OIDC exchange. When set (and token is empty), the action exchanges a GitHub OIDC id_token for a dovecote token. server-url is implicitly required in this mode."
     required: false
   server-url:
-    description: "Override DOVECOTE_SERVER_URL."
+    description: "Override DOVECOTE_SERVER_URL. Required when using oidc-audience."
     required: false
   repository:
     description: "GitHub repo (owner/name) hosting the release. Defaults to the action's repo."
@@ -102,12 +112,29 @@ runs:
     - name: Export env
       shell: bash
       run: |
+        # Mutual exclusion: token and oidc-audience must not both be provided.
+        if [ -n "${{ inputs.token }}" ] && [ -n "${{ inputs.oidc-audience }}" ]; then
+          echo "setup-dovecote: cannot set both 'token' and 'oidc-audience' — choose one mode." >&2
+          exit 1
+        fi
         if [ -n "${{ inputs.token }}" ]; then
           echo "DOVECOTE_TOKEN=${{ inputs.token }}" >> "$GITHUB_ENV"
         fi
         if [ -n "${{ inputs.server-url }}" ]; then
           echo "DOVECOTE_SERVER_URL=${{ inputs.server-url }}" >> "$GITHUB_ENV"
         fi
+
+    - name: OIDC token exchange
+      if: ${{ inputs.token == '' && inputs.oidc-audience != '' }}
+      shell: bash
+      env:
+        ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+        DOVECOTE_SERVER_URL: ${{ inputs.server-url }}
+        OIDC_AUDIENCE: ${{ inputs.oidc-audience }}
+        MODE: oidc
+      run: |
+        bash "${{ github.action_path }}/../../scripts/oidc-exchange.sh"
 
     - name: Smoke probe
       shell: bash
