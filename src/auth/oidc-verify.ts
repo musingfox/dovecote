@@ -98,6 +98,7 @@ export async function verifyOidcIdToken(
     issuer: issuerConfig.issuer,
     audience: issuerConfig.audience,
     clockTolerance: input.clockToleranceSec,
+    algorithms: ["RS256"],
   };
   if (typeof input.nowMs === "number") {
     verifyOptions.currentDate = new Date(input.nowMs);
@@ -171,11 +172,13 @@ function mapJoseError(
   ) {
     return { kind: "bad_signature" };
   }
+  if (e instanceof jose.errors.JOSEAlgNotAllowed) {
+    return { kind: "bad_signature" };
+  }
   if (
     e instanceof jose.errors.JWTInvalid ||
     e instanceof jose.errors.JWSInvalid ||
-    e instanceof jose.errors.JOSENotSupported ||
-    e instanceof jose.errors.JOSEAlgNotAllowed
+    e instanceof jose.errors.JOSENotSupported
   ) {
     return { kind: "malformed_token" };
   }

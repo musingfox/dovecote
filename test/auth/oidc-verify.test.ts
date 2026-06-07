@@ -213,3 +213,63 @@ test("C-OidcVerify: uses configured subClaim when set (e.g. \"email\")", async (
     expect(out.subClaim).toBe("user@example");
   }
 });
+
+// ---------------------------------------------------------------------------
+// P-3 hardening: RS256-only algorithm lock (regression guard)
+// ---------------------------------------------------------------------------
+
+test("C-OidcVerify [P-3]: RS512 self-signed token → kind=bad_signature (algorithms locked to RS256)", async () => {
+  // Regression guard: if the algorithms:["RS256"] lock is removed from
+  // verifyOptions, jose accepts RS512 and returns kind="ok" → test goes RED.
+  const rs512KeyPair = await jose.generateKeyPair("RS512", { extractable: true });
+  const rs512PublicJwk = await jose.exportJWK(rs512KeyPair.publicKey);
+  rs512PublicJwk.kid = "rs512-kid";
+  rs512PublicJwk.alg = "RS512";
+
+  const localResolver: JwksResolver = (_cfg: OidcIssuerConfig) =>
+    jose.createLocalJWKSet({ keys: [rs512PublicJwk] });
+
+  const now = Math.floor(Date.now() / 1000);
+  const rs512Token = await new jose.SignJWT({ sub: "user_a" })
+    .setProtectedHeader({ alg: "RS512", kid: "rs512-kid" })
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setIssuedAt(now - 60)
+    .setExpirationTime(now + 3600)
+    .sign(rs512KeyPair.privateKey);
+
+  const out = await verifyOidcIdToken({
+    idToken: rs512Token,
+    allowList,
+    clockToleranceSec: 60,
+    jwksResolver: localResolver,
+  });
+  expect(out.kind).toBe("bad_signature");
+});
+
+test("C-OidcVerify [P-3b]: RS256 token still accepted after algorithm lock (two-sided proof)", async () => {
+  // Two-sided proof: lock must not break the valid RS256 path.
+  const rs256PublicJwk = await jose.exportJWK(trustedKeyPair.publicKey);
+  rs256PublicJwk.kid = "rs256-local-kid";
+  rs256PublicJwk.alg = "RS256";
+
+  const localResolver: JwksResolver = (_cfg: OidcIssuerConfig) =>
+    jose.createLocalJWKSet({ keys: [rs256PublicJwk] });
+
+  const now = Math.floor(Date.now() / 1000);
+  const rs256Token = await new jose.SignJWT({ sub: "user_a" })
+    .setProtectedHeader({ alg: "RS256", kid: "rs256-local-kid" })
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setIssuedAt(now - 60)
+    .setExpirationTime(now + 3600)
+    .sign(trustedKeyPair.privateKey);
+
+  const out = await verifyOidcIdToken({
+    idToken: rs256Token,
+    allowList,
+    clockToleranceSec: 60,
+    jwksResolver: localResolver,
+  });
+  expect(out.kind).toBe("ok");
+});

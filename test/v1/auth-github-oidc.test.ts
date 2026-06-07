@@ -225,3 +225,59 @@ test("GH-09: iss=accounts.google.com → 401 untrusted_issuer", async () => {
   expect(body.error_description).toBe("untrusted_issuer");
   expect(issueToken).toHaveBeenCalledTimes(0);
 });
+
+// ---------------------------------------------------------------------------
+// P-1 hardening: owner case-insensitive normalisation (regression guard)
+// ---------------------------------------------------------------------------
+
+test("GH-10 [P-1]: env=MixedCaseOrg claim=mixedcaseorg (all-lowercase) → 201 (case-normalised)", async () => {
+  // Regression guard: if toLowerCase() is removed from owner comparison,
+  // this test goes RED (strict === fails mixed-case vs lowercase).
+  const { app, issueToken } = buildApp();
+  const idToken = await signGhToken({ repository_owner: "mixedcaseorg" });
+  const env = buildEnv({ GITHUB_OIDC_ALLOWED_OWNER: "MixedCaseOrg" });
+  const res = await app.fetch(req({ id_token: idToken }), env, createExecCtx());
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as any;
+  expect(body.token).toMatch(/^dvct_/);
+  expect(issueToken).toHaveBeenCalledTimes(1);
+});
+
+test("GH-11 [P-1c]: env=trusted-org claim=trusted-org-evil (substring) → 403 (strict equality guard)", async () => {
+  // Regression guard: if === is weakened to includes/startsWith,
+  // this test goes RED (substring prefix passes the relaxed check).
+  const { app, issueToken } = buildApp();
+  const idToken = await signGhToken({ repository_owner: "trusted-org-evil" });
+  const env = buildEnv({ GITHUB_OIDC_ALLOWED_OWNER: "trusted-org" });
+  const res = await app.fetch(req({ id_token: idToken }), env, createExecCtx());
+  expect(res.status).toBe(403);
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("forbidden");
+  expect(issueToken).toHaveBeenCalledTimes(0);
+});
+
+// ---------------------------------------------------------------------------
+// P-2 hardening: rate-limit runs before signature verification (regression guard)
+// ---------------------------------------------------------------------------
+
+test("GH-12 [P-2]: RL denied + attacker-signed token → 429 (RL precedes verify)", async () => {
+  // Regression guard: if RL is moved back to after verify, the attacker-signed
+  // token triggers 401 bad_signature before RL fires, so the test goes RED.
+  const checkRateLimit = mock(async () => ({ allowed: false, current: 10 }));
+  const { app, issueToken } = buildApp({ checkRateLimit });
+
+  // Token signed by attacker key — real jose verify would reject this as
+  // bad_signature if verify ran first.
+  const idToken = await signGhToken(
+    { repository_owner: ALLOWED_OWNER },
+    { privateKey: attackerKeyPair.privateKey },
+  );
+
+  const res = await app.fetch(req({ id_token: idToken }), buildEnv(), createExecCtx());
+  expect(res.status).toBe(429);
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("rate_limited");
+  expect(res.headers.get("Retry-After")).toBe("60");
+  expect(checkRateLimit).toHaveBeenCalledTimes(1);
+  expect(issueToken).toHaveBeenCalledTimes(0);
+});

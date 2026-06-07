@@ -163,7 +163,26 @@ export function createAuthGithubOidcApp(services: GithubOidcServices) {
     ];
     const clockToleranceSec = getOidcClockToleranceSec(env);
 
-    // --- 4. Verify id_token (real jose verify via jwksResolver) ---
+    // --- 4. Rate limit (namespace "github-oidc") — BEFORE verify ---
+    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "github-oidc");
+    if (!rl.allowed) {
+      writeAudit(env, ctx, {
+        event: "auth.exchange.oidc",
+        ok: false,
+        reason: "rate_limited",
+        issuer: GH_ISSUER,
+        authMethod: "oidc",
+        ip,
+        scope: "",
+      });
+      return c.json(
+        { error: "rate_limited", error_description: "Too many requests" },
+        429,
+        { "Retry-After": "60" },
+      );
+    }
+
+    // --- 5. Verify id_token (real jose verify via jwksResolver) ---
     const outcome = await verify({
       idToken: body.id_token,
       allowList,
@@ -188,7 +207,10 @@ export function createAuthGithubOidcApp(services: GithubOidcServices) {
 
     // --- 5. Owner check (AFTER verify, BEFORE issueToken) ---
     const repositoryOwner = outcome.claims.repository_owner;
-    if (typeof repositoryOwner !== "string" || repositoryOwner !== allowedOwner) {
+    if (
+      typeof repositoryOwner !== "string" ||
+      repositoryOwner.toLowerCase() !== allowedOwner.toLowerCase()
+    ) {
       writeAudit(env, ctx, {
         event: "auth.exchange.oidc",
         ok: false,
@@ -201,26 +223,7 @@ export function createAuthGithubOidcApp(services: GithubOidcServices) {
       return c.json({ error: "forbidden" }, 403);
     }
 
-    // --- 6. Rate limit (namespace "github-oidc") ---
-    const rl = await services.checkRateLimit(env.OAUTH_KV, ip, "github-oidc");
-    if (!rl.allowed) {
-      writeAudit(env, ctx, {
-        event: "auth.exchange.oidc",
-        ok: false,
-        reason: "rate_limited",
-        issuer: outcome.issuer,
-        authMethod: "oidc",
-        ip,
-        scope: "",
-      });
-      return c.json(
-        { error: "rate_limited", error_description: "Too many requests" },
-        429,
-        { "Retry-After": "60" },
-      );
-    }
-
-    // --- 7. Resolve userId (auto-provision on first login) ---
+    // --- 6. Resolve userId (auto-provision on first login) ---
     let user: AuthenticatedUser | null;
     try {
       user = await resolve(
