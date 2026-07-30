@@ -378,127 +378,30 @@
           }
         }
       },
-      "TokenExchangeOidcRequest": {
+      "WhoamiResponse": {
         "type": "object",
         "properties": {
-          "id_token": {
-            "type": "string",
-            "minLength": 1
-          },
-          "expiresIn": {
-            "type": "string",
-            "enum": [
-              "7d",
-              "30d",
-              "60d",
-              "90d"
-            ]
-          },
-          "label": {
-            "type": "string",
-            "maxLength": 64
-          }
-        },
-        "required": [
-          "id_token"
-        ]
-      },
-      "DeviceAuthorizeResponse": {
-        "type": "object",
-        "properties": {
-          "device_code": {
+          "userId": {
             "type": "string"
           },
-          "user_code": {
+          "tokenId": {
             "type": "string"
           },
-          "verification_uri": {
-            "type": "string"
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
-          "verification_uri_complete": {
-            "type": "string"
-          },
-          "expires_in": {
-            "type": "integer"
-          },
-          "interval": {
+          "expiresAt": {
             "type": "integer"
           }
         },
         "required": [
-          "device_code",
-          "user_code",
-          "verification_uri",
-          "verification_uri_complete",
-          "expires_in",
-          "interval"
-        ]
-      },
-      "DeviceAuthorizeRequest": {
-        "type": "object",
-        "properties": {
-          "client_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "scope": {
-            "type": "string"
-          },
-          "expiresIn": {
-            "type": "string",
-            "enum": [
-              "7d",
-              "30d",
-              "60d",
-              "90d"
-            ]
-          },
-          "label": {
-            "type": "string",
-            "maxLength": 64
-          }
-        },
-        "required": [
-          "client_id"
-        ]
-      },
-      "DevicePollPendingResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string",
-            "enum": [
-              "authorization_pending",
-              "slow_down",
-              "access_denied",
-              "expired_token",
-              "invalid_request",
-              "unsupported_grant_type"
-            ]
-          },
-          "interval": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
-      "DeviceExchangeRequest": {
-        "type": "object",
-        "properties": {
-          "grant_type": {
-            "type": "string",
-            "minLength": 1
-          },
-          "device_code": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "grant_type",
-          "device_code"
+          "userId",
+          "tokenId",
+          "scopes",
+          "expiresAt"
         ]
       },
       "TokenRenewRequest": {
@@ -997,193 +900,22 @@
         }
       }
     },
-    "/v1/auth/exchange-oidc": {
-      "post": {
-        "description": "Exchange an OIDC id_token (from an allow-listed issuer) for a dvct_* runtime token. New subjects are auto-provisioned with scope `dovecote:notify`.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TokenExchangeOidcRequest"
-              }
-            }
-          }
-        },
+    "/v1/auth/whoami": {
+      "get": {
+        "description": "Return the dvct_* bearer identity (userId, scopes, tokenId, expiry).",
         "responses": {
-          "201": {
-            "description": "Token issued",
+          "200": {
+            "description": "Identity returned",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenIssueResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Request body failed zod validation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
+                  "$ref": "#/components/schemas/WhoamiResponse"
                 }
               }
             }
           },
           "401": {
-            "description": "id_token failed verification (untrusted_issuer / bad_signature / bad_audience / expired_token / iat_skew / malformed_token / untrusted_subject)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Reserved — not currently returned by this endpoint",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limit exceeded — Retry-After header indicates retry window",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error (e.g. KV write failure during auto-provision)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Misconfigured — HMAC_PEPPER or OIDC_ISSUERS missing",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/auth/device-authorize": {
-      "post": {
-        "description": "RFC 8628 §3.1 device-authorization. Returns a device_code, user_code, and verification_uri. The user approves out-of-band at the verification page.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceAuthorizeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Device authorization issued",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceAuthorizeResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Request body failed zod validation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limit exceeded — Retry-After header indicates retry window",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error (e.g. KV write failure)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Misconfigured — HMAC_PEPPER not set",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/auth/exchange-device": {
-      "post": {
-        "description": "RFC 8628 §3.4 device-token endpoint. Polls with device_code until approval; success returns a dvct_* runtime token (one-shot — record becomes consumed).",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeviceExchangeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Token issued",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenIssueResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "authorization_pending / slow_down / access_denied / expired_token / invalid_request / unsupported_grant_type",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DevicePollPendingResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limit exceeded — Retry-After header indicates retry window",
+            "description": "Missing or invalid Authorization header",
             "content": {
               "application/json": {
                 "schema": {
@@ -1194,16 +926,6 @@
           },
           "500": {
             "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Misconfigured — HMAC_PEPPER not set",
             "content": {
               "application/json": {
                 "schema": {
