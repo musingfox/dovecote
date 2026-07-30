@@ -96,3 +96,12 @@ export const tokenListResponseSchema = z.object({
   truncated: z.boolean(),
 });
 export type TokenListResponse = z.infer<typeof tokenListResponseSchema>;
+
+export const whoamiResponseSchema = z.object({
+  userId: z.string().min(1),
+  tokenId: z.string().min(1),
+  scopes: z.array(z.string()),
+  expiresAt: z.number().int(),
+});
+export type WhoamiResponse = z.infer<typeof whoamiResponseSchema>;
+
