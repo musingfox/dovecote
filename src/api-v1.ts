@@ -181,6 +181,26 @@ export function createV1App(services: V1Services) {
     }
   });
 
+  // GET /v1/auth/whoami — dvct bearer introspects its own metadata (WhoamiEndpoint contract)
+  v1.get("/auth/whoami", async (c) => {
+    const auth = c.get("auth");
+    const env = c.env;
+    const getMeta = services.getTokenMetadataByTokenId ?? _getTokenMetadataByTokenId;
+    if (!auth.tokenId) {
+      return c.json({ error: "invalid_token", error_description: "tokenId missing from auth" }, 401);
+    }
+    const meta = await getMeta(auth.tokenId, env);
+    if (!meta) {
+      return c.json({ error: "invalid_token", error_description: "token not found" }, 401);
+    }
+    return c.json({
+      userId: auth.userId,
+      tokenId: auth.tokenId,
+      scopes: auth.scopes,
+      expiresAt: meta.expiresAt,
+    });
+  });
+
   // GET /v1/tokens — self-list + admin-list (Phase 4.3 / C-Endpoint-ListSelf+ListAdmin)
   v1.get("/tokens", async (c) => {
     const auth = c.get("auth");
