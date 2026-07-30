@@ -14,8 +14,11 @@
  *   bun run setup -- --resume        # skip checks that are already satisfied
  */
 
-import { randomBytes, pbkdf2Sync } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { DEFAULT_SCOPES } from "./wizard-defaults.js";
+import { makeWranglerKv } from "./lib/wrangler-kv.js";
+import { issueToken, KVWriteError } from "../src/auth/api-token.js";
+import type { Env } from "../src/types.js";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, stderr, env, argv, exit } from "node:process";
 import {
@@ -240,7 +243,6 @@ async function step2_secrets(): Promise<SecretPlan[]> {
   const required = [
     "HMAC_PEPPER",
     "ADMIN_REVOKE_TOKEN",
-    "OAUTH_PASSWORD",
   ];
 
   const plan: SecretPlan[] = [];
@@ -267,7 +269,7 @@ async function step2_secrets(): Promise<SecretPlan[]> {
 
   const toPush = plan.filter((p) => p.source === "generated");
   if (toPush.length === 0) {
-    ok("nothing to push (all 4 secrets already present)");
+    ok("nothing to push (all required secrets already present)");
     return plan;
   }
 
@@ -452,10 +454,11 @@ async function step4_deploy(): Promise<string> {
 interface SeedResult {
   username: string;
   pepper: string;
+  scopes: string[];
 }
 
 async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
-  header(5, 9, "Seed your first user");
+  header(5, 9, "Seed your first user (OIDC placeholder record — no password)");
 
   const pepperEntry = secrets.find((s) => s.name === "HMAC_PEPPER");
   let pepper = pepperEntry?.value || "";
@@ -470,7 +473,7 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
     pepper = await askSecret("    HMAC_PEPPER:");
     if (!pepper)
       fail(
-        "HMAC_PEPPER is required to compute the byte-identical PBKDF2 record."
+        "HMAC_PEPPER is required to HMAC-hash the CLI token minted in the next step."
       );
   }
 
@@ -479,14 +482,11 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
   if (!/^[a-z0-9_-]{1,64}$/.test(username))
     fail("username must match [a-z0-9_-]{1,64}");
 
-  const password = await askSecret("  password:");
-  if (!password) fail("password required");
-
   const scopes =
     (
       await ask(
         "  scopes (comma-separated)",
-        "dovecote:notify,dovecote:admin"
+        DEFAULT_SCOPES.join(",")
       )
     ) || DEFAULT_SCOPES.join(",");
   const scopeList = scopes
@@ -501,15 +501,15 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
   for (const s of scopeList)
     if (!supported.has(s)) fail(`unsupported scope: ${s}`);
 
-  // Mirror seed-user.mjs exactly
-  const salt = randomBytes(16);
-  const hashBuf = pbkdf2Sync(password, salt, 100_000, 32, "sha256");
+  // M8: same shape as resolve-user.ts auto-provision — an `algo:"oidc"`
+  // placeholder with empty password material. No password is asked or stored;
+  // identity is carried by dvct tokens and OIDC subjects only.
   const record = {
     username,
-    algo: "pbkdf2-sha256",
-    iterations: 100_000,
-    salt: salt.toString("base64"),
-    hash: hashBuf.toString("base64"),
+    algo: "oidc",
+    iterations: 0,
+    salt: "",
+    hash: "",
     scopes: scopeList,
     createdAt: new Date().toISOString(),
   };
@@ -529,74 +529,47 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
   }
   ok(`user:${username} written to OAUTH_KV (env=${envName})`);
   saveState(envName, { username });
-  return { username, pepper };
+  return { username, pepper, scopes: scopeList };
 }
 
 async function step6_bootstrap(
   serverUrl: string,
   username: string,
   pepper: string,
-  secrets: SecretPlan[]
+  scopes: string[]
 ): Promise<void> {
   header(6, 9, "Mint personal CLI token (local)");
   if (!pepper) {
-    fail("HMAC_PEPPER missing for local mint");
+    fail("HMAC_PEPPER missing for local mint — re-run step 5 and paste it.");
   }
 
-  // Local mint (WizardLocalTokenMint): replicate issueToken using node:crypto + wrangler --remote puts.
-  const { randomBytes, createHmac } = await import("node:crypto");
-  const TOKEN_PREFIX = "dvct_";
-  const TOKEN_ID_BYTES = 8;
-  const TOKEN_BODY_BYTES = 24;
-  const DEFAULT_TTL_SECONDS = 7_776_000;
-  const MAX_TTL_SECONDS = 7_776_000;
-  const KV_NAMESPACE = "apitoken:";
-  const KV_HASH_NAMESPACE = "apitoken_hash:";
-  const KV_USER_NAMESPACE = "apitoken_user:";
+  // WizardLocalTokenMint (M7): reuse the production issueToken over a
+  // wrangler --remote KV adapter. HMAC + three-key layout stay single-sourced
+  // in src/auth/api-token.ts — no local re-implementation to drift.
+  const adapter = makeWranglerKv(
+    envName,
+    (args) => wrangler(args, { capture: true }),
+    (key) => info(`writing ${key} (--remote)`)
+  );
+  const mintEnv = { OAUTH_KV: adapter, HMAC_PEPPER: pepper } as unknown as Env;
 
-  function b64url(bytes: number): string {
-    return randomBytes(bytes).toString("base64url");
-  }
-  function hmacHex(data: string): string {
-    return createHmac("sha256", pepper).update(data).digest("hex");
-  }
-
-  const tokenId = b64url(TOKEN_ID_BYTES);
-  const tokenBody = b64url(TOKEN_BODY_BYTES);
-  const token = TOKEN_PREFIX + tokenBody;
-  const hash = hmacHex(token);
-  const now = Date.now();
-  const ttl = DEFAULT_TTL_SECONDS;
-  const expiresAt = now + ttl * 1000;
-  const scopes = ["dovecote:notify"];
-
-  const metadata = {
-    tokenId,
-    userId: username,
-    scopes,
-    hash,
-    createdAt: now,
-    expiresAt,
-    label: "setup-wizard",
-  };
-  const metaJson = JSON.stringify(metadata);
-
-  // 3 puts (tokenId, hash, user index) — mirror issueToken
-  for (const [key, val] of [
-    [KV_NAMESPACE + tokenId, metaJson],
-    [KV_HASH_NAMESPACE + hash, metaJson],
-    [KV_USER_NAMESPACE + username + ":" + tokenId, ""],
-  ] as const) {
-    const r = wrangler(
-      ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", key, val, "--expiration-ttl", String(ttl), "--env", envName],
-      { capture: true }
+  let minted;
+  try {
+    minted = await issueToken(
+      { userId: username, scopes, label: "setup-wizard" },
+      mintEnv
     );
-    if (r.code !== 0) {
-      stderr.write(r.stderr);
-      fail(`local mint kv put failed for ${key}`);
+  } catch (e) {
+    if (e instanceof KVWriteError) {
+      fail(
+        `local mint failed writing to KV: ${e.message}\n` +
+          "  Fix wrangler auth/network and re-run the wizard with --resume; a fresh token will be minted."
+      );
     }
+    throw e;
   }
-  ok(`minted local token ${tokenId} for ${username} (dvct_*)`);
+  const { token, tokenId, expiresAt } = minted;
+  ok(`minted local token ${tokenId} for ${username} (dvct_*, scopes: ${scopes.join(", ")})`);
 
   // Write CLI config so `dovecote` can use it immediately
   const { homedir } = await import("node:os");
@@ -616,7 +589,7 @@ async function step6_bootstrap(
   await fsp.chmod(tmp, 0o600);
   await fsp.rename(tmp, cfgPath);
   await fsp.chmod(cfgPath, 0o600);
-  ok(`CLI config written to ${cfgPath}`);
+  ok(`Token minted locally and saved to ${cfgPath}`);
 }
 
 async function step7_summary(
@@ -698,7 +671,7 @@ async function main(): Promise<void> {
   const channelIds = await step3_channel();
   const serverUrl = await step4_deploy();
   const seed = await step5_seedUser(secrets);
-  await step6_bootstrap(serverUrl, seed.username, seed.pepper, secrets);
+  await step6_bootstrap(serverUrl, seed.username, seed.pepper, seed.scopes);
   await step7_summary(serverUrl, seed.username, secrets);
   await step8_nextSteps(serverUrl, seed.username);
   await step9_verify(
