@@ -1,6 +1,6 @@
 /**
  * Single-issue pipeline: shared by auth-exchange, auth-exchange-oidc,
- * auth-exchange-device (approved branch), and admin-issue-token.
+ * auth-exchange-device (approved branch).
  *
  * Pipeline: checkRateLimit (if provided) → issueToken → response + audit.
  *

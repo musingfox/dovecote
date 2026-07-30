@@ -21,7 +21,6 @@ Before deploying to production:
 3. **Review secrets configuration**:
    Ensure all required secrets are set via `wrangler secret put`:
    - `OAUTH_PASSWORD`
-   - `COOKIE_ENCRYPTION_KEY` (min 32 bytes)
    - `ADMIN_REVOKE_TOKEN`
    - Channel-specific credentials (if using notifications)
 

@@ -47,11 +47,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 2. 建立 `.dev.vars`（可參考 `.dev.vars.example`）：
    ```env
-   OAUTH_PASSWORD=your-authorize-page-password
-   COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+   # OAUTH_PASSWORD removed (M1); /authorize uses dvct token paste form
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
    DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
-   ```
+```
 
 3. 本地啟動：
    ```bash
@@ -91,8 +90,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    script 會提示輸入 secrets；若 `.dev.vars` 存在，會以其值作為預設。
 
    必要：
-   - `OAUTH_PASSWORD` — `/authorize` 頁面要求輸入的密碼（Claude.ai OAuth 流程）
-   - `COOKIE_ENCRYPTION_KEY` — CSRF cookie 的 HMAC 金鑰（base64、32 bytes）
+   - （無 OAUTH_PASSWORD）— `/authorize` 顯示貼上 `dvct_*` token 的表單
 
    選用（admin scope）：
    - `OAUTH_ADMIN_PASSWORD` — 當 client 請求 `dovecote:admin` scope 時所需的獨立密碼。若未設定此 secret 且有 admin scope 請求，authorize 端點會回傳 503。一般 `OAUTH_PASSWORD` 不會作為 admin 請求的備選。
@@ -123,7 +121,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 ### Claude.ai Web Connector（OAuth）
 
-在 Claude.ai 新增 connector 時，請填入 MCP 端點 URL，**務必包含 `/mcp` 後綴**（例如 `https://dovecote.<sub>.workers.dev/mcp`）。若只填 base URL，OAuth discovery 會失敗，畫面上會看到「Authorization with the MCP server failed.」。Claude 會跳轉到 `/authorize` 要求輸入 `OAUTH_PASSWORD`，通過後透過 OAuth 2.1 + PKCE 取得 access token，之後的 MCP 呼叫會自動帶上 Bearer。
+在 Claude.ai 新增 connector 時，請填入 MCP 端點 URL，**務必包含 `/mcp` 後綴**（例如 `https://dovecote.<sub>.workers.dev/mcp`）。若只填 base URL，OAuth discovery 會失敗，畫面上會看到「Authorization with the MCP server failed.」。Claude 會跳轉到 `/authorize` 顯示貼上 `dvct_*` token 的表單，POST 成功後透過 OAuth 2.1 + PKCE 取得 access token，之後的 MCP 呼叫會自動帶上 Bearer。
 
 5. **對 production 執行 E2E 測試**（選用）
    ```bash
@@ -176,7 +174,7 @@ dovecote 實作多層防禦安全控制：
 - **防點擊劫持標頭**：`/authorize` 端點回傳 `Content-Security-Policy: frame-ancestors 'none'` 與 `X-Frame-Options: DENY`
 - **基於 Scope 的存取控制**：
   - `dovecote:notify` – 透過已設定通道發送通知
-  - `dovecote:admin` – **Admin 權限**：執行 admin 等級操作。需要 `OAUTH_ADMIN_PASSWORD`（獨立於 `OAUTH_PASSWORD`）。任何含有 `dovecote:admin` 的授權請求（即使混合其他 scope）均驗證 admin 密碼；一般密碼不被接受。若 `OAUTH_ADMIN_PASSWORD` 未設定，端點立即回傳 503，不存在 silent fallback。
+  - `dovecote:admin` – **Admin 權限**：執行 admin 等級操作。需要 user 記錄具備 `dovecote:admin` scope。
 
 ### 漏洞通報
 

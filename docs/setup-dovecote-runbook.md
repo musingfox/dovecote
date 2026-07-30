@@ -66,7 +66,7 @@ CI tokens are issued by the same OAuth flow as interactive CLI users; you bootst
 
 3. **Rotate periodically.** Runtime tokens cap at 90d TTL. Schedule a refresh well before expiry; `dovecote tokens list --remote` shows what's outstanding.
 
-For headless / no-browser runners that need to mint their OWN token, see `dovecote auth login --device` (RFC 8628 device-code flow). The CI workflow itself should NOT call `auth login` — it consumes a pre-provisioned `DOVECOTE_TOKEN`.
+
 
 ## Supported target triples
 

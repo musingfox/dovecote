@@ -106,39 +106,42 @@ test("SCOPE_DESCRIPTIONS dovecote:notify has no warning", () => {
 // Security headers — rewritten to verify 302 OIDC redirect response behavior
 // ---------------------------------------------------------------------------
 
-test("GET /authorize → 302 upstream OIDC redirect (not 200 form)", async () => {
+test("GET /authorize → 200 form (paste dvct token)", async () => {
   const env = makeEnv();
   const res = await authorizeApp.fetch(
     new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://claude.ai/api/mcp/auth_callback&state=xyz&response_type=code&scope=dovecote:notify"),
     env,
   );
-  // After BUILD: 302 redirect; security headers are optional on redirects
-  // but we verify the response is 302 (correct behavior)
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  expect(loc.startsWith(AUTHORIZATION_ENDPOINT)).toBe(true);
+  expect(res.status).toBe(200);
+  const ct = res.headers.get("content-type") || "";
+  expect(ct).toContain("text/html");
+  const body = await res.text();
+  expect(body).toContain('name="token"');
+  expect(body).toContain('action="/authorize"');
 });
 
-test("GET /authorize → 302 has a Location header pointing to upstream", async () => {
+test("GET /authorize → 200 has form with client_id hidden", async () => {
   const env = makeEnv();
   const res = await authorizeApp.fetch(
     new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify"),
     env,
   );
-  expect(res.status).toBe(302);
-  expect(res.headers.get("Location")).toBeTruthy();
+  expect(res.status).toBe(200);
+  const body = await res.text();
+  expect(body).toContain('name="client_id"');
+  expect(body).toContain('value="abc"');
 });
 
-test("GET /authorize → 302 Location contains state param", async () => {
+test("GET /authorize → 200 form contains state hidden", async () => {
   const env = makeEnv();
   const res = await authorizeApp.fetch(
     new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify"),
     env,
   );
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  const params = new URL(loc).searchParams;
-  expect((params.get("state") ?? "").length).toBeGreaterThan(0);
+  expect(res.status).toBe(200);
+  const body = await res.text();
+  expect(body).toContain('name="state"');
+  expect(body).toContain('value="xyz"');
 });
 
 // ---------------------------------------------------------------------------

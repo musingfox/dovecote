@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import { bearerMiddleware } from "../../src/auth/bearer.js";
-import { createAuthExchangeOidcApp } from "../../src/auth-exchange-oidc.js";
+import { createAuthGithubOidcApp } from "../../src/auth-github-oidc.js";
 import { MockKV } from "../helpers/mock-kv.js";
 import type { Env } from "../../src/types.js";
 
@@ -18,7 +18,7 @@ import type { Env } from "../../src/types.js";
 function composeAppLikeIndex() {
   const app = new Hono<{ Bindings: Env }>();
   // No /health route or OAuth provider needed for this assertion.
-  const oidcApp = createAuthExchangeOidcApp({
+  const oidcApp = createAuthGithubOidcApp({
     // Stubs: never invoked because the body is empty → 400 invalid_request.
     issueToken: (async () => ({
       token: "dvct_x",
@@ -28,7 +28,6 @@ function composeAppLikeIndex() {
     checkRateLimit: (async () => ({ allowed: true, current: 1 })) as any,
   });
   app.route("/", oidcApp);
-  app.use("/v1/*", bearerMiddleware);
   return app;
 }
 
@@ -39,6 +38,8 @@ function buildEnv(opts: { oidcIssuers?: string } = {}): Env {
     COOKIE_ENCRYPTION_KEY: "x".repeat(32),
     HMAC_PEPPER: "pep",
     OIDC_ISSUERS: opts.oidcIssuers,
+    GITHUB_OIDC_EXPECTED_AUD: "aud",
+    GITHUB_OIDC_ALLOWED_OWNER: "owner",
   };
 }
 
@@ -62,10 +63,10 @@ test("C-Carveout-Wiring: POST /v1/auth/exchange-oidc bypasses bearer middleware 
     ]),
   });
   const res = await app.fetch(
-    new Request("http://localhost/v1/auth/exchange-oidc", {
+    new Request("http://localhost/v1/auth/github-oidc", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({}),
     }),
     env,
     execCtx(),
@@ -81,7 +82,8 @@ test("C-Carveout-Wiring: POST /v1/auth/exchange-oidc bypasses bearer middleware 
 
 test("C-Carveout-Wiring: a different /v1 path with no bearer is still 401'd by middleware", async () => {
   // Sanity: the bearer middleware is active for non-carved-out /v1 paths.
-  const app = composeAppLikeIndex();
+  const app = new Hono<{ Bindings: Env }>();
+  app.use("/v1/*", bearerMiddleware);
   const env = buildEnv();
   const res = await app.fetch(
     new Request("http://localhost/v1/notify", { method: "POST" }),

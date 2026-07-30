@@ -183,7 +183,7 @@ async function step0_prereqs(): Promise<void> {
     ok(`jq ${(jq.stdout || "").trim()}`);
   } else {
     warn(
-      "jq not on PATH — optional (recommended for parsing /admin/issue-token responses by hand)"
+      "jq not on PATH — optional (for manual JSON parsing)"
     );
   }
 }
@@ -238,7 +238,6 @@ async function step2_secrets(): Promise<SecretPlan[]> {
   }
 
   const required = [
-    "COOKIE_ENCRYPTION_KEY",
     "HMAC_PEPPER",
     "ADMIN_REVOKE_TOKEN",
     "OAUTH_PASSWORD",
@@ -518,8 +517,7 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
 
   // --remote is REQUIRED on wrangler 4.x: `kv key put` defaults to writing
   // the local miniflare cache (`.wrangler/state/...`), not the deployed
-  // worker's KV. Without it, /admin/issue-token's `user:<id>` lookup against
-  // the staging worker fails 404 even after a "successful" seed.
+  // worker's KV. Without it, the user record may not be visible to the worker.
   const r = wrangler(
     ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", `user:${username}`, json, "--env", envName],
     { capture: true }
@@ -537,115 +535,88 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
 async function step6_bootstrap(
   serverUrl: string,
   username: string,
+  pepper: string,
   secrets: SecretPlan[]
 ): Promise<void> {
-  header(6, 9, "Mint personal CLI token");
-
-  const adminEntry = secrets.find((s) => s.name === "ADMIN_REVOKE_TOKEN");
-  let adminToken = adminEntry?.value || "";
-  if (!adminToken) {
-    info(
-      "ADMIN_REVOKE_TOKEN was already set; paste the existing value to call /admin/issue-token."
-    );
-    adminToken = await askSecret("    ADMIN_REVOKE_TOKEN:");
-    if (!adminToken) fail("ADMIN_REVOKE_TOKEN required.");
+  header(6, 9, "Mint personal CLI token (local)");
+  if (!pepper) {
+    fail("HMAC_PEPPER missing for local mint");
   }
 
-  const defaultLabel = hostname();
-  const label = (await ask("  label", defaultLabel)) || defaultLabel;
+  // Local mint (WizardLocalTokenMint): replicate issueToken using node:crypto + wrangler --remote puts.
+  const { randomBytes, createHmac } = await import("node:crypto");
+  const TOKEN_PREFIX = "dvct_";
+  const TOKEN_ID_BYTES = 8;
+  const TOKEN_BODY_BYTES = 24;
+  const DEFAULT_TTL_SECONDS = 7_776_000;
+  const MAX_TTL_SECONDS = 7_776_000;
+  const KV_NAMESPACE = "apitoken:";
+  const KV_HASH_NAMESPACE = "apitoken_hash:";
+  const KV_USER_NAMESPACE = "apitoken_user:";
 
-  const scopesInput =
-    (
-      await ask(
-        "  scopes (comma-separated)",
-        "dovecote:notify,dovecote:admin"
-      )
-    ) || DEFAULT_SCOPES.join(",");
-  const scopes = scopesInput
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const daysInput = (await ask("  expires in days", "90")) || "90";
-  const expiresInDays = parseInt(daysInput, 10);
-  if (!Number.isFinite(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) {
-    fail("expires-in-days must be an integer between 1 and 90");
+  function b64url(bytes: number): string {
+    return randomBytes(bytes).toString("base64url");
+  }
+  function hmacHex(data: string): string {
+    return createHmac("sha256", pepper).update(data).digest("hex");
   }
 
-  info("Calling POST /admin/issue-token...");
-  let resBody: string;
-  let resStatus: number;
-  try {
-    const res = await fetch(`${serverUrl}/admin/issue-token`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: username,
-        scopes,
-        expiresInDays,
-        label,
-      }),
-    });
-    resStatus = res.status;
-    resBody = await res.text();
-  } catch (e) {
-    fail(`fetch failed: ${(e as Error).message}`);
-  }
+  const tokenId = b64url(TOKEN_ID_BYTES);
+  const tokenBody = b64url(TOKEN_BODY_BYTES);
+  const token = TOKEN_PREFIX + tokenBody;
+  const hash = hmacHex(token);
+  const now = Date.now();
+  const ttl = DEFAULT_TTL_SECONDS;
+  const expiresAt = now + ttl * 1000;
+  const scopes = ["dovecote:notify"];
 
-  if (resStatus < 200 || resStatus >= 300) {
-    stderr.write(`  ✘ HTTP ${resStatus}: ${resBody}\n`);
-    fail(
-      `/admin/issue-token returned ${resStatus} — verify ADMIN_REVOKE_TOKEN matches the worker and user '${username}' exists.`
-    );
-  }
-
-  let parsed: {
-    token: string;
-    tokenId: string;
-    userId: string;
-    scopes: string[];
-    expiresAt: number;
-    label?: string;
+  const metadata = {
+    tokenId,
+    userId: username,
+    scopes,
+    hash,
+    createdAt: now,
+    expiresAt,
+    label: "setup-wizard",
   };
-  try {
-    parsed = JSON.parse(resBody);
-  } catch {
-    fail(`non-JSON response from /admin/issue-token: ${resBody}`);
-  }
+  const metaJson = JSON.stringify(metadata);
 
-  // Write ~/.config/dovecote/config.json (XDG-aware), mode 0600.
-  const baseDir = env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-  const configPath = join(baseDir, "dovecote", "config.json");
-  const config = {
+  // 3 puts (tokenId, hash, user index) — mirror issueToken
+  for (const [key, val] of [
+    [KV_NAMESPACE + tokenId, metaJson],
+    [KV_HASH_NAMESPACE + hash, metaJson],
+    [KV_USER_NAMESPACE + username + ":" + tokenId, ""],
+  ] as const) {
+    const r = wrangler(
+      ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", key, val, "--expiration-ttl", String(ttl), "--env", envName],
+      { capture: true }
+    );
+    if (r.code !== 0) {
+      stderr.write(r.stderr);
+      fail(`local mint kv put failed for ${key}`);
+    }
+  }
+  ok(`minted local token ${tokenId} for ${username} (dvct_*)`);
+
+  // Write CLI config so `dovecote` can use it immediately
+  const { homedir } = await import("node:os");
+  const { join, dirname } = await import("node:path");
+  const { promises: fsp } = await import("node:fs");
+  const cfgPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "dovecote", "config.json");
+  const cfgDir = dirname(cfgPath);
+  await fsp.mkdir(cfgDir, { recursive: true, mode: 0o700 });
+  const cliCfg = {
     serverUrl,
-    clientVersion: "0.1.0",
     tokens: [
-      {
-        tokenId: parsed.tokenId,
-        token: parsed.token,
-        userId: parsed.userId,
-        scopes: parsed.scopes,
-        expiresAt: parsed.expiresAt,
-        ...(parsed.label !== undefined ? { label: parsed.label } : {}),
-      },
+      { tokenId, token, userId: username, scopes, expiresAt, label: "setup-wizard" },
     ],
   };
-
-  try {
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
-    chmodSync(configPath, 0o600);
-  } catch (e) {
-    fail(`failed to write ${configPath}: ${(e as Error).message}`);
-  }
-
-  ok(`Token minted and saved to ${configPath} (mode 0600)`);
-  ok(
-    `You can now run: dovecote ping; dovecote notify <channel> --text 'hello'`
-  );
+  const tmp = `${cfgPath}.tmp-${process.pid}`;
+  await fsp.writeFile(tmp, JSON.stringify(cliCfg, null, 2), { mode: 0o600 });
+  await fsp.chmod(tmp, 0o600);
+  await fsp.rename(tmp, cfgPath);
+  await fsp.chmod(cfgPath, 0o600);
+  ok(`CLI config written to ${cfgPath}`);
 }
 
 async function step7_summary(
@@ -727,7 +698,7 @@ async function main(): Promise<void> {
   const channelIds = await step3_channel();
   const serverUrl = await step4_deploy();
   const seed = await step5_seedUser(secrets);
-  await step6_bootstrap(serverUrl, seed.username, secrets);
+  await step6_bootstrap(serverUrl, seed.username, seed.pepper, secrets);
   await step7_summary(serverUrl, seed.username, secrets);
   await step8_nextSteps(serverUrl, seed.username);
   await step9_verify(

@@ -11,18 +11,14 @@ import {
   createAuthExchangeApp,
   makeDefaultOAuthUnwrapper,
 } from "./auth-exchange.js";
-import { createAuthExchangeOidcApp } from "./auth-exchange-oidc.js";
 import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
-import { createAuthExchangeDeviceApp } from "./auth-exchange-device.js";
-import { createDeviceVerificationApp } from "./device-verification.js";
-import { createAdminIssueTokenApp } from "./admin-issue-token.js";
 import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 
 const oauthOptions: OAuthProviderOptions<Env> = {
   apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
   apiRoute: "/mcp",
-  defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) },
+  defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) }, // GET/POST /authorize now form-based (dvct token)
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
@@ -48,14 +44,6 @@ const authExchangeApp = createAuthExchangeApp({
 });
 app.route("/", authExchangeApp);
 
-// Carve-out: /v1/auth/exchange-oidc verifies an OIDC id_token (not dvct_*),
-// so it also runs BEFORE the /v1/* bearer middleware (ADR 0001).
-const authExchangeOidcApp = createAuthExchangeOidcApp({
-  issueToken,
-  checkRateLimit,
-});
-app.route("/", authExchangeOidcApp);
-
 // Carve-out: /v1/auth/github-oidc verifies a GitHub Actions OIDC id_token,
 // so it too must precede the /v1/* bearer middleware (ADR 0001).
 const authGithubOidcApp = createAuthGithubOidcApp({
@@ -63,29 +51,6 @@ const authGithubOidcApp = createAuthGithubOidcApp({
   checkRateLimit,
 });
 app.route("/", authGithubOidcApp);
-
-// Carve-out: /v1/auth/device-authorize + /v1/auth/exchange-device authenticate
-// by `device_code`, not `dvct_*`, so they too must precede the bearer middleware.
-const authExchangeDeviceApp = createAuthExchangeDeviceApp({
-  issueToken,
-  checkRateLimit,
-});
-app.route("/", authExchangeDeviceApp);
-
-// Verification page (GET/POST /device) — browser-only carve-out using cookies
-// + CSRF, not bearer auth.
-const deviceVerificationApp = createDeviceVerificationApp();
-app.route("/", deviceVerificationApp);
-
-// Carve-out: /admin/issue-token authenticates via ADMIN_REVOKE_TOKEN (not
-// dvct_*), so it precedes the /v1/* bearer middleware AND the OAuth
-// carve-out routes below (those handle /admin/bootstrap-client + /admin/revoke
-// through the OAuth provider; this endpoint is independent).
-const adminIssueTokenApp = createAdminIssueTokenApp({
-  issueToken,
-  checkRateLimit,
-});
-app.route("/", adminIssueTokenApp);
 
 app.use("/v1/*", bearerMiddleware);
 
@@ -101,8 +66,6 @@ const oauthPaths = [
   "/.well-known/oauth-protected-resource",
   "/admin/revoke",
   "/admin/bootstrap-client",
-  "/oidc/callback",
-  "/oidc/redirect",
 ];
 
 for (const path of oauthPaths) {

@@ -99,22 +99,23 @@ test("MC-A GET /authorize missing client_id → 400 invalid_redirect_uri", async
   expect(body.error).toBe("invalid_redirect_uri");
 });
 
-test("MC-B GET /oidc/redirect missing client_id → 400 invalid_redirect_uri", async () => {
+test("MC-B GET /oidc/redirect missing client_id → 404 (oidc removed)", async () => {
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider("missing_client") });
   const qs = `response_type=code&redirect_uri=${encodeURIComponent(EVIL_REDIRECT)}&state=${CLIENT_STATE}&code_challenge=${CODE_CHALLENGE}&code_challenge_method=${CODE_CHALLENGE_METHOD}`;
   const req = new Request(`https://dovecote.example/oidc/redirect?${qs}`);
   const res = await authorizeApp.fetch(req, env, makeCtx());
-  expect(res.status).toBe(400);
-  const body = await res.json() as any;
-  expect(body.error).toBe("invalid_redirect_uri");
+  expect(res.status).toBe(404);
 });
 
-test("MC-C valid client_id + registered redirect → 302 to upstream AUTHORIZATION_ENDPOINT", async () => {
+test("MC-C valid client_id + registered redirect → 200 form (not 302)", async () => {
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider("ok") });
-  const qs = `response_type=code&client_id=${DOWNSTREAM_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOD_REDIRECT)}&scope=dovecote:notify&state=${CLIENT_STATE}&code_challenge=${CODE_CHALLENGE}&code_challenge_method=${CODE_CHALLENGE_METHOD}`;
+  const qs = `response_type=code&client_id=${DOWNSTREAM_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOD_REDIRECT)}&state=${CLIENT_STATE}&code_challenge=${CODE_CHALLENGE}&code_challenge_method=${CODE_CHALLENGE_METHOD}`;
   const req = new Request(`https://dovecote.example/authorize?${qs}`);
   const res = await authorizeApp.fetch(req, env, makeCtx());
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  expect(loc.startsWith(AUTHORIZATION_ENDPOINT)).toBe(true);
+  expect(res.status).toBe(200);
+  const ct = res.headers.get("content-type") || "";
+  expect(ct).toContain("text/html");
+  const body = await res.text();
+  expect(body).toContain('name="token"');
+  expect(body).toContain(`value="${DOWNSTREAM_CLIENT_ID}"`);
 });

@@ -9,7 +9,6 @@ OAUTH_PASSWORD=changeme
 OAUTH_ADMIN_PASSWORD=
 
 # Cookie encryption key (generate with: openssl rand -base64 32)
-COOKIE_ENCRYPTION_KEY=
 
 # HMAC pepper for API token hashing (generate with: openssl rand -base64 32)
 HMAC_PEPPER=your-32-character-hmac-pepper-here
