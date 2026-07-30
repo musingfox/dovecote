@@ -131,6 +131,65 @@ test("token login: dvct_bad whoami 401 → CliError OAUTH_FAILED containing 'inv
   expect(cfg).toBeNull();
 });
 
+test("token login: whoami 500 → CliError UPSTREAM; config not written", async () => {
+  const { fetch: fetchImpl } = makeFetch([
+    (call) => {
+      if (call.url.includes("/v1/auth/whoami")) return new Response("boom", { status: 500 });
+      return null;
+    },
+  ]);
+
+  try {
+    await runAuthLogin(
+      {
+        argv: ["--token", "--server-url", "https://srv"],
+        globalFlags: { json: false, quiet: false, verbose: false },
+        env: {},
+        stdout: () => {},
+        stderr: () => {},
+        configPath: cfgPath,
+        fetchImpl,
+      },
+      { readStdin: async () => "dvct_abc" }
+    );
+    throw new Error("expected throw");
+  } catch (e: any) {
+    expect(e).toBeInstanceOf(CliError);
+    expect(e.code).toBe(ExitCode.UPSTREAM);
+    expect(String(e.message)).toContain("HTTP 500");
+  }
+  const cfg = await readConfig(cfgPath);
+  expect(cfg).toBeNull();
+});
+
+test("token login: fetch rejection (DNS failure) → CliError UPSTREAM, not a raw TypeError", async () => {
+  const fetchImpl = (async () => {
+    throw new TypeError("fetch failed: dns error");
+  }) as unknown as typeof fetch;
+
+  try {
+    await runAuthLogin(
+      {
+        argv: ["--token", "--server-url", "https://srv"],
+        globalFlags: { json: false, quiet: false, verbose: false },
+        env: {},
+        stdout: () => {},
+        stderr: () => {},
+        configPath: cfgPath,
+        fetchImpl,
+      },
+      { readStdin: async () => "dvct_abc" }
+    );
+    throw new Error("expected throw");
+  } catch (e: any) {
+    expect(e).toBeInstanceOf(CliError);
+    expect(e.code).toBe(ExitCode.UPSTREAM);
+    expect(String(e.message)).toContain("dns error");
+  }
+  const cfg = await readConfig(cfgPath);
+  expect(cfg).toBeNull();
+});
+
 test("token login: non-dvct token → USAGE without calling fetch", async () => {
   const { fetch: fetchImpl, calls } = makeFetch([
     () => new Response("no", { status: 500 }),

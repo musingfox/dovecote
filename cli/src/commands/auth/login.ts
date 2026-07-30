@@ -191,16 +191,23 @@ async function runTokenLogin(
   }
 
   const fetchImpl = ctx.fetchImpl ?? fetch;
-  const res = await fetchImpl(`${opts.serverUrl}/v1/auth/whoami`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  let res: Response;
+  try {
+    res = await fetchImpl(`${opts.serverUrl}/v1/auth/whoami`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (e) {
+    // Network/DNS failure — upstream unreachable, not an auth failure.
+    throw new CliError(ExitCode.UPSTREAM, `whoami request failed: ${(e as Error).message}`);
+  }
 
   if (res.status === 401) {
     throw new CliError(ExitCode.OAUTH_FAILED, "token rejected (invalid or expired)");
   }
   if (!res.ok) {
-    throw new CliError(ExitCode.OAUTH_FAILED, `whoami failed: HTTP ${res.status}`);
+    // Other non-2xx (5xx, 404, …) — the server misbehaved, map to UPSTREAM.
+    throw new CliError(ExitCode.UPSTREAM, `whoami failed: HTTP ${res.status}`);
   }
 
   let body: unknown;
