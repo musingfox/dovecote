@@ -32,3 +32,29 @@ test("removal: POST /admin/issue-token with Bearer ADMIN_REVOKE_TOKEN returns 40
   const res = await app.fetch(req, env, createMockExecutionCtx());
   expect(res.status).toBe(404);
 });
+
+// CfAccessOidcRemoved T1-T3 (surface through main app)
+test("removal: POST /v1/auth/exchange-oidc without auth -> 401 (CfAccessOidcRemoved T1)", async () => {
+  const env = makeEnv();
+  const req = new Request("https://example.com/v1/auth/exchange-oidc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id_token: "x" }),
+  });
+  const res = await app.fetch(req, env, createMockExecutionCtx());
+  expect(res.status).toBe(401);
+});
+
+test("removal: GET /oidc/callback -> 404 (T2)", async () => {
+  const env = makeEnv();
+  const req = new Request("https://example.com/oidc/callback?code=x&state=y");
+  const res = await app.fetch(req, env, createMockExecutionCtx());
+  expect(res.status).toBe(404);
+});
+
+test("removal: GET /oidc/redirect -> 404 (T3)", async () => {
+  const env = makeEnv();
+  const req = new Request("https://example.com/oidc/redirect?response_type=code&client_id=c");
+  const res = await app.fetch(req, env, createMockExecutionCtx());
+  expect(res.status).toBe(404);
+});

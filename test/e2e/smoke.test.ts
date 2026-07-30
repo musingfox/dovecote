@@ -4,7 +4,7 @@ import app from "../../src/index.js";
 import { config } from "./config.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce.js";
-import { decodeOidcState } from "../../src/auth/oidc-rp-state.js";
+// (removed) import { decodeOidcState } from "../../src/auth/oidc-rp-state.js";
 
 /**
  * Smoke tests: basic OAuth and MCP flow validation

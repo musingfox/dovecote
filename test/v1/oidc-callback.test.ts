@@ -16,7 +16,7 @@
 import { test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import * as jose from "jose";
 import authorizeApp from "../../src/auth/authorize.ts";
-import { encodeOidcState, decodeOidcState } from "../../src/auth/oidc-rp-state.ts";
+// (removed) import { encodeOidcState, decodeOidcState } from "../../src/auth/oidc-rp-state.ts";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { MockKV } from "../helpers/mock-kv.ts";
 

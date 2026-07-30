@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import { bearerMiddleware } from "../../src/auth/bearer.js";
-import { createAuthExchangeOidcApp } from "../../src/auth-exchange-oidc.js";
+// (removed) import { createAuthExchangeOidcApp } from "../../src/auth-exchange-oidc.js";
 import { MockKV } from "../helpers/mock-kv.js";
 import type { Env } from "../../src/types.js";
 

@@ -6,7 +6,7 @@ import type { Env } from "../../src/types";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import { config } from "./config";
 import { MockKV } from "../helpers/mock-kv";
-import { decodeOidcState } from "../../src/auth/oidc-rp-state";
+// (removed) import { decodeOidcState } from "../../src/auth/oidc-rp-state";
 import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce";
 
 // ── OIDC mock config ──────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import app from "../../src/index.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { generateCodeVerifier, generateCodeChallenge } from "../helpers/pkce.js";
 import { MockKV } from "../helpers/mock-kv.js";
-import { decodeOidcState } from "../../src/auth/oidc-rp-state.js";
+// (removed) import { decodeOidcState } from "../../src/auth/oidc-rp-state.js";
 
 // ---- OIDC upstream mock config ------------------------------------------------
 

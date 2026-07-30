@@ -11,7 +11,7 @@ import { beforeAll, afterAll, test, expect } from "bun:test";
 import * as jose from "jose";
 import { initMiniflare, disposeMiniflare, getMiniflare } from "./setup.js";
 import { generateCodeVerifier, generateCodeChallenge } from "../../helpers/pkce.js";
-import { decodeOidcState } from "../../../src/auth/oidc-rp-state.js";
+// (removed) import { decodeOidcState } from "../../../src/auth/oidc-rp-state.js";
 
 const STATE_SECRET = "miniflare-oidc-state-secret-32ch!";
 const SUBJECT = "test-user-c8";

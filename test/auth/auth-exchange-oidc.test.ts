@@ -1,7 +1,7 @@
 import { test, expect, mock, beforeEach, beforeAll } from "bun:test";
 import { Hono } from "hono";
 import * as jose from "jose";
-import { createAuthExchangeOidcApp } from "../../src/auth-exchange-oidc.js";
+// (removed) import { createAuthExchangeOidcApp } from "../../src/auth-exchange-oidc.js";
 import {
   KVWriteError,
   MissingPepperError,

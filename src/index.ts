@@ -11,7 +11,6 @@ import {
   createAuthExchangeApp,
   makeDefaultOAuthUnwrapper,
 } from "./auth-exchange.js";
-import { createAuthExchangeOidcApp } from "./auth-exchange-oidc.js";
 import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
 import { createAuthExchangeDeviceApp } from "./auth-exchange-device.js";
 import { createDeviceVerificationApp } from "./device-verification.js";
@@ -46,14 +45,6 @@ const authExchangeApp = createAuthExchangeApp({
   unwrapOAuthToken: makeDefaultOAuthUnwrapper(oauthOptions),
 });
 app.route("/", authExchangeApp);
-
-// Carve-out: /v1/auth/exchange-oidc verifies an OIDC id_token (not dvct_*),
-// so it also runs BEFORE the /v1/* bearer middleware (ADR 0001).
-const authExchangeOidcApp = createAuthExchangeOidcApp({
-  issueToken,
-  checkRateLimit,
-});
-app.route("/", authExchangeOidcApp);
 
 // Carve-out: /v1/auth/github-oidc verifies a GitHub Actions OIDC id_token,
 // so it too must precede the /v1/* bearer middleware (ADR 0001).
@@ -90,8 +81,6 @@ const oauthPaths = [
   "/.well-known/oauth-protected-resource",
   "/admin/revoke",
   "/admin/bootstrap-client",
-  "/oidc/callback",
-  "/oidc/redirect",
 ];
 
 for (const path of oauthPaths) {

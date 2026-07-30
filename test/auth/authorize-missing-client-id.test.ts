@@ -99,14 +99,12 @@ test("MC-A GET /authorize missing client_id → 400 invalid_redirect_uri", async
   expect(body.error).toBe("invalid_redirect_uri");
 });
 
-test("MC-B GET /oidc/redirect missing client_id → 400 invalid_redirect_uri", async () => {
+test("MC-B GET /oidc/redirect missing client_id → 404 (oidc removed)", async () => {
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider("missing_client") });
   const qs = `response_type=code&redirect_uri=${encodeURIComponent(EVIL_REDIRECT)}&state=${CLIENT_STATE}&code_challenge=${CODE_CHALLENGE}&code_challenge_method=${CODE_CHALLENGE_METHOD}`;
   const req = new Request(`https://dovecote.example/oidc/redirect?${qs}`);
   const res = await authorizeApp.fetch(req, env, makeCtx());
-  expect(res.status).toBe(400);
-  const body = await res.json() as any;
-  expect(body.error).toBe("invalid_redirect_uri");
+  expect(res.status).toBe(404);
 });
 
 test("MC-C valid client_id + registered redirect → 200 form (not 302)", async () => {

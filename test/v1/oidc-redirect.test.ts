@@ -12,7 +12,7 @@
  */
 import { test, expect } from "bun:test";
 import authorizeApp from "../../src/auth/authorize.ts";
-import { decodeOidcState } from "../../src/auth/oidc-rp-state.ts";
+// (removed) import { decodeOidcState } from "../../src/auth/oidc-rp-state.ts";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { MockKV } from "../helpers/mock-kv.ts";
 
