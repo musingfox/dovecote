@@ -28,6 +28,8 @@ export interface LoginDeps {
   sleep?: (ms: number) => Promise<void>;
   /** Injectable clock for the device-flow poll loop. */
   now?: () => number;
+  /** Injectable reader for pasted token on --token (defaults to process.stdin). Used by tests. */
+  readStdin?: () => Promise<string>;
 }
 
 const AUTH_LOGIN_HELP = `Usage: dovecote auth login [options]
@@ -36,9 +38,7 @@ Options:
   --client-id <id>     OAuth client id (defaults to DOVECOTE_CLIENT_ID env)
   --server-url <url>   Override server URL
   --no-browser         Print authorize URL instead of opening browser
-  --device             Use RFC 8628 device-code flow (headless)
-  --scope <scope>      OAuth scope (device flow)
-  --expires-in <dur>   Token lifetime (7d|30d|60d|90d)
+  --token              Read dvct_* token from stdin (pasted / headless / CI)
   --label <string>     Label recorded on the runtime token (default: "dovecote-cli")
   --help, -h           Show this help
 `;
@@ -56,21 +56,12 @@ export async function runAuthLogin(
     "client-id": { type: "string" },
     "server-url": { type: "string" },
     "no-browser": { type: "boolean" },
+    "token": { type: "boolean" },
     "device": { type: "boolean" },
     "scope": { type: "string" },
     "expires-in": { type: "string" },
     "label": { type: "string" },
   });
-
-  const clientId =
-    (values["client-id"] as string | undefined) ??
-    ctx.env.DOVECOTE_CLIENT_ID;
-  if (!clientId) {
-    ctx.stderr(
-      "Missing DOVECOTE_CLIENT_ID. Register a client via POST /admin/bootstrap-client and set DOVECOTE_CLIENT_ID.\n"
-    );
-    return ExitCode.USAGE;
-  }
 
   // Tolerate outdated schema during login (the whole point is to refresh it).
   let existing: CliConfig | null = null;
@@ -83,6 +74,21 @@ export async function runAuthLogin(
   const serverUrl =
     (values["server-url"] as string | undefined) ??
     resolveServerUrl(existing, ctx.env);
+
+  if (values["token"]) {
+    return runTokenLogin(ctx, deps, { serverUrl });
+  }
+
+  const clientId =
+    (values["client-id"] as string | undefined) ??
+    ctx.env.DOVECOTE_CLIENT_ID;
+  if (!clientId) {
+    ctx.stderr(
+      "Missing DOVECOTE_CLIENT_ID. Register a client via POST /admin/bootstrap-client and set DOVECOTE_CLIENT_ID.\n"
+    );
+    return ExitCode.USAGE;
+  }
+
 
   // RFC 8628 device-code flow: NO browser, NO TTY required — the entire
   // point is to log in from headless / restricted environments. Branches off
@@ -336,4 +342,78 @@ async function runDeviceLogin(
       `unexpected poll response: ${err ?? `HTTP ${pollRes.status}`}`,
     );
   }
+}
+
+interface TokenLoginOpts {
+  serverUrl: string;
+}
+
+async function runTokenLogin(
+  ctx: CmdCtx,
+  deps: LoginDeps,
+  opts: TokenLoginOpts,
+): Promise<number> {
+  const raw = await (deps.readStdin ?? (async () => {
+    let data = "";
+    return new Promise<string>((resolve) => {
+      process.stdin.setEncoding("utf-8");
+      process.stdin.on("data", (chunk: string) => (data += chunk));
+      process.stdin.on("end", () => resolve(data));
+    });
+  }))();
+  const token = (raw || "").trim();
+  if (!token) {
+    ctx.stderr("no token provided\n");
+    return ExitCode.USAGE;
+  }
+  if (!token.startsWith("dvct_")) {
+    return ExitCode.USAGE;
+  }
+
+  const fetchImpl = ctx.fetchImpl ?? fetch;
+  const res = await fetchImpl(`${opts.serverUrl}/v1/auth/whoami`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (res.status === 401) {
+    throw new CliError(ExitCode.OAUTH_FAILED, "token rejected (invalid or expired)");
+  }
+  if (!res.ok) {
+    throw new CliError(ExitCode.OAUTH_FAILED, `whoami failed: HTTP ${res.status}`);
+  }
+
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new CliError(ExitCode.UPSTREAM, "whoami response not JSON");
+  }
+
+  const b = (body && typeof body === "object") ? (body as Record<string, unknown>) : {};
+  const userId = typeof b.userId === "string" ? b.userId : undefined;
+  const tokenId = typeof b.tokenId === "string" ? b.tokenId : undefined;
+  const scopesRaw = b.scopes;
+  const scopes = Array.isArray(scopesRaw) ? (scopesRaw as string[]) : [];
+  const expiresAt = typeof b.expiresAt === "number" ? b.expiresAt : 0;
+  if (typeof userId !== "string" || typeof tokenId !== "string" || !userId || !tokenId) {
+    throw new CliError(ExitCode.UPSTREAM, "whoami response missing userId/tokenId");
+  }
+
+  const newConfig: CliConfig = {
+    serverUrl: opts.serverUrl,
+    tokens: [
+      {
+        tokenId,
+        token,
+        userId,
+        scopes,
+        expiresAt,
+      },
+    ],
+  };
+  await writeConfig(newConfig, ctx.configPath ?? defaultConfigPath(ctx.env));
+
+  ctx.stdout(`Logged in. tokenId=${tokenId} scopes=[${scopes.join(", ")}] expiresAt=${new Date(expiresAt).toISOString()}\n`);
+  return ExitCode.OK;
 }

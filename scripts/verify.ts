@@ -264,7 +264,7 @@ async function check4_loggedIn(): Promise<TokenCtx | null> {
       ],
       [
         "Run: `dovecote auth login --label \"$(hostname)\"`",
-        "Or for headless: `dovecote auth login --device`",
+        "Or for headless/CI: `dovecote auth login --token` (provide dvct_* token on stdin)",
       ]
     );
     return null;

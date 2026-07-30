@@ -661,6 +661,7 @@ test("auth login: --help lists --label without OAuth flow", async () => {
 
   expect(exit).toBe(ExitCode.OK);
   expect(out.join("")).toContain("--label");
+  expect(out.join("")).toContain("--token");
   expect(out.join("")).toContain("login");
   expect(fetchCalls).toBe(0);
 });
