@@ -535,14 +535,88 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
 async function step6_bootstrap(
   serverUrl: string,
   username: string,
+  pepper: string,
   secrets: SecretPlan[]
 ): Promise<void> {
   header(6, 9, "Mint personal CLI token (local)");
-  // Remote admin mint endpoint removed. Local mint via wrangler KV + issueToken
-  // will be wired in follow-up (WizardLocalTokenMint contract).
-  info("Skipping remote mint (endpoint removed). Token config will be populated by updated wizard.");
-  // No config written here; later step will handle when local mint implemented.
-  ok("Mint step stubbed (no remote call)");
+  if (!pepper) {
+    fail("HMAC_PEPPER missing for local mint");
+  }
+
+  // Local mint (WizardLocalTokenMint): replicate issueToken using node:crypto + wrangler --remote puts.
+  const { randomBytes, createHmac } = await import("node:crypto");
+  const TOKEN_PREFIX = "dvct_";
+  const TOKEN_ID_BYTES = 8;
+  const TOKEN_BODY_BYTES = 24;
+  const DEFAULT_TTL_SECONDS = 7_776_000;
+  const MAX_TTL_SECONDS = 7_776_000;
+  const KV_NAMESPACE = "apitoken:";
+  const KV_HASH_NAMESPACE = "apitoken_hash:";
+  const KV_USER_NAMESPACE = "apitoken_user:";
+
+  function b64url(bytes: number): string {
+    return randomBytes(bytes).toString("base64url");
+  }
+  function hmacHex(data: string): string {
+    return createHmac("sha256", pepper).update(data).digest("hex");
+  }
+
+  const tokenId = b64url(TOKEN_ID_BYTES);
+  const tokenBody = b64url(TOKEN_BODY_BYTES);
+  const token = TOKEN_PREFIX + tokenBody;
+  const hash = hmacHex(token);
+  const now = Date.now();
+  const ttl = DEFAULT_TTL_SECONDS;
+  const expiresAt = now + ttl * 1000;
+  const scopes = ["dovecote:notify"];
+
+  const metadata = {
+    tokenId,
+    userId: username,
+    scopes,
+    hash,
+    createdAt: now,
+    expiresAt,
+    label: "setup-wizard",
+  };
+  const metaJson = JSON.stringify(metadata);
+
+  // 3 puts (tokenId, hash, user index) — mirror issueToken
+  for (const [key, val] of [
+    [KV_NAMESPACE + tokenId, metaJson],
+    [KV_HASH_NAMESPACE + hash, metaJson],
+    [KV_USER_NAMESPACE + username + ":" + tokenId, ""],
+  ] as const) {
+    const r = wrangler(
+      ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", key, val, "--expiration-ttl", String(ttl), "--env", envName],
+      { capture: true }
+    );
+    if (r.code !== 0) {
+      stderr.write(r.stderr);
+      fail(`local mint kv put failed for ${key}`);
+    }
+  }
+  ok(`minted local token ${tokenId} for ${username} (dvct_*)`);
+
+  // Write CLI config so `dovecote` can use it immediately
+  const { homedir } = await import("node:os");
+  const { join, dirname } = await import("node:path");
+  const { promises: fsp } = await import("node:fs");
+  const cfgPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "dovecote", "config.json");
+  const cfgDir = dirname(cfgPath);
+  await fsp.mkdir(cfgDir, { recursive: true, mode: 0o700 });
+  const cliCfg = {
+    serverUrl,
+    tokens: [
+      { tokenId, token, userId: username, scopes, expiresAt, label: "setup-wizard" },
+    ],
+  };
+  const tmp = `${cfgPath}.tmp-${process.pid}`;
+  await fsp.writeFile(tmp, JSON.stringify(cliCfg, null, 2), { mode: 0o600 });
+  await fsp.chmod(tmp, 0o600);
+  await fsp.rename(tmp, cfgPath);
+  await fsp.chmod(cfgPath, 0o600);
+  ok(`CLI config written to ${cfgPath}`);
 }
 
 async function step7_summary(
@@ -624,7 +698,7 @@ async function main(): Promise<void> {
   const channelIds = await step3_channel();
   const serverUrl = await step4_deploy();
   const seed = await step5_seedUser(secrets);
-  await step6_bootstrap(serverUrl, seed.username, secrets);
+  await step6_bootstrap(serverUrl, seed.username, seed.pepper, secrets);
   await step7_summary(serverUrl, seed.username, secrets);
   await step8_nextSteps(serverUrl, seed.username);
   await step9_verify(
