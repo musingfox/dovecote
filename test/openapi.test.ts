@@ -49,31 +49,26 @@ test("C-OpenAPI-Registration: GET /v1/tokens registered with TokenListResponse",
   expect(spec.components.schemas).toHaveProperty("TokenListResponse");
 });
 
-// device device-drift tests removed (DeviceFlowRemoved)
-
-// C-OpenAPI-Registration: Phase 4.3 OIDC exchange endpoint shape.
-// Note we do NOT extend REQUIRED_PATHS above — `/v1/auth/exchange-oidc` has
-// no admin-scope gate, so the "every /v1 path defines 401 + 403" loop above
-// (which encodes the 403 expectation) is not the right invariant here. We
-// still register a 403 in the spec for shape consistency but assert it
-// separately via this dedicated test.
-test("C-OpenAPI-Registration: POST /v1/auth/exchange-oidc registered with TokenExchangeOidcRequest + 503", async () => {
-  const spec = await Bun.file("openapi.json").json();
-  expect(spec.paths).toHaveProperty("/v1/auth/exchange-oidc");
-  const op = spec.paths["/v1/auth/exchange-oidc"].post;
+// OpenApiSurfaceSync (T1): given regenerated openapi.json -> paths lack the three
+// removed auth paths, include /v1/auth/whoami (200 WhoamiResponse); components
+// lack Device* , include WhoamiResponse.
+test("OpenApiSurfaceSync: regenerated spec drops removed auth paths and gains /v1/auth/whoami", async () => {
+  const tmp = `/tmp/openapi-sync-${process.pid}-${Date.now()}.json`;
+  const proc = Bun.spawnSync(["bun", "scripts/generate-openapi.mjs", "--out", tmp]);
+  expect(proc.exitCode).toBe(0);
+  const spec = await Bun.file(tmp).json();
+  expect(spec.paths).not.toHaveProperty("/v1/auth/exchange-oidc");
+  expect(spec.paths).not.toHaveProperty("/v1/auth/device-authorize");
+  expect(spec.paths).not.toHaveProperty("/v1/auth/exchange-device");
+  expect(spec.paths).toHaveProperty("/v1/auth/whoami");
+  const op = spec.paths["/v1/auth/whoami"].get;
   expect(op).toBeDefined();
-  // Request body refs TokenExchangeOidcRequest
-  expect(
-    op.requestBody.content["application/json"].schema.$ref,
-  ).toContain("TokenExchangeOidcRequest");
-  // 201 returns TokenIssueResponse
-  expect(op.responses["201"].content["application/json"].schema.$ref).toContain(
-    "TokenIssueResponse",
+  expect(op.responses).toHaveProperty("200");
+  expect(op.responses["200"].content["application/json"].schema.$ref).toContain(
+    "WhoamiResponse"
   );
-  // All required error responses present
-  for (const code of ["400", "401", "429", "500", "503"]) {
-    expect(op.responses).toHaveProperty(code);
-  }
-  // Component schema registered
-  expect(spec.components.schemas).toHaveProperty("TokenExchangeOidcRequest");
+  expect(spec.components.schemas).not.toHaveProperty("DeviceAuthorizeRequest");
+  expect(spec.components.schemas).toHaveProperty("WhoamiResponse");
 });
+
+// T2: drift-gate (fresh vs committed) byte-identical. (existing test below)
