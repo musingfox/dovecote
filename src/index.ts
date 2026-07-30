@@ -12,8 +12,6 @@ import {
   makeDefaultOAuthUnwrapper,
 } from "./auth-exchange.js";
 import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
-import { createAuthExchangeDeviceApp } from "./auth-exchange-device.js";
-import { createDeviceVerificationApp } from "./device-verification.js";
 import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 
@@ -53,19 +51,6 @@ const authGithubOidcApp = createAuthGithubOidcApp({
   checkRateLimit,
 });
 app.route("/", authGithubOidcApp);
-
-// Carve-out: /v1/auth/device-authorize + /v1/auth/exchange-device authenticate
-// by `device_code`, not `dvct_*`, so they too must precede the bearer middleware.
-const authExchangeDeviceApp = createAuthExchangeDeviceApp({
-  issueToken,
-  checkRateLimit,
-});
-app.route("/", authExchangeDeviceApp);
-
-// Verification page (GET/POST /device) — browser-only carve-out using cookies
-// + CSRF, not bearer auth.
-const deviceVerificationApp = createDeviceVerificationApp();
-app.route("/", deviceVerificationApp);
 
 app.use("/v1/*", bearerMiddleware);
 

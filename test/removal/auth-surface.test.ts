@@ -58,3 +58,35 @@ test("removal: GET /oidc/redirect -> 404 (T3)", async () => {
   const res = await app.fetch(req, env, createMockExecutionCtx());
   expect(res.status).toBe(404);
 });
+
+// DeviceFlowRemoved T1-T3
+test("removal: POST /v1/auth/device-authorize without auth -> 401 no device_code (T1)", async () => {
+  const env = makeEnv();
+  const req = new Request("https://example.com/v1/auth/device-authorize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: "x" }),
+  });
+  const res = await app.fetch(req, env, createMockExecutionCtx());
+  expect(res.status).toBe(401);
+  const b = await res.text();
+  expect(b).not.toContain("device_code");
+});
+
+test("removal: GET /device -> 404 (T2)", async () => {
+  const env = makeEnv();
+  const req = new Request("https://example.com/device");
+  const res = await app.fetch(req, env, createMockExecutionCtx());
+  expect(res.status).toBe(404);
+});
+
+test("removal: POST /v1/auth/exchange-device -> 401 (T3)", async () => {
+  const env = makeEnv();
+  const req = new Request("https://example.com/v1/auth/exchange-device", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: "d" }),
+  });
+  const res = await app.fetch(req, env, createMockExecutionCtx());
+  expect(res.status).toBe(401);
+});

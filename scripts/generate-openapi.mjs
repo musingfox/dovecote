@@ -23,12 +23,8 @@ import {
   tokenRenewRequestSchema as _tokenRenewRequestSchema,
   tokenListResponseSchema as _tokenListResponseSchema,
 } from "../src/contracts/tokens.ts";
-import {
-  deviceAuthorizeRequestSchema as _deviceAuthorizeRequestSchema,
-  deviceAuthorizeResponseSchema as _deviceAuthorizeResponseSchema,
-  deviceExchangeRequestSchema as _deviceExchangeRequestSchema,
-  devicePollPendingResponseSchema as _devicePollPendingResponseSchema,
-} from "../src/contracts/devices.ts";
+// device contracts removed (DeviceFlowRemoved)
+// import { ... } from "../src/contracts/devices.ts";
 import { errorEnvelopeSchema as _errorEnvelopeSchema } from "../src/contracts/errors.ts";
 import { healthResponseSchema as _healthResponseSchema } from "../src/contracts/health.ts";
 import { MIN_CLIENT_VERSION } from "../src/version.ts";
@@ -70,10 +66,7 @@ const tokenIssueRequestOpenapiSchema = tokenIssueRequestSchema.openapi("TokenIss
 const tokenExchangeRequestOpenapiSchema = _tokenExchangeRequestSchema.openapi("TokenExchangeRequest");
 const tokenExchangeOidcRequestOpenapiSchema = _tokenExchangeOidcRequestSchema.openapi("TokenExchangeOidcRequest");
 const tokenRenewRequestOpenapiSchema = _tokenRenewRequestSchema.openapi("TokenRenewRequest");
-const deviceAuthorizeRequestSchema = _deviceAuthorizeRequestSchema.openapi("DeviceAuthorizeRequest");
-const deviceAuthorizeResponseSchema = _deviceAuthorizeResponseSchema.openapi("DeviceAuthorizeResponse");
-const deviceExchangeRequestSchema = _deviceExchangeRequestSchema.openapi("DeviceExchangeRequest");
-const devicePollPendingResponseSchema = _devicePollPendingResponseSchema.openapi("DevicePollPendingResponse");
+// device schemas removed (DeviceFlowRemoved)
 
 const sendResultSchema = _sendResultSchema.openapi("SendResult");
 const channelConfigSchema = _channelConfigSchema.openapi("ChannelConfig");
@@ -229,45 +222,7 @@ registry.registerPath({
   },
 });
 
-// Phase 4.4 RFC 8628 device-code carve-outs. Unauthenticated like
-// /v1/auth/exchange-oidc — no 403 (no admin gate); 503 on misconfigured pepper.
-registry.registerPath({
-  method: "post",
-  path: "/v1/auth/device-authorize",
-  description:
-    "RFC 8628 §3.1 device-authorization. Returns a device_code, user_code, and verification_uri. The user approves out-of-band at the verification page.",
-  request: {
-    body: { content: { "application/json": { schema: deviceAuthorizeRequestSchema } } },
-  },
-  responses: {
-    200: jsonOk(deviceAuthorizeResponseSchema, "Device authorization issued"),
-    ...writeValidationErrors,
-    429: errorResponse("Rate limit exceeded — Retry-After header indicates retry window"),
-    500: errorResponse("Internal server error (e.g. KV write failure)"),
-    503: errorResponse("Misconfigured — HMAC_PEPPER not set"),
-  },
-});
-
-registry.registerPath({
-  method: "post",
-  path: "/v1/auth/exchange-device",
-  description:
-    "RFC 8628 §3.4 device-token endpoint. Polls with device_code until approval; success returns a dvct_* runtime token (one-shot — record becomes consumed).",
-  request: {
-    body: { content: { "application/json": { schema: deviceExchangeRequestSchema } } },
-  },
-  responses: {
-    201: jsonOk(tokenIssueResponseSchema, "Token issued"),
-    400: {
-      description:
-        "authorization_pending / slow_down / access_denied / expired_token / invalid_request / unsupported_grant_type",
-      content: { "application/json": { schema: devicePollPendingResponseSchema } },
-    },
-    429: errorResponse("Rate limit exceeded — Retry-After header indicates retry window"),
-    500: errorResponse("Internal server error"),
-    503: errorResponse("Misconfigured — HMAC_PEPPER not set"),
-  },
-});
+// device routes removed (DeviceFlowRemoved)
 
 registry.registerPath({
   method: "post",
@@ -315,8 +270,6 @@ const requiredPaths = [
   "/v1/tokens/{tokenId}/renew",
   "/v1/auth/exchange",
   "/v1/auth/exchange-oidc",
-  "/v1/auth/device-authorize",
-  "/v1/auth/exchange-device",
   "/health",
 ];
 const emittedPaths = Object.keys(doc.paths ?? {});
@@ -340,10 +293,6 @@ const requiredSchemas = [
   "TokenListResponse",
   "RevokeResponse",
   "HealthResponse",
-  "DeviceAuthorizeRequest",
-  "DeviceAuthorizeResponse",
-  "DeviceExchangeRequest",
-  "DevicePollPendingResponse",
 ];
 const emittedSchemas = Object.keys(doc.components?.schemas ?? {});
 const missingSchemas = requiredSchemas.filter((s) => !emittedSchemas.includes(s));

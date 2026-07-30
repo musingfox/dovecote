@@ -238,7 +238,6 @@ async function step2_secrets(): Promise<SecretPlan[]> {
   }
 
   const required = [
-    "COOKIE_ENCRYPTION_KEY",
     "HMAC_PEPPER",
     "ADMIN_REVOKE_TOKEN",
     "OAUTH_PASSWORD",

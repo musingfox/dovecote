@@ -50,7 +50,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
    # OAUTH_PASSWORD removed (M1); /authorize uses dvct token paste form
-   COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
    DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
 ```
@@ -94,7 +93,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
    Required:
    - (no OAUTH_PASSWORD) — /authorize now shows a form to paste a pre-issued `dvct_*` token
-   - `COOKIE_ENCRYPTION_KEY` — HMAC key for the CSRF cookie (base64, 32 bytes)
 
    Optional (admin scope):
    - `OAUTH_ADMIN_PASSWORD` — (legacy) separate password for admin scope; now superseded by per-user `dovecote:admin` scope in KV.

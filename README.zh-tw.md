@@ -48,7 +48,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 2. 建立 `.dev.vars`（可參考 `.dev.vars.example`）：
    ```env
    # OAUTH_PASSWORD removed (M1); /authorize uses dvct token paste form
-   COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
    DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
 ```
@@ -92,7 +91,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
    必要：
    - （無 OAUTH_PASSWORD）— `/authorize` 顯示貼上 `dvct_*` token 的表單
-   - `COOKIE_ENCRYPTION_KEY` — CSRF cookie 的 HMAC 金鑰（base64、32 bytes）
 
    選用（admin scope）：
    - `OAUTH_ADMIN_PASSWORD` — 當 client 請求 `dovecote:admin` scope 時所需的獨立密碼。若未設定此 secret 且有 admin scope 請求，authorize 端點會回傳 503。一般 `OAUTH_PASSWORD` 不會作為 admin 請求的備選。

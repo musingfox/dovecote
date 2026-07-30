@@ -96,7 +96,7 @@ app.get("/authorize", async (c) => {
     if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
       return c.json({ error: "invalid_redirect_uri" }, 400);
     }
-    throw err;  // non-redirect errors -> 500 as expected by tests
+    return c.text("Internal Server Error", 500);  // non-redirect parse errors (e.g. resource param) -> 500; explicit to avoid test runner noise
   }
 
   const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope });
