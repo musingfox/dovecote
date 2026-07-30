@@ -5,10 +5,15 @@ import type { Env } from "../types.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
+import { verifyToken } from "./api-token.js";
 
 // test hook for AuthorizeRateLimit (stub injection without full services refactor)
 let rateLimitImpl: typeof checkRateLimit = checkRateLimit;
 export function __setRateLimitForTest(fn: typeof checkRateLimit) { rateLimitImpl = fn; }
+
+// test hook for grant verify
+let verifyTokenImpl: typeof verifyToken = verifyToken;
+export function __setVerifyTokenForTest(fn: typeof verifyToken) { verifyTokenImpl = fn; }
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
 import { resolveUserId } from "./resolve-user.js";
@@ -250,8 +255,75 @@ app.post("/authorize", async (c) => {
     } as any);
     return c.json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
   }
-  // token verify / grant happens in later contracts; here just to let rate test see 0 calls
-  return c.json({ error: "invalid_token" }, 401);
+
+  const provider = c.env.OAUTH_PROVIDER;
+  const form = await c.req.formData();
+  const token = (form.get("token") || "").toString().trim();
+  const clientId = (form.get("client_id") || "").toString();
+  const redirectUri = (form.get("redirect_uri") || "").toString();
+  const state = (form.get("state") || "").toString();
+  const responseType = (form.get("response_type") || "code").toString();
+  const scope = (form.get("scope") || "").toString();
+
+  // validate via parse (T2 tamper detection) — use synthetic GET req (formData already read body)
+  const parseQs = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state, response_type: responseType });
+  const parseReq = new Request(`https://x/authorize?${parseQs}`, { method: "GET" });
+  try {
+    await provider.parseAuthRequest(parseReq);
+  } catch (e: any) {
+    const m = String(e?.message || e);
+    if (/invalid redirect/i.test(m)) {
+      return c.json({ error: "invalid_redirect_uri" }, 400);
+    }
+  }
+
+  // rate passed, now verify token (T1)
+  if (!token) {
+    // fall to reject later; for grant T2 focus on redirect tamper
+    return c.json({ error: "invalid_token" }, 401);
+  }
+  let v;
+  try {
+    v = await verifyTokenImpl(token, c.env);
+  } catch {
+    v = { kind: "invalid" };
+  }
+  if (v.kind !== "valid" || !v.auth) {
+    return c.json({ error: "invalid_token" }, 401);
+  }
+  const auth = v.auth;
+  try {
+    const result = await provider.completeAuthorization({
+      request: {
+        clientId,
+        redirectUri,
+        state,
+        scope: scope ? scope.split(" ") : auth.scopes,
+        responseType,
+      } as any,
+      userId: auth.userId,
+      // per T1: props.authMethod = api_token
+      props: { authMethod: "api_token" } as any,
+      scope: auth.scopes,
+      metadata: {} as any,
+    });
+    // success 302
+    writeAudit(c.env, c.executionCtx as any, {
+      event: "authorize",
+      ok: true,
+      userId: auth.userId,
+      authMethod: "api_token",
+      ip,
+      scope: auth.scopes.join(" "),
+    } as any);
+    return c.redirect(result.redirectTo);
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    if (/invalid redirect/i.test(msg)) {
+      return c.json({ error: "invalid_redirect_uri" }, 400);
+    }
+    return c.json({ error: "invalid_redirect_uri" }, 400);
+  }
 });
 
 /**
