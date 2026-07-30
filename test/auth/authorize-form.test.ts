@@ -145,3 +145,46 @@ test("AuthorizeTokenGrant T2: tampered redirect_uri in POST (parse throws) -> 40
   expect(b.error).toBe("invalid_redirect_uri");
   expect(complete).not.toHaveBeenCalled();
 });
+
+// AuthorizeTokenReject T1/T2/T3
+test("AuthorizeTokenReject T1: nonexistent token re-renders form 401 with 'Invalid token'; audit; no complete", async () => {
+  const env = makeEnv();
+  if ((authorizeMod as any).__setVerifyTokenForTest) (authorizeMod as any).__setVerifyTokenForTest(async (t: string) => t.includes("nonexistent") ? { kind: "invalid" } : { kind: "valid", auth: { userId: "u", scopes: [], tokenId: "t", authMethod: "api_token" } });
+  const p = makeProvider();
+  const complete = mock(async () => ({ redirectTo: "" }));
+  p.completeAuthorization = complete;
+  const env2 = { ...env, OAUTH_PROVIDER: p };
+  const form = "token=dvct_nonexistent&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
+  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
+  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
+  expect(res.status).toBe(401);
+  const text = await res.text();
+  expect(text).toContain('name="token"');
+  expect(text).toContain('Invalid token');
+  expect(complete).not.toHaveBeenCalled();
+});
+
+test("AuthorizeTokenReject T2: expired token -> 401 'Token expired' html form", async () => {
+  const env = makeEnv();
+  if ((authorizeMod as any).__setVerifyTokenForTest) (authorizeMod as any).__setVerifyTokenForTest(async (t: string) => t.includes("exp") ? { kind: "expired" } : { kind: "valid", auth: { userId: "u", scopes: [], tokenId: "t", authMethod: "api_token" } });
+  const p = makeProvider();
+  const env2 = { ...env, OAUTH_PROVIDER: p };
+  const form = "token=dvct_exp&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
+  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
+  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
+  expect(res.status).toBe(401);
+  const text = await res.text();
+  expect(text).toContain('Token expired');
+});
+
+test("AuthorizeTokenReject T3: missing token field -> 400 html 'Token required'", async () => {
+  const env = makeEnv();
+  const p = makeProvider();
+  const env2 = { ...env, OAUTH_PROVIDER: p };
+  const form = "response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
+  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
+  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
+  expect(res.status).toBe(400);
+  const text = await res.text();
+  expect(text).toContain('Token required');
+});

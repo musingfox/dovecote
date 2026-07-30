@@ -211,17 +211,24 @@ app.get("/authorize", async (c) => {
     throw err;  // non-redirect errors -> 500 as expected by tests
   }
 
-  const html = `<!DOCTYPE html>
+  const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope });
+  return c.html(html, 200, SECURITY_HEADERS);
+});
+
+function renderAuthorizeForm(opts: { clientId: string; responseType?: string; redirectUri?: string; state?: string; scope?: string; inlineError?: string }): string {
+  const { clientId, responseType = "code", redirectUri = "", state = "", scope = "", inlineError } = opts;
+  return `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Authorize — Dovecote</title>
-<style>body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:16px}input,button{padding:8px;width:100%;box-sizing:border-box}form{display:flex;flex-direction:column;gap:8px}.hidden{display:none}</style>
+<style>body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:16px}input,button{padding:8px;width:100%;box-sizing:border-box}form{display:flex;flex-direction:column;gap:8px}.hidden{display:none}.err{color:#b00020;margin:8px 0}</style>
 </head>
 <body>
 <h1>Authorize</h1>
 <p>Paste your <code>dvct_*</code> token for <code>${escapeHtml(clientId)}</code>.</p>
+${inlineError ? `<div class="err">${escapeHtml(inlineError)}</div>` : ""}
 <form method="post" action="/authorize">
 <input type="hidden" name="response_type" value="${escapeHtml(responseType)}">
 <input type="hidden" name="client_id" value="${escapeHtml(clientId)}">
@@ -233,9 +240,7 @@ ${scope ? `<input type="hidden" name="scope" value="${escapeHtml(scope)}">` : ""
 </form>
 </body>
 </html>`;
-
-  return c.html(html, 200, SECURITY_HEADERS);
-});
+}
 
 /**
  * POST /authorize - rate limited entry (before token verify)
@@ -279,8 +284,9 @@ app.post("/authorize", async (c) => {
 
   // rate passed, now verify token (T1)
   if (!token) {
-    // fall to reject later; for grant T2 focus on redirect tamper
-    return c.json({ error: "invalid_token" }, 401);
+    const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope, inlineError: "Token required" });
+    writeAudit(c.env, c.executionCtx as any, { event: "authorize", ok: false, reason: "invalid_token", ip, authMethod: "none", scope: "" } as any);
+    return c.html(html, 400, SECURITY_HEADERS);
   }
   let v;
   try {
@@ -289,7 +295,11 @@ app.post("/authorize", async (c) => {
     v = { kind: "invalid" };
   }
   if (v.kind !== "valid" || !v.auth) {
-    return c.json({ error: "invalid_token" }, 401);
+    const errMsg = v && (v as any).kind === "expired" ? "Token expired" : "Invalid token";
+    const reason = (v && (v as any).kind === "expired") ? "expired_token" : "invalid_token";
+    const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope, inlineError: errMsg });
+    writeAudit(c.env, c.executionCtx as any, { event: "authorize", ok: false, reason, ip, authMethod: "none", scope: "" } as any);
+    return c.html(html, 401, SECURITY_HEADERS);
   }
   const auth = v.auth;
   try {
