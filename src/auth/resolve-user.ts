@@ -1,17 +1,13 @@
 /**
- * resolveUserId seam (Contract H).
+ * resolveUserId seam (Contract H) — OIDC only (ResolveUserOidcOnly).
  *
- * Discriminated-union entry point for user identification. The `form` variant
- * delegates to `authenticateUserCredentials`. The `oidc` variant maps a
- * verified OIDC subject claim to a userId, auto-provisioning a placeholder
- * `user:<id>` record with the default scope on first login.
+ * Only the `oidc` variant remains: maps a verified OIDC subject claim to a
+ * userId, auto-provisioning a placeholder `user:<id>` record with the default
+ * scope on first login. Form arm removed (no more authenticateUserCredentials).
  */
 
 import type { Env } from "../types.js";
-import {
-  authenticateUserCredentials,
-  type AuthenticatedUser,
-} from "./authenticate.js";
+import type { AuthenticatedUser } from "./authenticate.js";
 import {
   readUserRecord,
   normalizeUsername,
@@ -25,23 +21,13 @@ import {
  */
 export const OIDC_DEFAULT_SCOPES = ["dovecote:notify"] as const;
 
-export type ResolveUserInput =
-  | { kind: "form"; username: string; password: string }
-  | { kind: "oidc"; issuer: string; subject: string };
+export type ResolveUserInput = { kind: "oidc"; issuer: string; subject: string };
 
 export async function resolveUserId(
   input: ResolveUserInput,
   env: Env,
 ): Promise<AuthenticatedUser | null> {
   switch (input.kind) {
-    case "form":
-      return authenticateUserCredentials(
-        {
-          submittedUsername: input.username,
-          submittedPassword: input.password,
-        },
-        env,
-      );
     case "oidc": {
       const normalized = normalizeUsername(input.subject);
       if (!normalized) {
@@ -74,10 +60,7 @@ export async function resolveUserId(
         scopes: [...OIDC_DEFAULT_SCOPES],
       };
     }
-    default: {
-      const _exhaustive: never = input;
-      void _exhaustive;
-      return null;
-    }
   }
+  // no default: exhaustive on single oidc kind
+  return null;
 }

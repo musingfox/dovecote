@@ -99,14 +99,19 @@ test("oidc arm: uppercase subject normalised to lowercase and auto-provisioned",
   expect(raw).not.toBeNull();
 });
 
-// C-ResolveUserId-FormStillExhaustive: form arm regression
-test("form arm: still dispatches authenticateUserCredentials unchanged", async () => {
-  // We don't seed any user; the form arm should return null without throwing.
+// ResolveUserOidcOnly: form arm removed; only oidc kind supported (no authenticateUserCredentials, no form input)
+test("ResolveUserOidcOnly: form kind is no longer part of ResolveUserInput (compile-time only oidc)", () => {
+  // @ts-expect-error - form kind removed
+  const bad: import("../../src/auth/resolve-user.js").ResolveUserInput = { kind: "form" as any, username: "x", password: "y" };
+  expect((bad as any).kind).toBe("form"); // runtime never reached; documents the contract
+});
+
+test("ResolveUserOidcOnly: oidc still works unchanged", async () => {
   const kv = new MockKV();
   const env = makeEnv(kv);
   const got = await resolveUserId(
-    { kind: "form", username: "noone", password: "x" },
+    { kind: "oidc", issuer: "https://i.example", subject: "only-oidc" },
     env,
   );
-  expect(got).toBeNull();
+  expect(got?.userId).toBe("only-oidc");
 });
