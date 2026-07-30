@@ -24,10 +24,8 @@ export interface LoginDeps {
   isTTY?: boolean;
   /** Override the OAuth callback timeout (ms). Production default is 120 000. */
   callbackTimeoutMs?: number;
-  /** Injectable sleep for the device-flow poll loop (tests pass a no-op). */
-  sleep?: (ms: number) => Promise<void>;
-  /** Injectable clock for the device-flow poll loop. */
-  now?: () => number;
+  /** Injectable reader for pasted token on --token (defaults to process.stdin). Used by tests. */
+  readStdin?: () => Promise<string>;
 }
 
 const AUTH_LOGIN_HELP = `Usage: dovecote auth login [options]
@@ -36,9 +34,7 @@ Options:
   --client-id <id>     OAuth client id (defaults to DOVECOTE_CLIENT_ID env)
   --server-url <url>   Override server URL
   --no-browser         Print authorize URL instead of opening browser
-  --device             Use RFC 8628 device-code flow (headless)
-  --scope <scope>      OAuth scope (device flow)
-  --expires-in <dur>   Token lifetime (7d|30d|60d|90d)
+  --token              Read dvct_* token from stdin (pasted / headless / CI)
   --label <string>     Label recorded on the runtime token (default: "dovecote-cli")
   --help, -h           Show this help
 `;
@@ -56,21 +52,9 @@ export async function runAuthLogin(
     "client-id": { type: "string" },
     "server-url": { type: "string" },
     "no-browser": { type: "boolean" },
-    "device": { type: "boolean" },
-    "scope": { type: "string" },
-    "expires-in": { type: "string" },
+    "token": { type: "boolean" },
     "label": { type: "string" },
   });
-
-  const clientId =
-    (values["client-id"] as string | undefined) ??
-    ctx.env.DOVECOTE_CLIENT_ID;
-  if (!clientId) {
-    ctx.stderr(
-      "Missing DOVECOTE_CLIENT_ID. Register a client via POST /admin/bootstrap-client and set DOVECOTE_CLIENT_ID.\n"
-    );
-    return ExitCode.USAGE;
-  }
 
   // Tolerate outdated schema during login (the whole point is to refresh it).
   let existing: CliConfig | null = null;
@@ -84,16 +68,18 @@ export async function runAuthLogin(
     (values["server-url"] as string | undefined) ??
     resolveServerUrl(existing, ctx.env);
 
-  // RFC 8628 device-code flow: NO browser, NO TTY required — the entire
-  // point is to log in from headless / restricted environments. Branches off
-  // BEFORE the TTY guard.
-  if (values["device"]) {
-    return runDeviceLogin(ctx, deps, {
-      clientId,
-      serverUrl,
-      scope: values["scope"] as string | undefined,
-      expiresIn: values["expires-in"] as string | undefined,
-    });
+  if (values["token"]) {
+    return runTokenLogin(ctx, deps, { serverUrl });
+  }
+
+  const clientId =
+    (values["client-id"] as string | undefined) ??
+    ctx.env.DOVECOTE_CLIENT_ID;
+  if (!clientId) {
+    ctx.stderr(
+      "Missing DOVECOTE_CLIENT_ID. Register a client via POST /admin/bootstrap-client and set DOVECOTE_CLIENT_ID.\n"
+    );
+    return ExitCode.USAGE;
   }
 
   const noBrowser = !!values["no-browser"];
@@ -178,162 +164,76 @@ export async function runAuthLogin(
   return ExitCode.OK;
 }
 
-interface DeviceLoginOpts {
-  clientId: string;
+interface TokenLoginOpts {
   serverUrl: string;
-  scope?: string;
-  expiresIn?: string;
 }
 
-interface DeviceAuthorizeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  verification_uri_complete?: string;
-  expires_in: number;
-  interval: number;
-}
-
-interface DeviceExchangeSuccess {
-  token: string;
-  tokenId: string;
-  userId: string;
-  scopes: string[];
-  expiresAt: number;
-  label?: string;
-}
-
-const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
-
-async function runDeviceLogin(
+async function runTokenLogin(
   ctx: CmdCtx,
   deps: LoginDeps,
-  opts: DeviceLoginOpts,
+  opts: TokenLoginOpts,
 ): Promise<number> {
+  const raw = await (deps.readStdin ?? (async () => {
+    let data = "";
+    return new Promise<string>((resolve) => {
+      process.stdin.setEncoding("utf-8");
+      process.stdin.on("data", (chunk: string) => (data += chunk));
+      process.stdin.on("end", () => resolve(data));
+    });
+  }))();
+  const token = (raw || "").trim();
+  if (!token) {
+    ctx.stderr("no token provided\n");
+    return ExitCode.USAGE;
+  }
+  if (!token.startsWith("dvct_")) {
+    return ExitCode.USAGE;
+  }
+
   const fetchImpl = ctx.fetchImpl ?? fetch;
-  const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
-
-  // --- 1. Authorize ---
-  const authBody: Record<string, unknown> = { client_id: opts.clientId };
-  if (opts.scope) authBody.scope = opts.scope;
-  if (opts.expiresIn) authBody.expiresIn = opts.expiresIn;
-
-  const authRes = await fetchImpl(`${opts.serverUrl}/v1/auth/device-authorize`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(authBody),
+  const res = await fetchImpl(`${opts.serverUrl}/v1/auth/whoami`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
   });
-  if (!authRes.ok) {
-    let detail = `HTTP ${authRes.status}`;
-    try {
-      const e = (await authRes.json()) as any;
-      if (e?.error) detail = e.error;
-    } catch {
-      // ignore body parse failures
-    }
-    throw new CliError(
-      ExitCode.UPSTREAM,
-      `device-authorize failed: ${detail}`,
-    );
+
+  if (res.status === 401) {
+    throw new CliError(ExitCode.OAUTH_FAILED, "token rejected (invalid or expired)");
   }
-  const auth = (await authRes.json()) as DeviceAuthorizeResponse;
-
-  ctx.stdout(`Visit: ${auth.verification_uri}\n`);
-  ctx.stdout(`Enter code: ${auth.user_code}\n`);
-  ctx.stdout(`Expires in: ${auth.expires_in} seconds\n`);
-  if (auth.verification_uri_complete) {
-    ctx.stdout(`Direct link: ${auth.verification_uri_complete}\n`);
+  if (!res.ok) {
+    throw new CliError(ExitCode.OAUTH_FAILED, `whoami failed: HTTP ${res.status}`);
   }
-  ctx.stdout(`Waiting for approval...\n`);
 
-  // --- 2. Poll exchange-device ---
-  let interval = Math.max(1, auth.interval);
-  while (true) {
-    await sleep(interval * 1000);
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new CliError(ExitCode.UPSTREAM, "whoami response not JSON");
+  }
 
-    const pollRes = await fetchImpl(
-      `${opts.serverUrl}/v1/auth/exchange-device`,
+  const b = (body && typeof body === "object") ? (body as Record<string, unknown>) : {};
+  const userId = typeof b.userId === "string" ? b.userId : undefined;
+  const tokenId = typeof b.tokenId === "string" ? b.tokenId : undefined;
+  const scopesRaw = b.scopes;
+  const scopes = Array.isArray(scopesRaw) ? (scopesRaw as string[]) : [];
+  const expiresAt = typeof b.expiresAt === "number" ? b.expiresAt : 0;
+  if (typeof userId !== "string" || typeof tokenId !== "string" || !userId || !tokenId) {
+    throw new CliError(ExitCode.UPSTREAM, "whoami response missing userId/tokenId");
+  }
+
+  const newConfig: CliConfig = {
+    serverUrl: opts.serverUrl,
+    tokens: [
       {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          grant_type: DEVICE_GRANT_TYPE,
-          device_code: auth.device_code,
-        }),
+        tokenId,
+        token,
+        userId,
+        scopes,
+        expiresAt,
       },
-    );
+    ],
+  };
+  await writeConfig(newConfig, ctx.configPath ?? defaultConfigPath(ctx.env));
 
-    if (pollRes.status === 201) {
-      const ok = (await pollRes.json()) as DeviceExchangeSuccess;
-      if (typeof ok.userId !== "string" || ok.userId.length === 0) {
-        throw new CliError(
-          ExitCode.UPSTREAM,
-          "Exchange response missing userId; server may be outdated",
-        );
-      }
-      const newConfig: CliConfig = {
-        serverUrl: opts.serverUrl,
-        tokens: [
-          {
-            tokenId: ok.tokenId,
-            token: ok.token,
-            userId: ok.userId,
-            scopes: ok.scopes,
-            expiresAt: ok.expiresAt,
-            ...(ok.label ? { label: ok.label } : {}),
-          },
-        ],
-      };
-      await writeConfig(newConfig, ctx.configPath ?? defaultConfigPath(ctx.env));
-      ctx.stdout(
-        `Logged in. tokenId=${ok.tokenId} scopes=[${ok.scopes.join(", ")}] expiresAt=${new Date(ok.expiresAt).toISOString()}\n`,
-      );
-      return ExitCode.OK;
-    }
-
-    if (pollRes.status === 429) {
-      const retryAfter = pollRes.headers.get("Retry-After");
-      const wait = retryAfter ? parseInt(retryAfter, 10) : interval;
-      await sleep(Math.max(1, wait) * 1000);
-      continue;
-    }
-
-    let body: any = {};
-    try {
-      body = await pollRes.json();
-    } catch {
-      // ignore body parse failures
-    }
-    const err = body?.error;
-
-    if (err === "authorization_pending") {
-      // Keep polling at current interval.
-      continue;
-    }
-    if (err === "slow_down") {
-      if (typeof body.interval === "number" && body.interval > interval) {
-        interval = body.interval;
-      } else {
-        interval = Math.min(60, interval + 5);
-      }
-      continue;
-    }
-    if (err === "access_denied") {
-      throw new CliError(ExitCode.OAUTH_FAILED, "user denied device approval");
-    }
-    if (err === "expired_token") {
-      throw new CliError(ExitCode.OAUTH_FAILED, "device_code expired");
-    }
-    if (err === "misconfigured") {
-      throw new CliError(
-        ExitCode.UPSTREAM,
-        "server is misconfigured (HMAC_PEPPER not set)",
-      );
-    }
-    // Any other error → bubble as upstream failure.
-    throw new CliError(
-      ExitCode.UPSTREAM,
-      `unexpected poll response: ${err ?? `HTTP ${pollRes.status}`}`,
-    );
-  }
+  ctx.stdout(`Logged in. tokenId=${tokenId} scopes=[${scopes.join(", ")}] expiresAt=${new Date(expiresAt).toISOString()}\n`);
+  return ExitCode.OK;
 }
