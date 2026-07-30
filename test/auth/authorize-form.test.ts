@@ -1,21 +1,37 @@
+/**
+ * authorize-form.test.ts — AuthorizeFormRender / AuthorizeTokenGrant /
+ * AuthorizeTokenReject / AuthorizeRateLimit contract tests.
+ *
+ * Seams are injected per-test via `createAuthorizeApp({checkRateLimit, verifyToken})`
+ * — no module-level mutable state, no cross-file leakage.
+ */
 import { test, expect, mock } from "bun:test";
-import authorizeApp from "../../src/auth/authorize.js";
-import * as authorizeMod from "../../src/auth/authorize.js";
+import { createAuthorizeApp } from "../../src/auth/authorize.js";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
+import type { VerifyOutcome } from "../../src/auth/api-token.js";
 import { MockKV } from "../helpers/mock-kv.js";
-import { checkRateLimit as realRateLimit } from "../../src/auth/rate-limit.js";
-import * as apiTokenMod from "../../src/auth/api-token.js";
 
 interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
 }
 
-function makeProvider(knowsClient = true): OAuthHelpers {
+function makeProvider(): OAuthHelpers {
   return {
-    parseAuthRequest: async () => ({ clientId: "test-client", redirectUri: "https://client.example/cb", state: "abc", scope: ["dovecote:notify"], responseType: "code" } as any),
+    parseAuthRequest: async (req: Request) => {
+      const q = new URL(req.url).searchParams;
+      return {
+        clientId: q.get("client_id") ?? "",
+        redirectUri: q.get("redirect_uri") ?? "",
+        state: q.get("state") ?? "",
+        scope: (q.get("scope") ?? "").split(" ").filter(Boolean),
+        responseType: q.get("response_type") ?? "code",
+        codeChallenge: q.get("code_challenge") ?? undefined,
+        codeChallengeMethod: q.get("code_challenge_method") ?? undefined,
+      } as any;
+    },
     completeAuthorization: async () => ({ redirectTo: "https://client.example/cb?code=xyz&state=abc" } as any),
-    lookupClient: async (clientId: string) => knowsClient ? ({ clientId, redirectUris: ["https://client.example/cb"] } as any) : null,
+    lookupClient: async (clientId: string) => ({ clientId, redirectUris: ["https://client.example/cb"] } as any),
     createClient: async () => ({} as any),
     listClients: async () => ({ items: [] }),
     updateClient: async () => null,
@@ -27,164 +43,272 @@ function makeProvider(knowsClient = true): OAuthHelpers {
   };
 }
 
-async function computeHashForTest(token: string, pepper: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(pepper), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(token));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 function makeEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "pw",
-    COOKIE_ENCRYPTION_KEY: "k".repeat(32),
     HMAC_PEPPER: "pepper",
-    OAUTH_PROVIDER: makeProvider(true),
+    OAUTH_PROVIDER: makeProvider(),
     ...overrides,
   } as AuthEnv;
 }
 
+/** ExecutionContext capturing waitUntil promises so audit KV writes can be awaited. */
 function makeCtx() {
-  return { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+  const pending: Promise<unknown>[] = [];
+  const ctx = {
+    waitUntil: (p: Promise<unknown>) => {
+      pending.push(p.catch(() => {}));
+    },
+    passThroughOnException: () => {},
+  } as any;
+  return { ctx, flush: () => Promise.all(pending) };
 }
 
-test("AuthorizeFormRender T1: GET /authorize with valid params renders 200 text/html form with name=token action=/authorize and hidden client_id/state", async () => {
+/** Read back all audit entries persisted to MockKV. */
+async function readAuditEntries(env: AuthEnv): Promise<any[]> {
+  const kv = env.OAUTH_KV as unknown as MockKV;
+  const listed = await kv.list({ prefix: "audit:" });
+  const entries: any[] = [];
+  for (const { name } of listed.keys) {
+    entries.push(await kv.get(name, "json"));
+  }
+  return entries;
+}
+
+const VALID_OUTCOME: VerifyOutcome = {
+  kind: "valid",
+  auth: {
+    userId: "user1",
+    scopes: ["dovecote:notify"],
+    tokenId: "t1",
+    authMethod: "api_token",
+    ip: "unknown",
+  },
+};
+
+const BASE_FORM =
+  "response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc" +
+  "&code_challenge=cc-abc&code_challenge_method=S256";
+
+function postReq(body: string): Request {
+  return new Request("https://example.com/authorize", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      "CF-Connecting-IP": "1.2.3.4",
+    },
+    body,
+  });
+}
+
+// ── AuthorizeFormRender ───────────────────────────────────────────────────────
+
+test("AuthorizeFormRender T1: GET /authorize renders 200 text/html form carrying ALL OAuth query params (PKCE included) as hidden fields", async () => {
+  const app = createAuthorizeApp();
   const env = makeEnv();
-  const qs = "response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
-  const req = new Request(`https://example.com/authorize?${qs}`);
-  const res = await authorizeApp.fetch(req, env, makeCtx());
+  const qs = `${BASE_FORM}&scope=dovecote%3Anotify`;
+  const res = await app.fetch(new Request(`https://example.com/authorize?${qs}`), env, makeCtx().ctx);
   expect(res.status).toBe(200);
-  const text = await res.text();
   expect(res.headers.get("content-type")).toContain("text/html");
+  const text = await res.text();
   expect(text).toContain('name="token"');
   expect(text).toContain('action="/authorize"');
-  expect(text).toContain('name="client_id"');
-  expect(text).toContain('value="test-client"');
-  expect(text).toContain('name="state"');
-  expect(text).toContain('value="abc"');
+  expect(text).toContain('name="client_id" value="test-client"');
+  expect(text).toContain('name="state" value="abc"');
+  // PKCE parameters must survive the GET→POST round trip
+  expect(text).toContain('name="code_challenge" value="cc-abc"');
+  expect(text).toContain('name="code_challenge_method" value="S256"');
+  expect(text).toContain('name="scope" value="dovecote:notify"');
+  expect(text).toContain('name="redirect_uri" value="https://client.example/cb"');
 });
 
 test("AuthorizeFormRender T2: GET /authorize without client_id returns 400 json error=invalid_redirect_uri", async () => {
+  const app = createAuthorizeApp();
   const env = makeEnv();
-  const req = new Request("https://example.com/authorize?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc");
-  const res = await authorizeApp.fetch(req, env, makeCtx());
+  const res = await app.fetch(
+    new Request("https://example.com/authorize?response_type=code&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc"),
+    env,
+    makeCtx().ctx,
+  );
   expect(res.status).toBe(400);
   const body = await res.json() as any;
   expect(body.error).toBe("invalid_redirect_uri");
 });
 
 test("AuthorizeFormRender T3: GET /authorize when env missing OAUTH_PROVIDER returns 500 json error=no_provider", async () => {
+  const app = createAuthorizeApp();
   const env = makeEnv({ OAUTH_PROVIDER: undefined as any });
-  const qs = "response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
-  const req = new Request(`https://example.com/authorize?${qs}`);
-  const res = await authorizeApp.fetch(req, env, makeCtx());
+  const res = await app.fetch(new Request(`https://example.com/authorize?${BASE_FORM}`), env, makeCtx().ctx);
   expect(res.status).toBe(500);
   const body = await res.json() as any;
   expect(body.error).toBe("no_provider");
 });
 
-// AuthorizeRateLimit contract test (T1)
-test("AuthorizeRateLimit T1: 6th POST /authorize gets 429 before token verify; audit rate_limited", async () => {
-  const env = makeEnv();
-  const stub = async () => ({ allowed: false, current: 6 });
-  const form = "token=dvct_x&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
-  const req = new Request("https://example.com/authorize", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", "CF-Connecting-IP": "1.2.3.4" },
-    body: form,
+// ── AuthorizeRateLimit ────────────────────────────────────────────────────────
+
+test("AuthorizeRateLimit T1: 6th POST /authorize gets 429 + Retry-After before verify; verifyToken called 0 times; audit auth.authorize reason=rate_limited", async () => {
+  const verifySpy = mock(async (): Promise<VerifyOutcome> => VALID_OUTCOME);
+  const app = createAuthorizeApp({
+    checkRateLimit: async () => ({ allowed: false, current: 6 }),
+    verifyToken: verifySpy,
   });
-  // @ts-ignore test-only hook
-  if (authorizeMod.__setRateLimitForTest) authorizeMod.__setRateLimitForTest(stub);
-  const res = await authorizeApp.fetch(req, env, makeCtx());
+  const env = makeEnv();
+  const { ctx, flush } = makeCtx();
+  const res = await app.fetch(postReq(`token=dvct_x&${BASE_FORM}`), env, ctx);
   expect(res.status).toBe(429);
   expect(res.headers.get("Retry-After")).toBe("60");
   const body = await res.json() as any;
   expect(body.error).toBe("rate_limited");
-  // audit written (we don't inspect here, covered by impl)
+  expect(verifySpy).toHaveBeenCalledTimes(0);
+  await flush();
+  const audits = await readAuditEntries(env);
+  expect(audits).toHaveLength(1);
+  expect(audits[0].event).toBe("auth.authorize");
+  expect(audits[0].ok).toBe(false);
+  expect(audits[0].reason).toBe("rate_limited");
 });
 
-// reset rate from prior test
-if ((authorizeMod as any).__setRateLimitForTest) (authorizeMod as any).__setRateLimitForTest(realRateLimit);
+// ── AuthorizeTokenGrant ───────────────────────────────────────────────────────
 
-// AuthorizeTokenGrant T1/T2
- test("AuthorizeTokenGrant T1: valid dvct token POST completes with 302 + code; complete called with api_token", async () => {
-  const env = makeEnv();
-  const validToken = "dvct_grant1";
-  if ((authorizeMod as any).__setVerifyTokenForTest) (authorizeMod as any).__setVerifyTokenForTest( async () => ({ kind: "valid", auth: { userId: "user1", scopes: ["dovecote:notify"], tokenId: "t1", authMethod: "api_token" } }) );
-  const p: any = makeProvider();
+test("AuthorizeTokenGrant T1: valid dvct token POST completes with 302 + code; completeAuthorization gets parsed request, userId, token scopes, identity-bearing props; audit ok", async () => {
+  const p = makeProvider();
   const complete = mock(async () => ({ redirectTo: "https://client.example/cb?code=xyz&state=abc" }));
-  p.completeAuthorization = complete;
-  if ((authorizeMod as any).__setRateLimitForTest) (authorizeMod as any).__setRateLimitForTest(realRateLimit);
-  const env2 = { ...env, OAUTH_PROVIDER: p };
-  const form = `token=${validToken}&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc`;
-  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
-  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
+  (p as any).completeAuthorization = complete;
+  const app = createAuthorizeApp({ verifyToken: async () => VALID_OUTCOME });
+  const env = makeEnv({ OAUTH_PROVIDER: p });
+  const { ctx, flush } = makeCtx();
+  const res = await app.fetch(postReq(`token=dvct_grant1&${BASE_FORM}`), env, ctx);
   expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") || "";
-  expect(loc).toContain("code=xyz");
-  expect(complete).toHaveBeenCalled();
+  expect(res.headers.get("Location") || "").toContain("code=xyz");
+  expect(complete).toHaveBeenCalledTimes(1);
   const call = (complete as any).mock.calls[0]?.[0] || {};
   expect(call.userId).toBe("user1");
+  expect(call.scope).toEqual(["dovecote:notify"]);
+  // props carry identity — extractAuth must NOT fall back to ANONYMOUS
+  expect(call.props).toEqual({
+    userId: "user1",
+    scopes: ["dovecote:notify"],
+    authMethod: "api_token",
+  });
+  // request = the AuthRequest re-validated by parseAuthRequest (PKCE intact)
+  expect(call.request.clientId).toBe("test-client");
+  expect(call.request.codeChallenge).toBe("cc-abc");
+  expect(call.request.codeChallengeMethod).toBe("S256");
+  await flush();
+  const audits = await readAuditEntries(env);
+  expect(audits).toHaveLength(1);
+  expect(audits[0].event).toBe("auth.authorize");
+  expect(audits[0].ok).toBe(true);
+  expect(audits[0].userId).toBe("user1");
+  expect(audits[0].authMethod).toBe("api_token");
 });
 
-test("AuthorizeTokenGrant T2: tampered redirect_uri in POST (parse throws) -> 400; complete not called", async () => {
-  const env = makeEnv();
-  const p: any = makeProvider();
-  (p as any).parseAuthRequest = async () => { throw new Error("Invalid redirect URI"); };
+test("AuthorizeTokenGrant T2: tampered redirect_uri in POST (parseAuthRequest throws) -> 400; completeAuthorization not called", async () => {
+  const p = makeProvider();
+  (p as any).parseAuthRequest = async () => {
+    throw new Error("Invalid redirect URI");
+  };
   const complete = mock(async () => ({ redirectTo: "" }));
-  p.completeAuthorization = complete;
-  if ((authorizeMod as any).__setRateLimitForTest) (authorizeMod as any).__setRateLimitForTest(realRateLimit);
-  const env2 = { ...env, OAUTH_PROVIDER: p };
-  const form = "token=dvct_x&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fevil%2Fcb&state=abc";
-  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
-  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
+  (p as any).completeAuthorization = complete;
+  const app = createAuthorizeApp({ verifyToken: async () => VALID_OUTCOME });
+  const env = makeEnv({ OAUTH_PROVIDER: p });
+  const res = await app.fetch(
+    postReq("token=dvct_x&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fevil%2Fcb&state=abc"),
+    env,
+    makeCtx().ctx,
+  );
   expect(res.status).toBe(400);
   const b = await res.json() as any;
   expect(b.error).toBe("invalid_redirect_uri");
   expect(complete).not.toHaveBeenCalled();
 });
 
-// AuthorizeTokenReject T1/T2/T3
-test("AuthorizeTokenReject T1: nonexistent token re-renders form 401 with 'Invalid token'; audit; no complete", async () => {
-  const env = makeEnv();
-  if ((authorizeMod as any).__setVerifyTokenForTest) (authorizeMod as any).__setVerifyTokenForTest(async (t: string) => t.includes("nonexistent") ? { kind: "invalid" } : { kind: "valid", auth: { userId: "u", scopes: [], tokenId: "t", authMethod: "api_token" } });
+test("AuthorizeTokenGrant: ANY unrecognised parseAuthRequest failure aborts with 400 (no completeAuthorization)", async () => {
   const p = makeProvider();
+  (p as any).parseAuthRequest = async () => {
+    throw new Error("Invalid client. The clientId provided does not match.");
+  };
   const complete = mock(async () => ({ redirectTo: "" }));
-  p.completeAuthorization = complete;
-  const env2 = { ...env, OAUTH_PROVIDER: p };
-  const form = "token=dvct_nonexistent&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
-  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
-  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
-  expect(res.status).toBe(401);
-  const text = await res.text();
-  expect(text).toContain('name="token"');
-  expect(text).toContain('Invalid token');
+  (p as any).completeAuthorization = complete;
+  const app = createAuthorizeApp({ verifyToken: async () => VALID_OUTCOME });
+  const env = makeEnv({ OAUTH_PROVIDER: p });
+  const res = await app.fetch(postReq(`token=dvct_x&${BASE_FORM}`), env, makeCtx().ctx);
+  expect(res.status).toBe(400);
+  const b = await res.json() as any;
+  expect(b.error).toBe("invalid_redirect_uri");
   expect(complete).not.toHaveBeenCalled();
 });
 
-test("AuthorizeTokenReject T2: expired token -> 401 'Token expired' html form", async () => {
-  const env = makeEnv();
-  if ((authorizeMod as any).__setVerifyTokenForTest) (authorizeMod as any).__setVerifyTokenForTest(async (t: string) => t.includes("exp") ? { kind: "expired" } : { kind: "valid", auth: { userId: "u", scopes: [], tokenId: "t", authMethod: "api_token" } });
+test("AuthorizeTokenGrant: completeAuthorization throw -> 500", async () => {
   const p = makeProvider();
-  const env2 = { ...env, OAUTH_PROVIDER: p };
-  const form = "token=dvct_exp&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
-  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
-  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
-  expect(res.status).toBe(401);
-  const text = await res.text();
-  expect(text).toContain('Token expired');
+  (p as any).completeAuthorization = async () => {
+    throw new Error("boom");
+  };
+  const app = createAuthorizeApp({ verifyToken: async () => VALID_OUTCOME });
+  const env = makeEnv({ OAUTH_PROVIDER: p });
+  const res = await app.fetch(postReq(`token=dvct_x&${BASE_FORM}`), env, makeCtx().ctx);
+  expect(res.status).toBe(500);
 });
 
-test("AuthorizeTokenReject T3: missing token field -> 400 html 'Token required'", async () => {
-  const env = makeEnv();
+// ── AuthorizeTokenReject ──────────────────────────────────────────────────────
+
+test("AuthorizeTokenReject T1: nonexistent token re-renders form 401 with 'Invalid token'; audit reason=invalid_token; no complete", async () => {
   const p = makeProvider();
-  const env2 = { ...env, OAUTH_PROVIDER: p };
-  const form = "response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
-  const req = new Request("https://example.com/authorize", { method: "POST", headers: {"content-type":"application/x-www-form-urlencoded"}, body: form });
-  const res = await authorizeApp.fetch(req, env2 as any, makeCtx());
+  const complete = mock(async () => ({ redirectTo: "" }));
+  (p as any).completeAuthorization = complete;
+  const app = createAuthorizeApp({ verifyToken: async () => ({ kind: "invalid" }) });
+  const env = makeEnv({ OAUTH_PROVIDER: p });
+  const { ctx, flush } = makeCtx();
+  const res = await app.fetch(postReq(`token=dvct_nonexistent&${BASE_FORM}`), env, ctx);
+  expect(res.status).toBe(401);
+  const text = await res.text();
+  expect(text).toContain('name="token"');
+  expect(text).toContain("Invalid token");
+  // hidden fields preserved for retry
+  expect(text).toContain('name="code_challenge" value="cc-abc"');
+  expect(complete).not.toHaveBeenCalled();
+  await flush();
+  const audits = await readAuditEntries(env);
+  expect(audits[0].event).toBe("auth.authorize");
+  expect(audits[0].ok).toBe(false);
+  expect(audits[0].reason).toBe("invalid_token");
+});
+
+test("AuthorizeTokenReject T2: expired token -> 401 'Token expired'; audit reason=expired_token", async () => {
+  const app = createAuthorizeApp({
+    verifyToken: async () => ({
+      kind: "expired",
+      tokenId: "t1",
+      userId: "user1",
+      scopes: ["dovecote:notify"],
+    }),
+  });
+  const env = makeEnv();
+  const { ctx, flush } = makeCtx();
+  const res = await app.fetch(postReq(`token=dvct_exp&${BASE_FORM}`), env, ctx);
+  expect(res.status).toBe(401);
+  const text = await res.text();
+  expect(text).toContain("Token expired");
+  await flush();
+  const audits = await readAuditEntries(env);
+  expect(audits[0].event).toBe("auth.authorize");
+  expect(audits[0].reason).toBe("expired_token");
+});
+
+test("AuthorizeTokenReject T3: missing token field -> 400 'Token required'; audit reason=missing_token", async () => {
+  const verifySpy = mock(async (): Promise<VerifyOutcome> => VALID_OUTCOME);
+  const app = createAuthorizeApp({ verifyToken: verifySpy });
+  const env = makeEnv();
+  const { ctx, flush } = makeCtx();
+  const res = await app.fetch(postReq(BASE_FORM), env, ctx);
   expect(res.status).toBe(400);
   const text = await res.text();
-  expect(text).toContain('Token required');
+  expect(text).toContain("Token required");
+  expect(text).toContain('name="token"');
+  expect(verifySpy).toHaveBeenCalledTimes(0);
+  await flush();
+  const audits = await readAuditEntries(env);
+  expect(audits[0].event).toBe("auth.authorize");
+  expect(audits[0].reason).toBe("missing_token");
 });

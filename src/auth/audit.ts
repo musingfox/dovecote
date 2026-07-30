@@ -15,6 +15,10 @@ import type { AuthMethod } from "./ctx.js";
 export type AuditEvent =
   // OAuth authorization (pre-token, so no tokenId)
   | (AuditCommon & { event: "authorize"; userId: string })
+  // dvct token-paste authorize form (M1). `userId` present on success;
+  // `reason` ∈ {invalid_token, expired_token, missing_token, rate_limited}
+  // on failure paths.
+  | (AuditCommon & { event: "auth.authorize"; userId?: string })
   // Revoke an OAuth grant
   | (AuditCommon & { event: "admin.revoke"; grantId: string; tokenId?: string })
   // Bootstrap an OAuth client
@@ -46,33 +50,6 @@ export type AuditEvent =
       userId?: string;
       tokenId?: string;
       issuer?: string;
-    })
-  // RFC 8628 device-authorization endpoint (`POST /v1/auth/device-authorize`).
-  // `clientId` is the caller-supplied `client_id` (free-text; sanitised).
-  // `userCodeFingerprint` is the first 4 chars of the normalised user_code
-  // (NEVER the full code) — enough to correlate with the approval/exchange
-  // events without leaking the secret half.
-  | (AuditCommon & {
-      event: "auth.device.authorize";
-      clientId?: string;
-      userCodeFingerprint?: string;
-    })
-  // RFC 8628 verification page POST. `userId` present on approve success;
-  // `reason:"denied"` populated on the deny branch.
-  | (AuditCommon & {
-      event: "auth.device.approve";
-      userId?: string;
-      userCodeFingerprint?: string;
-    })
-  // RFC 8628 device-token endpoint (`POST /v1/auth/exchange-device`). Mirrors
-  // the `token.issue`/`auth.exchange.oidc` shape — `tokenId` on success,
-  // `reason` on every failure path (`authorization_pending`/`slow_down`/
-  // `access_denied`/`expired_token`/`invalid_request`/`unsupported_grant_type`/
-  // `misconfigured`/`rate_limited`/`invalid_scope`/`internal_error`).
-  | (AuditCommon & {
-      event: "auth.device.exchange";
-      userId?: string;
-      tokenId?: string;
     });
 
 /**
@@ -97,8 +74,6 @@ const FREE_TEXT_FIELDS = [
   "clientName",
   "route",
   "issuer",
-  "clientId",
-  "userCodeFingerprint",
 ] as const;
 
 /**

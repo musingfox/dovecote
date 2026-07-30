@@ -1,24 +1,29 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import type { ExecutionContext } from "@cloudflare/workers-types";
+import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
-import { verifyToken } from "./api-token.js";
-
-// test hook for AuthorizeRateLimit (stub injection without full services refactor)
-let rateLimitImpl: typeof checkRateLimit = checkRateLimit;
-export function __setRateLimitForTest(fn: typeof checkRateLimit) { rateLimitImpl = fn; }
-
-// test hook for grant verify
-let verifyTokenImpl: typeof verifyToken = verifyToken;
-export function __setVerifyTokenForTest(fn: typeof verifyToken) { verifyTokenImpl = fn; }
+import { verifyToken, KVWriteError, type VerifyOutcome } from "./api-token.js";
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
-import { resolveUserId } from "./resolve-user.js";
-import { parseOidcIssuers, getOidcClockToleranceSec } from "./oidc-config.js";
-import { verifyOidcIdToken } from "./oidc-verify.js";
+
+/**
+ * Injectable side-effect seams for the authorize form (V1Services-style).
+ * Production uses the module default export (real implementations); tests
+ * build their own app via `createAuthorizeApp({...stubs})`. No mutable
+ * module-level state ships in the worker bundle.
+ */
+export interface AuthorizeServices {
+  checkRateLimit: (
+    kv: KVNamespace,
+    ip: string,
+    namespace?: string,
+    limit?: number,
+  ) => ReturnType<typeof checkRateLimit>;
+  verifyToken: (token: string, env: Env) => Promise<VerifyOutcome>;
+}
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "frame-ancestors 'none'",
@@ -46,8 +51,6 @@ interface AuthEnv extends Env {
 
 // (CF Access OIDC removed; GitHub OIDC and form authorize remain)
 
-const app = new Hono<{ Bindings: AuthEnv }>();
-
 /**
  * Timing-safe string comparison (length-independent)
  */
@@ -61,181 +64,253 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * GET /authorize - renders dvct token paste form (M1)
- * Provider validates client_id; on success returns HTML form posting back to /authorize.
+ * ExecutionContext shim — `c.executionCtx` throws when unavailable (e.g. some
+ * test harnesses); substitute a no-op waitUntil so audit writes cannot take
+ * down the request. Same pattern as /admin/revoke below.
  */
-app.get("/authorize", async (c) => {
-  const provider = c.env.OAUTH_PROVIDER;
-  if (!provider) {
-    return c.json({ error: "no_provider" }, 500);
-  }
-
-  const clientId = c.req.query("client_id");
-  if (!clientId) {
-    return c.json({ error: "invalid_redirect_uri" }, 400);
-  }
-
-  // Use parseAuthRequest for validation so that redirect-val error tests (throw cases)
-  // get correct 400/500 without editing that test file.
-  let redirectUri = "";
-  let state = "";
-  let scope = "";
-  let responseType = "code";
+function shimExecutionCtx(c: Context<{ Bindings: AuthEnv }>): ExecutionContext {
   try {
-    const req = await provider.parseAuthRequest(c.req.raw);
-    // parsed clientId should match query; treat mismatch as invalid too
-    if (!req.clientId || req.clientId !== clientId) {
-      return c.json({ error: "invalid_redirect_uri" }, 400);
-    }
-    redirectUri = req.redirectUri || "";
-    state = req.state || "";
-    scope = (req.scope || []).join(" ");
-    responseType = req.responseType || "code";
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
-      return c.json({ error: "invalid_redirect_uri" }, 400);
-    }
-    return c.text("Internal Server Error", 500);  // non-redirect parse errors (e.g. resource param) -> 500; explicit to avoid test runner noise
+    return c.executionCtx;
+  } catch {
+    return {
+      waitUntil: (p: Promise<any>) => {
+        p.catch(() => {});
+      },
+      passThroughOnException: () => {},
+    } as any;
   }
+}
 
-  const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope });
-  return c.html(html, 200, SECURITY_HEADERS);
-});
+/**
+ * OAuth query parameters carried verbatim through the form round-trip (M1).
+ * Everything the client sent on GET /authorize is re-emitted as hidden fields
+ * — PKCE (`code_challenge`/`code_challenge_method`) included — and the POST
+ * leg re-validates them via parseAuthRequest instead of trusting them.
+ */
+function collectOAuthParams(source: Iterable<[string, string]>): Array<[string, string]> {
+  const params: Array<[string, string]> = [];
+  for (const [name, value] of source) {
+    if (name === "token") continue; // never collide with the credential field
+    params.push([name, value]);
+  }
+  return params;
+}
 
-function renderAuthorizeForm(opts: { clientId: string; responseType?: string; redirectUri?: string; state?: string; scope?: string; inlineError?: string }): string {
-  const { clientId, responseType = "code", redirectUri = "", state = "", scope = "", inlineError } = opts;
+function renderAuthorizeForm(opts: {
+  params: Array<[string, string]>;
+  inlineError?: string;
+}): string {
+  const { params, inlineError } = opts;
+  const clientId = params.find(([n]) => n === "client_id")?.[1] ?? "";
+  const hiddenFields = params
+    .map(
+      ([name, value]) =>
+        `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`,
+    )
+    .join("\n");
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Authorize — Dovecote</title>
-<style>body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:16px}input,button{padding:8px;width:100%;box-sizing:border-box}form{display:flex;flex-direction:column;gap:8px}.hidden{display:none}.err{color:#b00020;margin:8px 0}</style>
+<style>body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:16px}input,button{padding:8px;width:100%;box-sizing:border-box}form{display:flex;flex-direction:column;gap:8px}.err{color:#b00020;margin:8px 0}</style>
 </head>
 <body>
 <h1>Authorize</h1>
 <p>Paste your <code>dvct_*</code> token for <code>${escapeHtml(clientId)}</code>.</p>
 ${inlineError ? `<div class="err">${escapeHtml(inlineError)}</div>` : ""}
 <form method="post" action="/authorize">
-<input type="hidden" name="response_type" value="${escapeHtml(responseType)}">
-<input type="hidden" name="client_id" value="${escapeHtml(clientId)}">
-<input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}">
-<input type="hidden" name="state" value="${escapeHtml(state)}">
-${scope ? `<input type="hidden" name="scope" value="${escapeHtml(scope)}">` : ""}
-<label>Token<br><input name="token" type="text" required placeholder="dvct_..." autocomplete="off"></label>
+${hiddenFields}
+<label>Token<br><input name="token" type="password" required placeholder="Paste your dvct token" autocomplete="off"></label>
 <button type="submit">Authorize</button>
 </form>
 </body>
 </html>`;
 }
 
-/**
- * POST /authorize - rate limited entry (before token verify)
- */
-app.post("/authorize", async (c) => {
-  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
-  const kv = c.env.OAUTH_KV;
-  const rl = await rateLimitImpl(kv as any, ip, "authorize", 5);
-  if (!rl.allowed) {
-    writeAudit(c.env, c.executionCtx as any, {
-      event: "authorize",
-      ok: false,
-      reason: "rate_limited",
-      ip,
-      authMethod: "none",
-      scope: "",
-    } as any);
-    return c.json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
-  }
+function registerAuthorizeFormRoutes(
+  app: Hono<{ Bindings: AuthEnv }>,
+  services: AuthorizeServices,
+): void {
+  /**
+   * GET /authorize - renders dvct token paste form (M1)
+   * Provider validates client_id; on success returns HTML form posting back to /authorize.
+   */
+  app.get("/authorize", async (c) => {
+    const provider = c.env.OAUTH_PROVIDER;
+    if (!provider) {
+      return c.json({ error: "no_provider" }, 500);
+    }
 
-  const provider = c.env.OAUTH_PROVIDER;
-  const form = await c.req.formData();
-  const token = (form.get("token") || "").toString().trim();
-  const clientId = (form.get("client_id") || "").toString();
-  const redirectUri = (form.get("redirect_uri") || "").toString();
-  const state = (form.get("state") || "").toString();
-  const responseType = (form.get("response_type") || "code").toString();
-  const scope = (form.get("scope") || "").toString();
-
-  // validate via parse (T2 tamper detection) — use synthetic GET req (formData already read body)
-  const parseQs = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state, response_type: responseType });
-  const parseReq = new Request(`https://x/authorize?${parseQs}`, { method: "GET" });
-  try {
-    await provider.parseAuthRequest(parseReq);
-  } catch (e: any) {
-    const m = String(e?.message || e);
-    if (/invalid redirect/i.test(m)) {
+    const clientId = c.req.query("client_id");
+    if (!clientId) {
       return c.json({ error: "invalid_redirect_uri" }, 400);
     }
-  }
 
-  // rate passed, now verify token (T1)
-  if (!token) {
-    const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope, inlineError: "Token required" });
-    writeAudit(c.env, c.executionCtx as any, { event: "authorize", ok: false, reason: "invalid_token", ip, authMethod: "none", scope: "" } as any);
-    return c.html(html, 400, SECURITY_HEADERS);
-  }
-  let v;
-  try {
-    v = await verifyTokenImpl(token, c.env);
-  } catch {
-    v = { kind: "invalid" };
-  }
-  if (v.kind !== "valid" || !v.auth) {
-    const errMsg = v && (v as any).kind === "expired" ? "Token expired" : "Invalid token";
-    const reason = (v && (v as any).kind === "expired") ? "expired_token" : "invalid_token";
-    const html = renderAuthorizeForm({ clientId, responseType, redirectUri, state, scope, inlineError: errMsg });
-    writeAudit(c.env, c.executionCtx as any, { event: "authorize", ok: false, reason, ip, authMethod: "none", scope: "" } as any);
-    return c.html(html, 401, SECURITY_HEADERS);
-  }
-  const auth = v.auth;
-  try {
-    const result = await provider.completeAuthorization({
-      request: {
-        clientId,
-        redirectUri,
-        state,
-        scope: scope ? scope.split(" ") : auth.scopes,
-        responseType,
-      } as any,
-      userId: auth.userId,
-      // per T1: props.authMethod = api_token
-      props: { authMethod: "api_token" } as any,
-      scope: auth.scopes,
-      metadata: {} as any,
-    });
-    // success 302
-    writeAudit(c.env, c.executionCtx as any, {
-      event: "authorize",
-      ok: true,
-      userId: auth.userId,
-      authMethod: "api_token",
-      ip,
-      scope: auth.scopes.join(" "),
-    } as any);
-    return c.redirect(result.redirectTo);
-  } catch (e: any) {
-    const msg = String(e?.message || e);
-    if (/invalid redirect/i.test(msg)) {
+    // parseAuthRequest owns client_id/redirect_uri validation (turn-23/24 defenses).
+    try {
+      const req = await provider.parseAuthRequest(c.req.raw);
+      // parsed clientId should match query; treat mismatch as invalid too
+      if (!req.clientId || req.clientId !== clientId) {
+        return c.json({ error: "invalid_redirect_uri" }, 400);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
+        return c.json({ error: "invalid_redirect_uri" }, 400);
+      }
+      return c.text("Internal Server Error", 500); // non-redirect parse errors (e.g. resource param)
+    }
+
+    const params = collectOAuthParams(new URL(c.req.url).searchParams.entries());
+    return c.html(renderAuthorizeForm({ params }), 200, SECURITY_HEADERS);
+  });
+
+  /**
+   * POST /authorize — rate-limit → re-validate hidden fields → verify token
+   * → completeAuthorization (AuthorizeTokenGrant/Reject/RateLimit).
+   */
+  app.post("/authorize", async (c) => {
+    const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+    const ctx = shimExecutionCtx(c);
+
+    // 1. Rate limit BEFORE any token handling (M4).
+    const rl = await services.checkRateLimit(c.env.OAUTH_KV, ip, "authorize", 5);
+    if (!rl.allowed) {
+      writeAudit(c.env, ctx, {
+        event: "auth.authorize",
+        ok: false,
+        reason: "rate_limited",
+        ip,
+        authMethod: "none",
+        scope: "",
+      });
+      return c.json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+    }
+
+    const provider = c.env.OAUTH_PROVIDER;
+    if (!provider) {
+      return c.json({ error: "no_provider" }, 500);
+    }
+
+    const form = await c.req.formData();
+    const token = (form.get("token") || "").toString().trim();
+
+    // 2. Re-validate the hidden fields via a synthetic GET + parseAuthRequest (M1).
+    //    The hidden fields themselves are NOT trusted; ANY parse failure —
+    //    recognised or not — aborts with 400 before completeAuthorization.
+    const qs = new URLSearchParams();
+    for (const [name, value] of form.entries()) {
+      if (name === "token" || typeof value !== "string") continue;
+      qs.append(name, value);
+    }
+    const syntheticUrl = new URL(c.req.url);
+    syntheticUrl.search = qs.toString();
+    let authReq: AuthRequest;
+    try {
+      authReq = await provider.parseAuthRequest(
+        new Request(syntheticUrl.toString(), { method: "GET" }),
+      );
+      if (!authReq.clientId) {
+        return c.json({ error: "invalid_redirect_uri" }, 400);
+      }
+    } catch {
       return c.json({ error: "invalid_redirect_uri" }, 400);
     }
-    return c.json({ error: "invalid_redirect_uri" }, 400);
-  }
-});
+
+    const params = collectOAuthParams(qs.entries());
+
+    // 3. Verify the pasted token.
+    if (!token) {
+      writeAudit(c.env, ctx, {
+        event: "auth.authorize",
+        ok: false,
+        reason: "missing_token",
+        ip,
+        authMethod: "none",
+        scope: "",
+      });
+      return c.html(
+        renderAuthorizeForm({ params, inlineError: "Token required" }),
+        400,
+        SECURITY_HEADERS,
+      );
+    }
+
+    let outcome: VerifyOutcome;
+    try {
+      outcome = await services.verifyToken(token, c.env);
+    } catch (err) {
+      if (err instanceof KVWriteError) {
+        return c.json({ error: "internal_error" }, 500);
+      }
+      throw err;
+    }
+
+    if (outcome.kind !== "valid") {
+      const expired = outcome.kind === "expired";
+      writeAudit(c.env, ctx, {
+        event: "auth.authorize",
+        ok: false,
+        reason: expired ? "expired_token" : "invalid_token",
+        ip,
+        authMethod: "none",
+        scope: "",
+      });
+      return c.html(
+        renderAuthorizeForm({
+          params,
+          inlineError: expired ? "Token expired" : "Invalid token",
+        }),
+        401,
+        SECURITY_HEADERS,
+      );
+    }
+
+    // 4. Complete the grant. request = the re-validated AuthRequest (PKCE
+    //    carried through); scope = the token's stored scopes (M5); props
+    //    carry the identity downstream (/v1/auth/exchange, /mcp).
+    const auth = outcome.auth;
+    try {
+      const result = await provider.completeAuthorization({
+        request: authReq,
+        userId: auth.userId,
+        scope: auth.scopes,
+        props: {
+          userId: auth.userId,
+          scopes: auth.scopes,
+          authMethod: "api_token",
+        },
+        metadata: {},
+      });
+      writeAudit(c.env, ctx, {
+        event: "auth.authorize",
+        ok: true,
+        userId: auth.userId,
+        authMethod: "api_token",
+        ip,
+        scope: auth.scopes.join(" "),
+      });
+      return c.redirect(result.redirectTo);
+    } catch {
+      return c.json({ error: "internal_error" }, 500);
+    }
+  });
+}
 
 /**
  * Health check endpoint
  */
-app.get("/health", (c) => {
+const handleHealth = (c: Context<{ Bindings: AuthEnv }>) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+};
 
 /**
  * POST /admin/revoke - Revoke an OAuth grant (Contract C)
  * Operator-only endpoint to immediately revoke grants (T1/T11/T17)
  */
-app.post("/admin/revoke", async (c) => {
+const handleAdminRevoke = async (c: Context<{ Bindings: AuthEnv }>) => {
   // C.1: Check if revoke endpoint is configured
   if (!c.env.ADMIN_REVOKE_TOKEN) {
     return c.json({ error: "revoke endpoint not configured" }, 503);
@@ -388,13 +463,13 @@ app.post("/admin/revoke", async (c) => {
   });
 
   return c.json({ ok: true, grantId }, 200);
-});
+};
 
 /**
  * POST /admin/bootstrap-client - Bootstrap OAuth client (Contract Bootstrap-Endpoint)
  * Flag-gated endpoint for operators to create OAuth clients
  */
-app.post("/admin/bootstrap-client", async (c) => {
+const handleAdminBootstrapClient = async (c: Context<{ Bindings: AuthEnv }>) => {
   // Flag check: must be exactly "1" to enable
   if (c.env.ENABLE_CLIENT_BOOTSTRAP !== "1") {
     return c.text("Not Found", 404);
@@ -597,13 +672,31 @@ app.post("/admin/bootstrap-client", async (c) => {
 
     return c.json({ error: "bootstrap failed" }, 500);
   }
-});
+};
 
 /**
- * Fallback for unknown paths - 404
+ * Build the default-handler app. `overrides` inject the authorize-form seams
+ * (rate limiter / token verifier) for tests; production callers use the
+ * module default export, which wires the real implementations.
  */
-app.all("*", (c) => {
-  return c.text("Not Found", 404);
-});
+export function createAuthorizeApp(
+  overrides: Partial<AuthorizeServices> = {},
+): Hono<{ Bindings: AuthEnv }> {
+  const services: AuthorizeServices = {
+    checkRateLimit,
+    verifyToken,
+    ...overrides,
+  };
+  const app = new Hono<{ Bindings: AuthEnv }>();
+  registerAuthorizeFormRoutes(app, services);
+  app.get("/health", handleHealth);
+  app.post("/admin/revoke", handleAdminRevoke);
+  app.post("/admin/bootstrap-client", handleAdminBootstrapClient);
+  // Fallback for unknown paths - 404
+  app.all("*", (c) => {
+    return c.text("Not Found", 404);
+  });
+  return app;
+}
 
-export default app;
+export default createAuthorizeApp();

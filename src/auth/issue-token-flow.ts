@@ -1,6 +1,5 @@
 /**
- * Single-issue pipeline: shared by auth-exchange, auth-exchange-oidc,
- * auth-exchange-device (approved branch).
+ * Single-issue pipeline: shared by auth-exchange and auth-github-oidc.
  *
  * Pipeline: checkRateLimit (if provided) → issueToken → response + audit.
  *
@@ -42,8 +41,7 @@ export interface IssueTokenFlowOpts {
   authMethod: string;
   /**
    * The audit event type to use (default: "token.issue").
-   * Use "auth.exchange.oidc" or "auth.device.exchange" to preserve per-endpoint
-   * audit shape.
+   * Use "auth.exchange.oidc" to preserve per-endpoint audit shape.
    */
   auditEvent?: string;
   auditScope: string;
