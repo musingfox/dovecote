@@ -13,8 +13,6 @@ import type { AuthMethod } from "./ctx.js";
  * - tokenId?: Optional token identifier (for token-related events)
  */
 export type AuditEvent =
-  // OAuth authorization (pre-token, so no tokenId)
-  | (AuditCommon & { event: "authorize"; userId: string })
   // dvct token-paste authorize form (M1). `userId` present on success;
   // `reason` ∈ {invalid_token, expired_token, missing_token, rate_limited}
   // on failure paths.

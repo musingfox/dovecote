@@ -27,7 +27,7 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
 
   // Call writeAudit
   writeAudit(env, ctx, {
-    event: "authorize",
+    event: "auth.authorize",
     userId: "operator",
     ok: true,
     authMethod: "none",
@@ -42,7 +42,7 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
   expect(consoleLogSpy).toHaveBeenCalledTimes(1);
 
   const loggedData = JSON.parse(consoleLogSpy.mock.calls[0]![0] as string);
-  expect(loggedData.event).toBe("authorize");
+  expect(loggedData.event).toBe("auth.authorize");
   expect(loggedData.userId).toBe("operator");
   expect(loggedData.ok).toBe(true);
   expect(loggedData.authMethod).toBe("none");
@@ -65,7 +65,7 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
   expect(options?.expirationTtl).toBe(7_776_000);
 
   const storedData = JSON.parse(value);
-  expect(storedData.event).toBe("authorize");
+  expect(storedData.event).toBe("auth.authorize");
 
   // Cleanup
   consoleLogSpy.mockRestore();
@@ -98,7 +98,7 @@ test("writeAudit failure tolerance - KV.put rejects", async () => {
   // Should not throw
   expect(() => {
     writeAudit(env, ctx, {
-      event: "authorize",
+      event: "auth.authorize",
       userId: "operator",
       ok: true,
       authMethod: "none",
@@ -136,7 +136,7 @@ test("writeAudit sanitizes free-text fields (reason with newline)", async () => 
 
   // Call writeAudit with a reason containing a literal newline
   writeAudit(env, ctx, {
-    event: "authorize",
+    event: "auth.authorize",
     userId: "operator",
     ok: false,
     reason: "line1\nline2",
@@ -181,7 +181,7 @@ test("writeAudit sanitizes reason with ANSI escape codes", async () => {
   // Call writeAudit with a reason containing ESC character
   const reasonWithEsc = "red\x1B[31m";
   writeAudit(env, ctx, {
-    event: "authorize",
+    event: "auth.authorize",
     userId: "operator",
     ok: false,
     reason: reasonWithEsc,
@@ -265,7 +265,7 @@ test("writeAudit does not sanitize userId (structured field, not free-text)", as
 
   // Call writeAudit with a userId containing a newline (edge case)
   writeAudit(env, ctx, {
-    event: "authorize",
+    event: "auth.authorize",
     userId: "user\nid",
     ok: true,
     authMethod: "none",

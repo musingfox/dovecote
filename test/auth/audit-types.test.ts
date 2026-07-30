@@ -38,7 +38,7 @@ const _e3: AuditEvent = {
 
 // Test: authorize (pre-token, no tokenId)
 const _e4: AuditEvent = {
-  event: "authorize",
+  event: "auth.authorize",
   userId: "u",
   authMethod: "none",
   ip: "1.2.3.4",
@@ -79,7 +79,7 @@ const _e8: AuditEvent = {
 
 // Test: With optional reason field
 const _e9: AuditEvent = {
-  event: "authorize",
+  event: "auth.authorize",
   userId: "u",
   authMethod: "none",
   ip: "1.2.3.4",
@@ -216,7 +216,7 @@ const _list_admin_filter: AuditEvent = {
 
 // @ts-expect-error - Missing required ip on all events
 const _bad10: AuditEvent = {
-  event: "authorize",
+  event: "auth.authorize",
   userId: "u",
   authMethod: "none",
   scope: "dovecote:notify",
@@ -225,7 +225,7 @@ const _bad10: AuditEvent = {
 
 // @ts-expect-error - Missing required authMethod on all events
 const _bad11: AuditEvent = {
-  event: "authorize",
+  event: "auth.authorize",
   userId: "u",
   ip: "1.2.3.4",
   scope: "dovecote:notify",
@@ -234,7 +234,7 @@ const _bad11: AuditEvent = {
 
 // @ts-expect-error - Missing required scope on all events
 const _bad12: AuditEvent = {
-  event: "authorize",
+  event: "auth.authorize",
   userId: "u",
   ip: "1.2.3.4",
   authMethod: "none",
@@ -243,7 +243,7 @@ const _bad12: AuditEvent = {
 
 // @ts-expect-error - Missing required ok on all events
 const _bad13: AuditEvent = {
-  event: "authorize",
+  event: "auth.authorize",
   userId: "u",
   ip: "1.2.3.4",
   authMethod: "none",
