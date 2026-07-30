@@ -5,6 +5,10 @@ import type { Env } from "../types.js";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
+
+// test hook for AuthorizeRateLimit (stub injection without full services refactor)
+let rateLimitImpl: typeof checkRateLimit = checkRateLimit;
+export function __setRateLimitForTest(fn: typeof checkRateLimit) { rateLimitImpl = fn; }
 import { validateRevokeBody } from "./revoke-schema.js";
 import { validateBootstrapBody } from "./bootstrap-schema.js";
 import { resolveUserId } from "./resolve-user.js";
@@ -226,6 +230,28 @@ ${scope ? `<input type="hidden" name="scope" value="${escapeHtml(scope)}">` : ""
 </html>`;
 
   return c.html(html, 200, SECURITY_HEADERS);
+});
+
+/**
+ * POST /authorize - rate limited entry (before token verify)
+ */
+app.post("/authorize", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
+  const kv = c.env.OAUTH_KV;
+  const rl = await rateLimitImpl(kv as any, ip, "authorize", 5);
+  if (!rl.allowed) {
+    writeAudit(c.env, c.executionCtx as any, {
+      event: "authorize",
+      ok: false,
+      reason: "rate_limited",
+      ip,
+      authMethod: "none",
+      scope: "",
+    } as any);
+    return c.json({ error: "rate_limited" }, 429, { "Retry-After": "60" });
+  }
+  // token verify / grant happens in later contracts; here just to let rate test see 0 calls
+  return c.json({ error: "invalid_token" }, 401);
 });
 
 /**

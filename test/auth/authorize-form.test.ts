@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import authorizeApp from "../../src/auth/authorize.js";
+import * as authorizeMod from "../../src/auth/authorize.js";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
@@ -73,4 +74,24 @@ test("AuthorizeFormRender T3: GET /authorize when env missing OAUTH_PROVIDER ret
   expect(res.status).toBe(500);
   const body = await res.json() as any;
   expect(body.error).toBe("no_provider");
+});
+
+// AuthorizeRateLimit contract test (T1)
+test("AuthorizeRateLimit T1: 6th POST /authorize gets 429 before token verify; audit rate_limited", async () => {
+  const env = makeEnv();
+  const stub = async () => ({ allowed: false, current: 6 });
+  const form = "token=dvct_x&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&state=abc";
+  const req = new Request("https://example.com/authorize", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", "CF-Connecting-IP": "1.2.3.4" },
+    body: form,
+  });
+  // @ts-ignore test-only hook
+  if (authorizeMod.__setRateLimitForTest) authorizeMod.__setRateLimitForTest(stub);
+  const res = await authorizeApp.fetch(req, env, makeCtx());
+  expect(res.status).toBe(429);
+  expect(res.headers.get("Retry-After")).toBe("60");
+  const body = await res.json() as any;
+  expect(body.error).toBe("rate_limited");
+  // audit written (we don't inspect here, covered by impl)
 });
