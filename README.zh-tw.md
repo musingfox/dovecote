@@ -9,7 +9,6 @@ Agent 通知基礎設施 — 部署在 Cloudflare Workers 上的 MCP server，�
 - **MCP over Streamable HTTP** — 相容 Claude Code、Claude web connector 與任何 MCP client
 - **OAuth 2.1 + PKCE** — Claude.ai web connector 登入流程，支援 Dynamic Client Registration (RFC 7591) 與 Protected Resource Metadata (RFC 9728)
 - **Multi-instance channels** — Telegram / Discord 可透過 `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON 陣列設定多個 instance
-- **CSRF 保護** — HMAC-SHA256 搭配 HttpOnly/Secure cookie
 
 ## 架構
 
@@ -47,7 +46,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 2. 建立 `.dev.vars`（可參考 `.dev.vars.example`）：
    ```env
-   # OAUTH_PASSWORD removed (M1); /authorize uses dvct token paste form
+   HMAC_PEPPER=...
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
    DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
 ```
@@ -90,10 +89,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    script 會提示輸入 secrets；若 `.dev.vars` 存在，會以其值作為預設。
 
    必要：
-   - （無 OAUTH_PASSWORD）— `/authorize` 顯示貼上 `dvct_*` token 的表單
-
-   選用（admin scope）：
-   - `OAUTH_ADMIN_PASSWORD` — 當 client 請求 `dovecote:admin` scope 時所需的獨立密碼。若未設定此 secret 且有 admin scope 請求，authorize 端點會回傳 503。一般 `OAUTH_PASSWORD` 不會作為 admin 請求的備選。
+   - `HMAC_PEPPER` — `dvct_*` token 雜湊用 pepper；`/authorize` 顯示貼上 `dvct_*` token 的表單
 
    選用（通知頻道，JSON 陣列）：
    - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
@@ -168,7 +164,7 @@ dovecote 實作多層防禦安全控制：
 
 - **OAuth 2.1 + PKCE**：授權流程要求 S256 code challenge（拒絕 plain challenge）
 - **關閉動態客戶端註冊**：公開 DCR 已停用；客戶端透過 operator-only `/admin/bootstrap-client` 端點配置
-- **CSRF 保護**：授權表單送出時驗證 HMAC 簽章 cookie
+- **貼 token 授權**：`/authorize` 只接受 POST 的 `dvct_*` token——token 本身即防偽 secret（無 cookie 環境憑證），並對每個 IP 施加提交頻率限制
 - **速率限制**：admin 端點每 IP 60 秒內限 5 次請求
 - **稽核軌跡**：所有授權與特權操作記錄至 KV，保留 90 天
 - **防點擊劫持標頭**：`/authorize` 端點回傳 `Content-Security-Policy: frame-ancestors 'none'` 與 `X-Frame-Options: DENY`

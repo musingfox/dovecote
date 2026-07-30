@@ -35,8 +35,6 @@ function createEnv(hmacPepper: string, kv: MockKV = new MockKV()): Env {
   return {
     OAUTH_KV: kv,
     HMAC_PEPPER: hmacPepper,
-    OAUTH_PASSWORD: "test-password",
-    COOKIE_ENCRYPTION_KEY: "test-encryption-key",
     OAUTH_PROVIDER: {} as any,
   } as unknown as Env;
 }

@@ -8,8 +8,6 @@ test("DCR closed: POST /mcp/register returns 4xx or 5xx", async () => {
 
   const env: Env = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
   };

@@ -34,10 +34,7 @@ function composeAppLikeIndex() {
 function buildEnv(opts: { oidcIssuers?: string } = {}): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "x",
-    COOKIE_ENCRYPTION_KEY: "x".repeat(32),
     HMAC_PEPPER: "pep",
-    OIDC_ISSUERS: opts.oidcIssuers,
     GITHUB_OIDC_EXPECTED_AUD: "aud",
     GITHUB_OIDC_ALLOWED_OWNER: "owner",
   };

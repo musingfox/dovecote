@@ -66,19 +66,7 @@ function makeProvider(behavior: "missing_client" | "ok"): OAuthHelpers {
 function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "pw",
-    COOKIE_ENCRYPTION_KEY: "cookie-key-32-chars-min-required!",
     HMAC_PEPPER: "pepper",
-    OIDC_STATE_SECRET: STATE_SECRET,
-    OIDC_ISSUERS: JSON.stringify([
-      {
-        issuer: ISSUER,
-        jwks_uri: JWKS_URI,
-        audience: AUDIENCE,
-        client_id: RP_CLIENT_ID,
-        authorization_endpoint: AUTHORIZATION_ENDPOINT,
-      },
-    ]),
     TELEGRAM_INSTANCES: undefined,
     DISCORD_INSTANCES: undefined,
     ...overrides,

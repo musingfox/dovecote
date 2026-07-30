@@ -11,7 +11,6 @@ Agent notification infrastructure — an MCP server deployed on Cloudflare Worke
 - **MCP over Streamable HTTP** — compatible with Claude Code, Claude web connector, and any MCP client
 - **OAuth 2.1 + PKCE** — sign-in flow for the Claude.ai web connector, with Dynamic Client Registration (RFC 7591) and Protected Resource Metadata (RFC 9728)
 - **Multi-instance channels** — configure multiple Telegram / Discord instances via `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON arrays
-- **CSRF protection** — HMAC-SHA256 with HttpOnly/Secure cookie
 
 ## Architecture
 
@@ -49,7 +48,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
-   # OAUTH_PASSWORD removed (M1); /authorize uses dvct token paste form
+   HMAC_PEPPER=...
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
    DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
 ```
@@ -92,10 +91,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    This will prompt you to enter secrets. If `.dev.vars` exists, it will use values from there as defaults.
 
    Required:
-   - (no OAUTH_PASSWORD) — /authorize now shows a form to paste a pre-issued `dvct_*` token
-
-   Optional (admin scope):
-   - `OAUTH_ADMIN_PASSWORD` — (legacy) separate password for admin scope; now superseded by per-user `dovecote:admin` scope in KV.
+   - `HMAC_PEPPER` — HMAC pepper for `dvct_*` token hashing; `/authorize` shows a form to paste a pre-issued `dvct_*` token
 
    Optional (notification channels, JSON arrays):
    - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
@@ -238,7 +234,7 @@ dovecote implements defense-in-depth security controls:
 
 - **OAuth 2.1 + PKCE**: Authorization flow requires S256 code challenge (plain challenge rejected)
 - **Closed Dynamic Client Registration**: Public DCR disabled; clients provisioned via operator-only `/admin/bootstrap-client` endpoint
-- **CSRF Protection**: HMAC-signed cookie validation on authorization form submission
+- **Token-paste authorization**: `/authorize` accepts only a POSTed `dvct_*` token — the token itself is the anti-forgery secret (no ambient cookie credential exists), and submissions are rate-limited per IP
 - **Rate Limiting**: 5 requests per 60 seconds per IP address on admin endpoints
 - **Audit Trail**: All authorization and privileged operations logged to KV with 90-day TTL
 - **Anti-Clickjacking Headers**: `/authorize` endpoint serves `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`

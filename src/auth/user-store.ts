@@ -8,16 +8,16 @@
  */
 
 import type { Env } from "../types.js";
-import type { PasswordRecord } from "./password.js";
 
 const USERNAME_REGEX = /^[a-z0-9_-]{1,64}$/;
 
 /**
- * Algorithm marker for a stored user record. PBKDF2 is the password-based
- * arm; `"oidc"` is a placeholder marker for users provisioned via the OIDC
- * exchange (no password material — `salt`/`hash`/`iterations` are empty).
+ * Algorithm marker for a stored user record. `"pbkdf2-sha256"` survives as
+ * inert data on legacy records (decision L4 — no verifier exists any more);
+ * `"oidc"` is the placeholder marker for users provisioned via the OIDC
+ * exchange (`salt`/`hash`/`iterations` are empty).
  */
-export type UserRecordAlgo = PasswordRecord["algo"] | "oidc";
+export type UserRecordAlgo = "pbkdf2-sha256" | "oidc";
 
 export interface UserRecord {
   username: string;

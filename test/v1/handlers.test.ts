@@ -50,8 +50,6 @@ function buildTestEnv(
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test",
     HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify(channels),
   };

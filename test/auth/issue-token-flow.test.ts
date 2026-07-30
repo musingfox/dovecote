@@ -27,10 +27,7 @@ import type { Env } from "../../src/types.js";
 function makeEnv(): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "k".repeat(32),
     HMAC_PEPPER: "pepper",
-    OIDC_ISSUERS: "",
   } as any;
 }
 

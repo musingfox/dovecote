@@ -37,8 +37,6 @@ function makeServices(overrides: {
 function buildEnv(opts: { hmacPepper?: string } = {}): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "k".repeat(32),
     HMAC_PEPPER: opts.hmacPepper ?? "pepper",
   };
 }

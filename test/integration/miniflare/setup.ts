@@ -43,8 +43,6 @@ export async function initMiniflare(
     compatibilityFlags: ["nodejs_compat"],
     kvNamespaces: ["OAUTH_KV"],
     bindings: {
-      OAUTH_PASSWORD: "test-password",
-      COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length-required",
       ADMIN_REVOKE_TOKEN: "admin-token-123",
       ENABLE_CLIENT_BOOTSTRAP: "1",
       ...(oidcBindings ?? {}),

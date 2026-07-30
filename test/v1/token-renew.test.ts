@@ -52,8 +52,6 @@ function buildApp(auth: AuthCtx, services = makeServices()) {
 function buildEnv(): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "k".repeat(32),
     HMAC_PEPPER: "pepper",
   };
 }

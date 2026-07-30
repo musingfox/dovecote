@@ -20,89 +20,53 @@ Before deploying to production:
 
 3. **Review secrets configuration**:
    Ensure all required secrets are set via `wrangler secret put`:
-   - `OAUTH_PASSWORD`
+   - `HMAC_PEPPER`
    - `ADMIN_REVOKE_TOKEN`
    - Channel-specific credentials (if using notifications)
 
-## Seeding Users
+## Users and Tokens (M1 auth model)
 
-dovecote authenticates users against KV records keyed by `user:<username>`.
-The legacy single-`OAUTH_PASSWORD` deployment (one operator account, full
-scope set) still works for back-compat, but new deployments should seed
-explicit users so per-user scope, audit trail, and revoke can be reasoned
-about cleanly.
+dovecote's root credential is the `dvct_*` API token. There is no password
+login anywhere: browser OAuth (`/authorize`) asks the user to paste a
+`dvct_*` token, the CLI logs in with `dovecote auth login --token`, and CI
+exchanges a GitHub Actions OIDC id_token via `/v1/auth/github-oidc`.
 
-### 1. Seed a user via `scripts/seed-user.mjs`
+### 1. First token — setup wizard
 
-The helper hashes the password with PBKDF2-SHA256 (100k iterations, fresh
-random salt) using `HMAC_PEPPER` as a server-side secret. The output is a
-single-line `wrangler kv key put` command, ready to paste:
+`bun run setup` mints the first token locally (step 6): it reuses the
+server's `issueToken` over a `wrangler kv key put --remote` adapter, writes
+the three KV index keys (`apitoken:`, `apitoken_hash:`, `apitoken_user:`),
+and saves the token to `~/.config/dovecote/config.json`. The scope prompt
+defaults to `dovecote:notify,dovecote:admin` so the bootstrap token can call
+admin-scoped endpoints.
 
-```bash
-node scripts/seed-user.mjs \
-  --username alice \
-  --password "$ALICE_PASSWORD" \
-  --scopes dovecote:notify \
-  --pepper "$HMAC_PEPPER"
-```
+### 2. User records
 
-Pipe that to a shell to actually apply it:
-
-```bash
-eval "$(node scripts/seed-user.mjs --username alice --password "$ALICE_PASSWORD" --scopes dovecote:notify --pepper "$HMAC_PEPPER")"
-```
+User records live at `user:<username>` and carry the user's granted scopes.
+Records are auto-provisioned with `algo:"oidc"` (placeholder, no credential
+material) by the OIDC exchange, or written by the wizard (step 5).
 
 Username charset: lowercase letters, digits, `_`, `-`, 1–64 chars.
-Anything else is rejected client-side (script exits non-zero) and
-server-side (the `/authorize` form returns 403 without a KV read).
 
-> **Migration tip**: KV-seeded users receive ONLY the scopes listed in
-> `--scopes`. The legacy operator inherited the full set
-> (`dovecote:notify`, `dovecote:admin`). When seeding
-> a replacement user, remember to enumerate every scope your existing
-> workflows depend on — otherwise tokens issued to that user will be
-> rejected at scope-check time.
-
-### 2. Available scopes
+### 3. Available scopes
 
 - `dovecote:notify` – send notifications
-- `dovecote:admin` – admin actions (revoke, bootstrap)
+- `dovecote:admin` – admin actions (revoke, bootstrap, token listing)
 
-A user can only successfully complete an `/authorize` request for scopes
-listed in their KV record. Requesting a scope the user lacks → 403
-Insufficient scope.
+### 4. Required envs for the auth path
 
-### 3. Legacy single-operator deployments
+- `HMAC_PEPPER` (required) – `dvct_*` token hashing pepper; if missing,
+  token issue/verify fails closed.
+- `ADMIN_REVOKE_TOKEN` (optional) – enables `/admin/revoke` and
+  `/admin/bootstrap-client`.
+- `GITHUB_OIDC_EXPECTED_AUD` / `GITHUB_OIDC_ALLOWED_OWNER` (optional) –
+  required only for the GitHub Actions OIDC exchange (L2).
 
-If `OAUTH_PASSWORD` is set and no KV `user:<name>` record matches the
-submitted username, the server falls back to a single legacy operator
-account:
+### 5. Retired secrets (safe to delete)
 
-- Default username: `operator` (override via `LEGACY_OPERATOR_USERNAME`)
-- Password: `OAUTH_PASSWORD`
-- Granted scopes: all (`dovecote:notify`, `dovecote:admin`)
-
-This back-compat path lets existing single-tenant installs keep working.
-To retire it, seed real users into KV and unset `OAUTH_PASSWORD`.
-
-### 4. `OAUTH_ADMIN_PASSWORD` retirement
-
-The previous dual-password admin gate (`OAUTH_ADMIN_PASSWORD`) is
-**removed**: admin authority is now expressed by the per-user
-`dovecote:admin` scope in the KV record. The `OAUTH_ADMIN_PASSWORD` env
-is no longer read by the server. Remove it from your worker config when
-convenient:
-
-```bash
-wrangler secret delete OAUTH_ADMIN_PASSWORD
-```
-
-### 5. Required envs for the new auth path
-
-- `HMAC_PEPPER` (required) – password hashing pepper; if missing or empty,
-  password verify throws and authentication fails closed.
-- `OAUTH_PASSWORD` (optional) – legacy fallback only.
-- `LEGACY_OPERATOR_USERNAME` (optional) – override legacy username default.
+Secrets belonging to auth mechanisms removed in M1 are no longer read by
+the worker. List them with `wrangler secret list` and delete any that are
+not in the required set above (`wrangler secret delete <name>`).
 
 ## First-Time Client Provisioning
 

@@ -49,8 +49,6 @@ function buildTestEnv(opts: { hmacPepper?: string } = {}): Env {
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: opts.hmacPepper ?? "test-pepper",
   };
 }

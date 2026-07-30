@@ -3,16 +3,21 @@
  *
  * Only the `oidc` variant remains: maps a verified OIDC subject claim to a
  * userId, auto-provisioning a placeholder `user:<id>` record with the default
- * scope on first login. Form arm removed (no more authenticateUserCredentials).
+ * scope on first login. The password chain is deleted — no form arm exists.
  */
 
 import type { Env } from "../types.js";
-import type { AuthenticatedUser } from "./authenticate.js";
 import {
   readUserRecord,
   normalizeUsername,
   type UserRecord,
 } from "./user-store.js";
+
+/** A resolved user identity: userId plus the scopes granted to it. */
+export interface AuthenticatedUser {
+  userId: string;
+  scopes: string[];
+}
 
 /**
  * Default scope granted to a brand-new OIDC-provisioned user. Intentionally
@@ -41,9 +46,8 @@ export async function resolveUserId(
         };
       }
       // Auto-provision shape — D-AutoProvisionShape. The placeholder
-      // password material (`salt`/`hash` empty, `iterations:0`) is
-      // explicitly refused by `verifyPassword`
-      // (see C-PasswordRejectsOidcAlgo).
+      // fields (`salt`/`hash` empty, `iterations:0`) are inert data kept
+      // for record-shape compatibility (see decision L4).
       const record: UserRecord = {
         username: normalized,
         algo: "oidc",

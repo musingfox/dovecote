@@ -34,8 +34,6 @@ function makeProviderRecorder(): {
 function makeEnv(overrides: Partial<AuthEnv> = {}, provider?: OAuthHelpers): AuthEnv {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: provider ?? ({} as any),
@@ -199,8 +197,6 @@ test("admin revoke: token unset returns 503", async () => {
   const { provider } = makeProviderRecorder();
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     // ADMIN_REVOKE_TOKEN not set
     OAUTH_PROVIDER: provider,

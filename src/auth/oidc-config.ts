@@ -1,9 +1,10 @@
 /**
- * OIDC issuer-config parser (Contract O — supports C-Endpoint-ExchangeOidc).
+ * OIDC issuer-config shapes shared by the L2 GitHub Actions OIDC exchange
+ * (src/auth-github-oidc.ts, src/auth/oidc-verify.ts).
  *
- * Reads `env.OIDC_ISSUERS` (a JSON-encoded array of issuer configs) and
- * validates it. Missing or malformed config throws `OidcConfigError` so
- * the calling handler can surface a 503 `misconfigured` response.
+ * The CF Access RP flow and its issuer-allowlist env parser were removed in
+ * M1 (decision L3); only the issuer-config schema and the clock-tolerance
+ * helper remain.
  */
 
 import { z } from "zod";
@@ -14,53 +15,8 @@ export const oidcIssuerConfigSchema = z.object({
   jwks_uri: z.string().url(),
   audience: z.string().min(1),
   subClaim: z.string().optional(),
-  /** Token endpoint for upstream code→token exchange. Defaults to `${issuer}/token`. */
-  token_endpoint: z.string().url().optional(),
-  /** OAuth client_id for the token exchange request. */
-  client_id: z.string().optional(),
-  /** OAuth client_secret for the token exchange request. */
-  client_secret: z.string().optional(),
-  /** Authorization endpoint for initiating OIDC RP login. */
-  authorization_endpoint: z.string().url().optional(),
 });
 export type OidcIssuerConfig = z.infer<typeof oidcIssuerConfigSchema>;
-
-export const oidcIssuersSchema = z.array(oidcIssuerConfigSchema).min(1);
-
-export class OidcConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "OidcConfigError";
-  }
-}
-
-/**
- * Parse `env.OIDC_ISSUERS` into the allow-list. Throws OidcConfigError if:
- *  - the variable is unset / empty,
- *  - the JSON is malformed,
- *  - the parsed value fails the zod shape (e.g. empty array, missing fields).
- */
-export function parseOidcIssuers(env: Env): OidcIssuerConfig[] {
-  const raw = env.OIDC_ISSUERS;
-  if (typeof raw !== "string" || raw.trim().length === 0) {
-    throw new OidcConfigError("OIDC_ISSUERS is not configured");
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    throw new OidcConfigError(
-      `OIDC_ISSUERS is not valid JSON: ${(e as Error).message}`,
-    );
-  }
-  const validated = oidcIssuersSchema.safeParse(parsed);
-  if (!validated.success) {
-    throw new OidcConfigError(
-      `OIDC_ISSUERS failed schema validation: ${validated.error.issues[0]?.message ?? "unknown"}`,
-    );
-  }
-  return validated.data;
-}
 
 /**
  * Parse `env.OIDC_CLOCK_TOLERANCE_SEC` (decimal integer, seconds). Default 60.

@@ -34,8 +34,10 @@ import {
   type OidcVerifyOutcome,
   type JwksResolver,
 } from "./auth/oidc-verify.js";
-import { resolveUserId as defaultResolveUserId } from "./auth/resolve-user.js";
-import type { AuthenticatedUser } from "./auth/authenticate.js";
+import {
+  resolveUserId as defaultResolveUserId,
+  type AuthenticatedUser,
+} from "./auth/resolve-user.js";
 import * as jose from "jose";
 
 const GH_ISSUER = "https://token.actions.githubusercontent.com";

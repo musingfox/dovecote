@@ -8,8 +8,6 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "admin-tok",
     ...overrides,

@@ -96,8 +96,6 @@ function loadConfig(): E2EConfig {
       TELEGRAM_INSTANCES: telegramInstances,
       DISCORD_INSTANCES: discordInstances,
       OAUTH_KV: {} as any,
-      OAUTH_PASSWORD: process.env.TEST_OAUTH_PASSWORD || "test-password",
-      COOKIE_ENCRYPTION_KEY: process.env.TEST_COOKIE_ENCRYPTION_KEY || "test-key-32-bytes-minimum-length-required",
       HMAC_PEPPER: "test-pepper",
       ADMIN_REVOKE_TOKEN: process.env.TEST_ADMIN_REVOKE_TOKEN,
     };
@@ -119,9 +117,6 @@ function loadConfig(): E2EConfig {
     TELEGRAM_INSTANCES: vars.TELEGRAM_INSTANCES,
     DISCORD_INSTANCES: vars.DISCORD_INSTANCES,
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: vars.OAUTH_PASSWORD || "test-password",
-    COOKIE_ENCRYPTION_KEY:
-      vars.COOKIE_ENCRYPTION_KEY || "test-key-32-bytes-minimum-length-required",
     HMAC_PEPPER: vars.HMAC_PEPPER || "test-pepper",
     ADMIN_REVOKE_TOKEN: vars.ADMIN_REVOKE_TOKEN || "admin-test-token",
     ENABLE_CLIENT_BOOTSTRAP: vars.ENABLE_CLIENT_BOOTSTRAP || "1",

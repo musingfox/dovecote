@@ -8,8 +8,6 @@ const mockEnv = {
   OAUTH_PROVIDER: {},
   OAUTH_KV: mockKv,
   HMAC_PEPPER: "test-pepper-32-characters-long",
-  OAUTH_PASSWORD: "test-password",
-  COOKIE_ENCRYPTION_KEY: "test-encryption-key",
 } as any;
 const mockCtx = createMockExecutionCtx(null) as any;
 

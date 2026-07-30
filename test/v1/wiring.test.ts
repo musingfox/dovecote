@@ -44,8 +44,6 @@ function makeEnv(extra: Partial<Env> = {}): Env {
   return {
     OAUTH_KV: new MockKV() as any,
     HMAC_PEPPER: "test-pepper-32-characters-long",
-    OAUTH_PASSWORD: "p",
-    COOKIE_ENCRYPTION_KEY: "k",
     TELEGRAM_INSTANCES: undefined,
     DISCORD_INSTANCES: undefined,
     ...extra,

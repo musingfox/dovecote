@@ -27,8 +27,6 @@ test("bootstrap: flag absent returns 404 plain text, no audit", async () => {
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -74,8 +72,6 @@ test("bootstrap: flag=0 returns 404 plain text", async () => {
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -117,8 +113,6 @@ test("bootstrap: flag=1, no Authorization returns 401 json", async () => {
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -159,8 +153,6 @@ test("bootstrap: flag=1, Authorization: Basic xxx returns 401 json", async () =>
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -202,8 +194,6 @@ test("bootstrap: flag=1, wrong token returns 401 json, audit auth_failed", async
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -253,8 +243,6 @@ test("bootstrap: flag=1, correct token, 6th call same IP returns 429 with Retry-
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -323,8 +311,6 @@ test("bootstrap: flag=1, correct token, body not-json returns 400 Invalid JSON, 
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -374,8 +360,6 @@ test("bootstrap: flag=1, correct token, missing clientName returns 400, audit in
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -425,8 +409,6 @@ test("bootstrap: flag=1, correct token, empty redirectUris returns 400, audit in
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -478,8 +460,6 @@ test("bootstrap: flag=1, correct token, valid body, mock createClient throws ret
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,
@@ -530,8 +510,6 @@ test("bootstrap: flag=1, correct token, valid body, returns 200 with client_id, 
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test-pass",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "tok",
     OAUTH_PROVIDER: mockProvider,

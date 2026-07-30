@@ -6,8 +6,6 @@ import type { Env } from "../../src/types.js";
 function buildEnv(): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "x".repeat(32),
     HMAC_PEPPER: "pepper",
   };
 }

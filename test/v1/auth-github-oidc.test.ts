@@ -50,8 +50,6 @@ async function signGhToken(
 function buildEnv(overrides: Partial<Env> = {}): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "x".repeat(32),
     HMAC_PEPPER: "test-pepper",
     GITHUB_OIDC_EXPECTED_AUD: EXPECTED_AUD,
     GITHUB_OIDC_ALLOWED_OWNER: ALLOWED_OWNER,

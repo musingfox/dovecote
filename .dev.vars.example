@@ -1,23 +1,8 @@
 # MCP Server Authentication Token (legacy bearer auth)
 MCP_AUTH_TOKEN=your-secure-token-here
 
-# OAuth Password for authorization flow
-OAUTH_PASSWORD=changeme
-
-# Admin password for dovecote:admin scope (required only when granting dovecote:admin scope)
-# If unset and an admin scope is requested, the authorize endpoint returns 503.
-OAUTH_ADMIN_PASSWORD=
-
-# Cookie encryption key (generate with: openssl rand -base64 32)
-
 # HMAC pepper for API token hashing (generate with: openssl rand -base64 32)
 HMAC_PEPPER=your-32-character-hmac-pepper-here
-
-# OIDC state secret for OAuth flow CSRF protection (generate with: openssl rand -base64 32)
-OIDC_STATE_SECRET=
-
-# OIDC issuers configuration (JSON array of issuer objects)
-OIDC_ISSUERS=
 
 # Telegram Instances (JSON array)
 # Each instance must have: id (lowercase alphanumeric with dashes), botToken, chatId

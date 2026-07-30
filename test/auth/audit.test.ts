@@ -9,8 +9,6 @@ test("writeAudit happy path - console log and KV put with TTL", async () => {
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
   };
 
@@ -85,8 +83,6 @@ test("writeAudit failure tolerance - KV.put rejects", async () => {
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
   };
 
@@ -126,8 +122,6 @@ test("writeAudit sanitizes free-text fields (reason with newline)", async () => 
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
   };
 
@@ -172,8 +166,6 @@ test("writeAudit sanitizes reason with ANSI escape codes", async () => {
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
   };
 
@@ -217,8 +209,6 @@ test("writeAudit sanitizes channel field with newline", async () => {
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
   };
 
@@ -261,8 +251,6 @@ test("writeAudit does not sanitize userId (structured field, not free-text)", as
 
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
   };
 
@@ -304,8 +292,6 @@ test("C-Schema-Audit-List: token.list ok writes count + truncated", async () => 
   const promises: Promise<any>[] = [];
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "k",
     HMAC_PEPPER: "p",
   };
   const ctx = {
@@ -337,8 +323,6 @@ test("C-Schema-Audit-List: token.list forbidden records userIdFilter + reason", 
   const promises: Promise<any>[] = [];
   const env: Env = {
     OAUTH_KV: mockKV as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "k",
     HMAC_PEPPER: "p",
   };
   const ctx = {

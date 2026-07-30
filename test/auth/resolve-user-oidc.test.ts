@@ -8,8 +8,6 @@ const PEPPER = "test-pepper";
 function makeEnv(kv: MockKV): Env {
   return {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "",
-    COOKIE_ENCRYPTION_KEY: "x".repeat(32),
     HMAC_PEPPER: PEPPER,
   } as Env;
 }

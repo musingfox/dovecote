@@ -47,22 +47,10 @@ interface AuthEnv extends Env {
 function makeEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     OAUTH_PROVIDER: makeMockProvider(),
     TELEGRAM_INSTANCES: undefined,
     DISCORD_INSTANCES: undefined,
-    OIDC_STATE_SECRET: STATE_SECRET,
-    OIDC_ISSUERS: JSON.stringify([
-      {
-        issuer: ISSUER,
-        jwks_uri: JWKS_URI,
-        audience: AUDIENCE,
-        client_id: RP_CLIENT_ID,
-        authorization_endpoint: AUTHORIZATION_ENDPOINT,
-      },
-    ]),
     ...overrides,
   };
 }

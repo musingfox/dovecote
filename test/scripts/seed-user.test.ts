@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { $ } from "bun";
-import { verifyPassword } from "../../src/auth/password.js";
+import { pbkdf2Sync } from "node:crypto";
 
 const SCRIPT = "scripts/seed-user.mjs";
 
@@ -81,7 +81,10 @@ test("seed-user: dot in username alice.doe → stderr, exit 1", async () => {
   expect(result.stderr.length).toBeGreaterThan(0);
 });
 
-test("seed-user: cross-validate — server verifyPassword accepts script-generated hash", async () => {
+// The server-side password verifier is deleted (M1 — auth is dvct-token only;
+// seed-user's pbkdf2 fields are inert data per decision L4). Cross-validate the
+// script's output against an inline PBKDF2 recomputation instead.
+test("seed-user: cross-validate — script-generated hash matches inline PBKDF2 recomputation", async () => {
   const PEPPER = "cross-validate-pepper";
   const PASSWORD = "hunter2-cross-check";
   const result = await runScript([
@@ -96,19 +99,14 @@ test("seed-user: cross-validate — server verifyPassword accepts script-generat
   expect(match).not.toBeNull();
   const payload = JSON.parse(match![1]!);
 
-  const ok = await verifyPassword(PASSWORD, PEPPER, {
-    algo: payload.algo,
-    iterations: payload.iterations,
-    salt: payload.salt,
-    hash: payload.hash,
-  });
-  expect(ok).toBe(true);
-
-  const bad = await verifyPassword("wrong-password", PEPPER, {
-    algo: payload.algo,
-    iterations: payload.iterations,
-    salt: payload.salt,
-    hash: payload.hash,
-  });
-  expect(bad).toBe(false);
+  // seed-user.mjs derives pbkdf2(password + pepper, salt, iterations)
+  const salt = Buffer.from(payload.salt, "base64");
+  const recomputed = pbkdf2Sync(
+    PASSWORD + PEPPER,
+    salt,
+    payload.iterations,
+    32,
+    "sha256",
+  ).toString("base64");
+  expect(payload.hash).toBe(recomputed);
 });

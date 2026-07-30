@@ -41,8 +41,6 @@ function buildApp(auth: AuthCtx = AUTH) {
 function buildEnv(rateLimit?: string): Env {
   return {
     OAUTH_KV: new MockKV() as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper-32-characters-long",
     ...(rateLimit === undefined ? {} : { NOTIFY_RATE_LIMIT_PER_MINUTE: rateLimit }),
   };

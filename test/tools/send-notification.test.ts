@@ -9,8 +9,6 @@ function buildEnvWithDiscord(webhookUrl: string): Env {
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test",
     HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([{ id: "main", webhookUrl }]),
   };
@@ -95,8 +93,6 @@ function buildNoScopeHandler(auth: AuthCtx): (args: any) => Promise<any> {
   const kv = new MockKV();
   const env: Env = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test",
     HMAC_PEPPER: "test-pepper",
   };
   const ctx = createMockExecutionCtx(auth) as any;
@@ -195,8 +191,6 @@ test("C2: send_notification scope-pass, unknown channel → isError but no notif
   const kv = new MockKV();
   const env: Env = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test",
     HMAC_PEPPER: "test-pepper",
   };
   const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
@@ -237,8 +231,6 @@ test("C2: send_notification scope-pass with stub channel → success, no notify.
   const kv = new MockKV();
   const env: Env = {
     OAUTH_KV: kv as any,
-    OAUTH_PASSWORD: "test",
-    COOKIE_ENCRYPTION_KEY: "test",
     HMAC_PEPPER: "test-pepper",
     DISCORD_INSTANCES: JSON.stringify([{ id: "stub", webhookUrl }]),
   };
