@@ -4,7 +4,7 @@ import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 
-function makeEnv(): Env {
+function makeEnv(overrides: Partial<Env> = {}): Env {
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
@@ -12,10 +12,11 @@ function makeEnv(): Env {
     COOKIE_ENCRYPTION_KEY: "test-key-32-bytes-minimum-length",
     HMAC_PEPPER: "test-pepper",
     ADMIN_REVOKE_TOKEN: "admin-tok",
+    ...overrides,
   } as Env;
 }
 
-test("admin-issue-token removal: POST /admin/issue-token with Bearer ADMIN_REVOKE_TOKEN and valid body returns 404 (AdminIssueTokenRemoved T1)", async () => {
+test("removal: POST /admin/issue-token with Bearer ADMIN_REVOKE_TOKEN returns 404 (AdminIssueTokenRemoved T1)", async () => {
   const env = makeEnv();
   const req = new Request("https://example.com/admin/issue-token", {
     method: "POST",
@@ -26,7 +27,6 @@ test("admin-issue-token removal: POST /admin/issue-token with Bearer ADMIN_REVOK
     body: JSON.stringify({
       userId: "alice",
       scopes: ["dovecote:notify"],
-      expiresInDays: 30,
     }),
   });
   const res = await app.fetch(req, env, createMockExecutionCtx());

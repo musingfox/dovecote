@@ -15,7 +15,6 @@ import { createAuthExchangeOidcApp } from "./auth-exchange-oidc.js";
 import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
 import { createAuthExchangeDeviceApp } from "./auth-exchange-device.js";
 import { createDeviceVerificationApp } from "./device-verification.js";
-import { createAdminIssueTokenApp } from "./admin-issue-token.js";
 import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 
@@ -76,16 +75,6 @@ app.route("/", authExchangeDeviceApp);
 // + CSRF, not bearer auth.
 const deviceVerificationApp = createDeviceVerificationApp();
 app.route("/", deviceVerificationApp);
-
-// Carve-out: /admin/issue-token authenticates via ADMIN_REVOKE_TOKEN (not
-// dvct_*), so it precedes the /v1/* bearer middleware AND the OAuth
-// carve-out routes below (those handle /admin/bootstrap-client + /admin/revoke
-// through the OAuth provider; this endpoint is independent).
-const adminIssueTokenApp = createAdminIssueTokenApp({
-  issueToken,
-  checkRateLimit,
-});
-app.route("/", adminIssueTokenApp);
 
 app.use("/v1/*", bearerMiddleware);
 

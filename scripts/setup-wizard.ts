@@ -183,7 +183,7 @@ async function step0_prereqs(): Promise<void> {
     ok(`jq ${(jq.stdout || "").trim()}`);
   } else {
     warn(
-      "jq not on PATH — optional (recommended for parsing /admin/issue-token responses by hand)"
+      "jq not on PATH — optional (for manual JSON parsing)"
     );
   }
 }
@@ -518,8 +518,7 @@ async function step5_seedUser(secrets: SecretPlan[]): Promise<SeedResult> {
 
   // --remote is REQUIRED on wrangler 4.x: `kv key put` defaults to writing
   // the local miniflare cache (`.wrangler/state/...`), not the deployed
-  // worker's KV. Without it, /admin/issue-token's `user:<id>` lookup against
-  // the staging worker fails 404 even after a "successful" seed.
+  // worker's KV. Without it, the user record may not be visible to the worker.
   const r = wrangler(
     ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", `user:${username}`, json, "--env", envName],
     { capture: true }
@@ -539,113 +538,12 @@ async function step6_bootstrap(
   username: string,
   secrets: SecretPlan[]
 ): Promise<void> {
-  header(6, 9, "Mint personal CLI token");
-
-  const adminEntry = secrets.find((s) => s.name === "ADMIN_REVOKE_TOKEN");
-  let adminToken = adminEntry?.value || "";
-  if (!adminToken) {
-    info(
-      "ADMIN_REVOKE_TOKEN was already set; paste the existing value to call /admin/issue-token."
-    );
-    adminToken = await askSecret("    ADMIN_REVOKE_TOKEN:");
-    if (!adminToken) fail("ADMIN_REVOKE_TOKEN required.");
-  }
-
-  const defaultLabel = hostname();
-  const label = (await ask("  label", defaultLabel)) || defaultLabel;
-
-  const scopesInput =
-    (
-      await ask(
-        "  scopes (comma-separated)",
-        "dovecote:notify,dovecote:admin"
-      )
-    ) || DEFAULT_SCOPES.join(",");
-  const scopes = scopesInput
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const daysInput = (await ask("  expires in days", "90")) || "90";
-  const expiresInDays = parseInt(daysInput, 10);
-  if (!Number.isFinite(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) {
-    fail("expires-in-days must be an integer between 1 and 90");
-  }
-
-  info("Calling POST /admin/issue-token...");
-  let resBody: string;
-  let resStatus: number;
-  try {
-    const res = await fetch(`${serverUrl}/admin/issue-token`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${adminToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: username,
-        scopes,
-        expiresInDays,
-        label,
-      }),
-    });
-    resStatus = res.status;
-    resBody = await res.text();
-  } catch (e) {
-    fail(`fetch failed: ${(e as Error).message}`);
-  }
-
-  if (resStatus < 200 || resStatus >= 300) {
-    stderr.write(`  ✘ HTTP ${resStatus}: ${resBody}\n`);
-    fail(
-      `/admin/issue-token returned ${resStatus} — verify ADMIN_REVOKE_TOKEN matches the worker and user '${username}' exists.`
-    );
-  }
-
-  let parsed: {
-    token: string;
-    tokenId: string;
-    userId: string;
-    scopes: string[];
-    expiresAt: number;
-    label?: string;
-  };
-  try {
-    parsed = JSON.parse(resBody);
-  } catch {
-    fail(`non-JSON response from /admin/issue-token: ${resBody}`);
-  }
-
-  // Write ~/.config/dovecote/config.json (XDG-aware), mode 0600.
-  const baseDir = env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-  const configPath = join(baseDir, "dovecote", "config.json");
-  const config = {
-    serverUrl,
-    clientVersion: "0.1.0",
-    tokens: [
-      {
-        tokenId: parsed.tokenId,
-        token: parsed.token,
-        userId: parsed.userId,
-        scopes: parsed.scopes,
-        expiresAt: parsed.expiresAt,
-        ...(parsed.label !== undefined ? { label: parsed.label } : {}),
-      },
-    ],
-  };
-
-  try {
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
-    chmodSync(configPath, 0o600);
-  } catch (e) {
-    fail(`failed to write ${configPath}: ${(e as Error).message}`);
-  }
-
-  ok(`Token minted and saved to ${configPath} (mode 0600)`);
-  ok(
-    `You can now run: dovecote ping; dovecote notify <channel> --text 'hello'`
-  );
+  header(6, 9, "Mint personal CLI token (local)");
+  // Remote admin mint endpoint removed. Local mint via wrangler KV + issueToken
+  // will be wired in follow-up (WizardLocalTokenMint contract).
+  info("Skipping remote mint (endpoint removed). Token config will be populated by updated wizard.");
+  // No config written here; later step will handle when local mint implemented.
+  ok("Mint step stubbed (no remote call)");
 }
 
 async function step7_summary(
