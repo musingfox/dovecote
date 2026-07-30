@@ -95,6 +95,22 @@ test("WhoamiEndpoint T1: seeded token u1/t1/[dovecote:notify]/expiresAt=17500000
   });
 });
 
+test("WhoamiEndpoint errors: canonical apitoken record missing -> 500 internal_error (not 401)", async () => {
+  const env = buildTestEnv();
+  const { app } = buildApp(U1_AUTH, {
+    getTokenMetadataByTokenId: async () => null,
+  });
+
+  const res = await app.fetch(
+    new Request("http://localhost/v1/auth/whoami"),
+    env,
+    createMockExecutionContext()
+  );
+  expect(res.status).toBe(500);
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("internal_error");
+});
+
 test("WhoamiEndpoint T2: GET /v1/auth/whoami without Authorization -> expect 401", async () => {
   const env = buildTestEnv();
   const app = buildBearerApp();

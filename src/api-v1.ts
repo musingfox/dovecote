@@ -191,7 +191,10 @@ export function createV1App(services: V1Services) {
     }
     const meta = await getMeta(auth.tokenId, env);
     if (!meta) {
-      return c.json({ error: "invalid_token", error_description: "token not found" }, 401);
+      // Bearer verified but canonical apitoken:<tokenId> record is gone —
+      // a server-side index inconsistency, not a rejected token (contract:
+      // 500 internal_error, distinguishable from 401 invalid_token).
+      return c.json({ error: "internal_error" }, 500);
     }
     return c.json({
       userId: auth.userId,
