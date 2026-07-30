@@ -14,6 +14,25 @@ import { buildUpstreamAuthorizeUrl } from "./oidc-rp-authurl.js";
 import { verifyOidcIdToken } from "./oidc-verify.js";
 import * as jose from "jose";
 
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": "frame-ancestors 'none'",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+} as const;
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case "&": return "&amp;";
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case '"': return "&quot;";
+      case "'": return "&#39;";
+      default: return ch;
+    }
+  });
+}
+
 /**
  * 解析 OIDC callback URL：env.OIDC_CALLBACK_BASE_URL 有設且非空則直接回傳，
  * 否則從請求 URL 的 origin 推導。
@@ -145,10 +164,68 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /**
- * GET /authorize - OIDC redirect initiator (replaces form; uses shared handleOidcInitiate)
+ * GET /authorize - renders dvct token paste form (M1)
+ * Provider validates client_id; on success returns HTML form posting back to /authorize.
  */
 app.get("/authorize", async (c) => {
-  return handleOidcInitiate(c);
+  const provider = c.env.OAUTH_PROVIDER;
+  if (!provider) {
+    return c.json({ error: "no_provider" }, 500);
+  }
+
+  const clientId = c.req.query("client_id");
+  if (!clientId) {
+    return c.json({ error: "invalid_redirect_uri" }, 400);
+  }
+
+  // Use parseAuthRequest for validation so that redirect-val error tests (throw cases)
+  // get correct 400/500 without editing that test file.
+  let redirectUri = "";
+  let state = "";
+  let scope = "";
+  let responseType = "code";
+  try {
+    const req = await provider.parseAuthRequest(c.req.raw);
+    // parsed clientId should match query; treat mismatch as invalid too
+    if (!req.clientId || req.clientId !== clientId) {
+      return c.json({ error: "invalid_redirect_uri" }, 400);
+    }
+    redirectUri = req.redirectUri || "";
+    state = req.state || "";
+    scope = (req.scope || []).join(" ");
+    responseType = req.responseType || "code";
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
+      return c.json({ error: "invalid_redirect_uri" }, 400);
+    }
+    throw err;  // non-redirect errors -> 500 as expected by tests
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authorize — Dovecote</title>
+<style>body{font-family:system-ui,sans-serif;max-width:420px;margin:40px auto;padding:16px}input,button{padding:8px;width:100%;box-sizing:border-box}form{display:flex;flex-direction:column;gap:8px}.hidden{display:none}</style>
+</head>
+<body>
+<h1>Authorize</h1>
+<p>Paste your <code>dvct_*</code> token for <code>${escapeHtml(clientId)}</code>.</p>
+<form method="post" action="/authorize">
+<input type="hidden" name="response_type" value="${escapeHtml(responseType)}">
+<input type="hidden" name="client_id" value="${escapeHtml(clientId)}">
+<input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}">
+<input type="hidden" name="state" value="${escapeHtml(state)}">
+${scope ? `<input type="hidden" name="scope" value="${escapeHtml(scope)}">` : ""}
+<label>Token<br><input name="token" type="text" required placeholder="dvct_..." autocomplete="off"></label>
+<button type="submit">Authorize</button>
+</form>
+</body>
+</html>`;
+
+  return c.html(html, 200, SECURITY_HEADERS);
 });
 
 /**

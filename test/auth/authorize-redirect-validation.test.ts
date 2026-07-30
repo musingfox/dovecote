@@ -95,35 +95,37 @@ function makeRequest(redirectUri: string) {
 
 // ── ok path: registered https URI → 302 to authorization_endpoint ─────────────
 
-test("ok: parseAuthRequest returns normally → 302 starts with AUTHORIZATION_ENDPOINT", async () => {
+test("ok: parseAuthRequest returns normally → 200 form (not 302)", async () => {
   const uri = "https://client.example/callback";
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider({ kind: "ok", redirectUri: uri }) });
   const res = await authorizeApp.fetch(makeRequest(uri), env, makeCtx());
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  expect(loc.startsWith(AUTHORIZATION_ENDPOINT)).toBe(true);
+  expect(res.status).toBe(200);
+  const ct = res.headers.get("content-type") || "";
+  expect(ct).toContain("text/html");
+  const body = await res.text();
+  expect(body).toContain('name="token"');
 });
 
-// ── ok path: loopback IPv4 port-flexible → 302 ────────────────────────────────
+// ── ok path: loopback IPv4 port-flexible → 200 form ────────────────────────────────
 
-test("ok: loopback http://127.0.0.1:9999/cb parseAuthRequest returns normally → 302", async () => {
+test("ok: loopback http://127.0.0.1:9999/cb parseAuthRequest returns normally → 200 form", async () => {
   const uri = "http://127.0.0.1:9999/cb";
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider({ kind: "ok", redirectUri: uri }) });
   const res = await authorizeApp.fetch(makeRequest(uri), env, makeCtx());
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  expect(loc.startsWith(AUTHORIZATION_ENDPOINT)).toBe(true);
+  expect(res.status).toBe(200);
+  const body = await res.text();
+  expect(body).toContain('name="token"');
 });
 
-// ── ok path: localhost port-flexible → 302 ────────────────────────────────────
+// ── ok path: localhost port-flexible → 200 form ────────────────────────────────────
 
-test("ok: localhost http://localhost:9999/cb parseAuthRequest returns normally → 302", async () => {
+test("ok: localhost http://localhost:9999/cb parseAuthRequest returns normally → 200 form", async () => {
   const uri = "http://localhost:9999/cb";
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider({ kind: "ok", redirectUri: uri }) });
   const res = await authorizeApp.fetch(makeRequest(uri), env, makeCtx());
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  expect(loc.startsWith(AUTHORIZATION_ENDPOINT)).toBe(true);
+  expect(res.status).toBe(200);
+  const body = await res.text();
+  expect(body).toContain('name="token"');
 });
 
 // ── redirect error: "Invalid redirect URI" → 400 {error:"invalid_redirect_uri"} ──

@@ -21,7 +21,7 @@ import { checkRateLimit } from "./auth/rate-limit.js";
 const oauthOptions: OAuthProviderOptions<Env> = {
   apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
   apiRoute: "/mcp",
-  defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) },
+  defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) }, // GET/POST /authorize now form-based (dvct token)
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",

@@ -49,11 +49,11 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
-   OAUTH_PASSWORD=your-authorize-page-password
+   # OAUTH_PASSWORD removed (M1); /authorize uses dvct token paste form
    COOKIE_ENCRYPTION_KEY=$(openssl rand -base64 32)
    TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
    DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
-   ```
+```
 
 3. Run locally:
    ```bash
@@ -93,11 +93,11 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    This will prompt you to enter secrets. If `.dev.vars` exists, it will use values from there as defaults.
 
    Required:
-   - `OAUTH_PASSWORD` — password shown on the `/authorize` page (Claude.ai OAuth flow)
+   - (no OAUTH_PASSWORD) — /authorize now shows a form to paste a pre-issued `dvct_*` token
    - `COOKIE_ENCRYPTION_KEY` — HMAC key for the CSRF cookie (base64, 32 bytes)
 
    Optional (admin scope):
-   - `OAUTH_ADMIN_PASSWORD` — separate password required when a client requests the `dovecote:admin` scope. If this secret is not configured and an admin scope is requested, the authorize endpoint returns 503. Regular `OAUTH_PASSWORD` is never used as a fallback for admin requests.
+   - `OAUTH_ADMIN_PASSWORD` — (legacy) separate password for admin scope; now superseded by per-user `dovecote:admin` scope in KV.
 
    Optional (notification channels, JSON arrays):
    - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
@@ -125,7 +125,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 ### Claude.ai Web Connector (OAuth)
 
-When adding a connector on Claude.ai, fill in the MCP endpoint URL **including the `/mcp` suffix** (e.g., `https://dovecote.<sub>.workers.dev/mcp`). The bare base URL will fail OAuth discovery and surface as "Authorization with the MCP server failed." Claude redirects to `/authorize`, which asks for `OAUTH_PASSWORD`; on success it completes the OAuth 2.1 + PKCE flow to obtain an access token, and subsequent MCP calls carry the Bearer token automatically.
+When adding a connector on Claude.ai, fill in the MCP endpoint URL **including the `/mcp` suffix** (e.g., `https://dovecote.<sub>.workers.dev/mcp`). The bare base URL will fail OAuth discovery and surface as "Authorization with the MCP server failed." Claude redirects to `/authorize`, which shows a form to paste a `dvct_*` token (issued via wizard or exchange); on POST success it completes the OAuth 2.1 + PKCE flow to obtain an access token, and subsequent MCP calls carry the Bearer token automatically.
 
 5. **Run E2E tests against production** (optional)
    ```bash
@@ -246,7 +246,7 @@ dovecote implements defense-in-depth security controls:
 - **Anti-Clickjacking Headers**: `/authorize` endpoint serves `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`
 - **Scope-Based Access Control**:
   - `dovecote:notify` – Send notifications via configured channels
-  - `dovecote:admin` – **Admin privilege**: Execute admin-level operations. Requires `OAUTH_ADMIN_PASSWORD` (separate from `OAUTH_PASSWORD`). Any authorization request containing `dovecote:admin` (even mixed with other scopes) is validated against the admin password; the regular password is not accepted. If `OAUTH_ADMIN_PASSWORD` is not configured, the endpoint returns 503 immediately — there is no silent fallback.
+  - `dovecote:admin` – **Admin privilege**: Execute admin-level operations. Requires the `dovecote:admin` scope on the issuing user record.
 
 ### Vulnerability Reporting
 

@@ -109,12 +109,15 @@ test("MC-B GET /oidc/redirect missing client_id → 400 invalid_redirect_uri", a
   expect(body.error).toBe("invalid_redirect_uri");
 });
 
-test("MC-C valid client_id + registered redirect → 302 to upstream AUTHORIZATION_ENDPOINT", async () => {
+test("MC-C valid client_id + registered redirect → 200 form (not 302)", async () => {
   const env = makeEnv({ OAUTH_PROVIDER: makeProvider("ok") });
-  const qs = `response_type=code&client_id=${DOWNSTREAM_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOD_REDIRECT)}&scope=dovecote:notify&state=${CLIENT_STATE}&code_challenge=${CODE_CHALLENGE}&code_challenge_method=${CODE_CHALLENGE_METHOD}`;
+  const qs = `response_type=code&client_id=${DOWNSTREAM_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOD_REDIRECT)}&state=${CLIENT_STATE}&code_challenge=${CODE_CHALLENGE}&code_challenge_method=${CODE_CHALLENGE_METHOD}`;
   const req = new Request(`https://dovecote.example/authorize?${qs}`);
   const res = await authorizeApp.fetch(req, env, makeCtx());
-  expect(res.status).toBe(302);
-  const loc = res.headers.get("Location") ?? "";
-  expect(loc.startsWith(AUTHORIZATION_ENDPOINT)).toBe(true);
+  expect(res.status).toBe(200);
+  const ct = res.headers.get("content-type") || "";
+  expect(ct).toContain("text/html");
+  const body = await res.text();
+  expect(body).toContain('name="token"');
+  expect(body).toContain(`value="${DOWNSTREAM_CLIENT_ID}"`);
 });
