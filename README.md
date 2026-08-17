@@ -10,7 +10,7 @@ Agent notification infrastructure — an MCP server deployed on Cloudflare Worke
 
 - **MCP over Streamable HTTP** — compatible with Claude Code, Claude web connector, and any MCP client
 - **OAuth 2.1 + PKCE** — sign-in flow for the Claude.ai web connector, with Dynamic Client Registration (RFC 7591) and Protected Resource Metadata (RFC 9728)
-- **Multi-instance channels** — configure multiple Telegram / Discord instances via `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON arrays
+- **Multi-instance channels** — each Telegram / Discord instance is a `channel:<service>-<id>` KV record, added with `bun run channel:add`
 
 ## Architecture
 
@@ -49,9 +49,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
    HMAC_PEPPER=...
-   TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
-   DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
 ```
+
+   Channels are not read from `.dev.vars` — the worker resolves them from
+   `channel:<service>-<id>` records in `OAUTH_KV`.
 
 3. Run locally:
    ```bash
@@ -93,9 +94,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    Required:
    - `HMAC_PEPPER` — HMAC pepper for `dvct_*` token hashing; `/authorize` shows a form to paste a pre-issued `dvct_*` token
 
-   Optional (notification channels, JSON arrays):
-   - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
-   - `DISCORD_INSTANCES` — `[{"id":"default","webhookUrl":"..."}]`
+   Notification channels are no longer secrets. Each channel is a
+   `channel:<service>-<id>` record in `OAUTH_KV`: add one with
+   `bun run channel:add -- --env production`, or move a saved JSON array over
+   in one shot with `bun run channel:migrate -- --env production --file backup.json`.
 
    For the staging environment: `WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`.
 
@@ -127,11 +129,10 @@ When adding a connector on Claude.ai, fill in the MCP endpoint URL **including t
    bun test:e2e:remote
    ```
 
-   For testing notification channels on production:
+   To also assert which channels the deployment exposes, list their ids:
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_TELEGRAM_INSTANCES='[{"id":"default","botToken":"...","chatId":"..."}]' \
-   TEST_DISCORD_INSTANCES='[{"id":"default","webhookUrl":"..."}]' \
+   TEST_EXPECTED_CHANNELS='telegram-default,discord-ops' \
    bun test:e2e:remote
    ```
 

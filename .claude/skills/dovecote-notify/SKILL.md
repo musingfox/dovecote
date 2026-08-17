@@ -158,4 +158,4 @@ dovecote notify telegram-ops --text "🎉 Done: extracted 1,247 entities from th
 
 ## Server-side reference
 
-If the user asks "what is dovecote / where do channels go": dovecote is the user's self-hosted Cloudflare Worker that fronts notification channels behind an OAuth/runtime-token API. Repo at https://github.com/musingfox/dovecote. The user provisioned it via `bun run setup` in that repo; channels (Telegram bots / Discord webhooks) are configured via `wrangler secret put TELEGRAM_INSTANCES / DISCORD_INSTANCES`.
+If the user asks "what is dovecote / where do channels go": dovecote is the user's self-hosted Cloudflare Worker that fronts notification channels behind an OAuth/runtime-token API. Repo at https://github.com/musingfox/dovecote. The user provisioned it via `bun run setup` in that repo; channels (Telegram bots / Discord webhooks) are `channel:<service>-<id>` records in the worker's KV namespace, provisioned via `bun run setup` or `bun run channel:add`.

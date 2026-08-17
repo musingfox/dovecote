@@ -23,28 +23,6 @@ fi
 echo "Setting MCP_AUTH_TOKEN..."
 echo "$MCP_AUTH_TOKEN" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} MCP_AUTH_TOKEN
 
-# Optional: TELEGRAM_INSTANCES (JSON array)
-if [[ -n "${TELEGRAM_INSTANCES:-}" ]]; then
-  echo "Setting TELEGRAM_INSTANCES..."
-  echo "$TELEGRAM_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} TELEGRAM_INSTANCES
-else
-  read -p "Enter TELEGRAM_INSTANCES JSON (optional, press Enter to skip): " TELEGRAM_INSTANCES
-  if [[ -n "$TELEGRAM_INSTANCES" ]]; then
-    echo "$TELEGRAM_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} TELEGRAM_INSTANCES
-  fi
-fi
-
-# Optional: DISCORD_INSTANCES (JSON array)
-if [[ -n "${DISCORD_INSTANCES:-}" ]]; then
-  echo "Setting DISCORD_INSTANCES..."
-  echo "$DISCORD_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} DISCORD_INSTANCES
-else
-  read -p "Enter DISCORD_INSTANCES JSON (optional, press Enter to skip): " DISCORD_INSTANCES
-  if [[ -n "$DISCORD_INSTANCES" ]]; then
-    echo "$DISCORD_INSTANCES" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} DISCORD_INSTANCES
-  fi
-fi
-
 # HMAC_PEPPER is required (dvct_* token hashing)
 if [[ -z "${HMAC_PEPPER:-}" ]]; then
   read -p "Enter HMAC_PEPPER (required, generate with: openssl rand -base64 32): " HMAC_PEPPER

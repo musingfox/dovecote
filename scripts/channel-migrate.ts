@@ -2,9 +2,9 @@
 /**
  * dovecote channel migration (ChannelMigrateWritesKvRecords).
  *
- * One-shot: pour the JSON you saved from the old `TELEGRAM_INSTANCES` /
- * `DISCORD_INSTANCES` worker secrets into this command and every channel
- * appears as a `channel:<service>-<id>` KV record in the chosen environment.
+ * One-shot: pour the JSON you saved from the old per-service channel worker
+ * secrets into this command and every channel appears as a
+ * `channel:<service>-<id>` KV record in the chosen environment.
  *
  * Usage:
  *   bun run channel:migrate -- --env staging --file backup.json

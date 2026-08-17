@@ -4,14 +4,6 @@ MCP_AUTH_TOKEN=your-secure-token-here
 # HMAC pepper for API token hashing (generate with: openssl rand -base64 32)
 HMAC_PEPPER=your-32-character-hmac-pepper-here
 
-# Telegram Instances (JSON array)
-# Each instance must have: id (lowercase alphanumeric with dashes), botToken, chatId
-TELEGRAM_INSTANCES=[{"id":"default","botToken":"123456789:ABCdefGHIjklMNOpqrsTUVwxyz","chatId":"123456789"}]
-
-# Discord Instances (JSON array)
-# Each instance must have: id (lowercase alphanumeric with dashes), webhookUrl
-DISCORD_INSTANCES=[{"id":"default","webhookUrl":"https://discord.com/api/webhooks/123456789/abcdefghijklmnopqrstuvwxyz"}]
-
-# Multiple instances example:
-# TELEGRAM_INSTANCES=[{"id":"alerts","botToken":"...","chatId":"..."},{"id":"team-a","botToken":"...","chatId":"..."}]
-# DISCORD_INSTANCES=[{"id":"general","webhookUrl":"..."},{"id":"team-b","webhookUrl":"..."}]
+# Notification channels are NOT env vars. Each channel is a
+# `channel:<service>-<id>` record in the OAUTH_KV namespace; add one with
+# `bun run channel:add -- --env <staging|production>`.

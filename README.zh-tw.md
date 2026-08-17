@@ -8,7 +8,7 @@ Agent 通知基礎設施 — 部署在 Cloudflare Workers 上的 MCP server，�
 
 - **MCP over Streamable HTTP** — 相容 Claude Code、Claude web connector 與任何 MCP client
 - **OAuth 2.1 + PKCE** — Claude.ai web connector 登入流程，支援 Dynamic Client Registration (RFC 7591) 與 Protected Resource Metadata (RFC 9728)
-- **Multi-instance channels** — Telegram / Discord 可透過 `TELEGRAM_INSTANCES` / `DISCORD_INSTANCES` JSON 陣列設定多個 instance
+- **Multi-instance channels** — 每個 Telegram / Discord instance 都是一筆 `channel:<service>-<id>` KV 記錄，用 `bun run channel:add` 新增
 
 ## 架構
 
@@ -47,9 +47,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 2. 建立 `.dev.vars`（可參考 `.dev.vars.example`）：
    ```env
    HMAC_PEPPER=...
-   TELEGRAM_INSTANCES=[{"id":"default","botToken":"...","chatId":"..."}]
-   DISCORD_INSTANCES=[{"id":"default","webhookUrl":"..."}]
 ```
+
+   頻道不從 `.dev.vars` 讀取 — worker 改從 `OAUTH_KV` 的
+   `channel:<service>-<id>` 記錄解析。
 
 3. 本地啟動：
    ```bash
@@ -91,9 +92,9 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    必要：
    - `HMAC_PEPPER` — `dvct_*` token 雜湊用 pepper；`/authorize` 顯示貼上 `dvct_*` token 的表單
 
-   選用（通知頻道，JSON 陣列）：
-   - `TELEGRAM_INSTANCES` — `[{"id":"default","botToken":"...","chatId":"..."}]`
-   - `DISCORD_INSTANCES` — `[{"id":"default","webhookUrl":"..."}]`
+   通知頻道已不再是 secret。每個頻道是 `OAUTH_KV` 裡的
+   `channel:<service>-<id>` 記錄：用 `bun run channel:add -- --env production` 新增，
+   或用 `bun run channel:migrate -- --env production --file backup.json` 一次匯入舊的 JSON 陣列。
 
    Staging 環境：`WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`。
 
@@ -125,11 +126,10 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
    bun test:e2e:remote
    ```
 
-   要一併驗證通知頻道：
+   要一併斷言部署應該暴露哪些頻道，列出它們的 id：
    ```bash
    TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_TELEGRAM_INSTANCES='[{"id":"default","botToken":"...","chatId":"..."}]' \
-   TEST_DISCORD_INSTANCES='[{"id":"default","webhookUrl":"..."}]' \
+   TEST_EXPECTED_CHANNELS='telegram-default,discord-ops' \
    bun test:e2e:remote
    ```
 
