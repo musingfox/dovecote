@@ -1,169 +1,152 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from "bun:test";
 import {
-  buildChannelRegistry,
+  readChannelRecord,
   getChannelConfigs,
   sendToChannel,
 } from "../../src/channels/registry";
+import { MockKV } from "../helpers/mock-kv";
 import type { Env } from "../../src/types";
 
-describe("buildChannelRegistry (BC3)", () => {
-  it("env with telegram + discord instances → 2 registrations", () => {
-    const env = {
-      TELEGRAM_INSTANCES: JSON.stringify([
-        { id: "alerts", botToken: "bot123", chatId: "chat456" },
-      ]),
-      DISCORD_INSTANCES: JSON.stringify([
-        { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-      ]),
-    } as Env;
-    const registry = buildChannelRegistry(env);
-    expect(registry).toHaveLength(2);
-    expect(registry.find((r) => r.channelId === "telegram-alerts")).toBeDefined();
-    expect(registry.find((r) => r.channelId === "discord-team-a")).toBeDefined();
+/** MockKV that records every `get` / `list` so call counts can be asserted. */
+class CountingKV extends MockKV {
+  gets: string[] = [];
+  lists: Array<string | undefined> = [];
+
+  override async get(key: string, options?: any): Promise<any> {
+    this.gets.push(key);
+    return super.get(key, options);
+  }
+
+  override async list(options?: { prefix?: string; limit?: number; cursor?: string }) {
+    this.lists.push(options?.prefix);
+    return super.list(options);
+  }
+}
+
+async function buildEnv(
+  seed: Record<string, string> = {}
+): Promise<{ env: Env; kv: CountingKV }> {
+  const kv = new CountingKV();
+  for (const [key, value] of Object.entries(seed)) {
+    await kv.put(key, value);
+  }
+  kv.gets = [];
+  kv.lists = [];
+  return { env: { OAUTH_KV: kv, HMAC_PEPPER: "test-pepper" } as unknown as Env, kv };
+}
+
+const TELEGRAM_DEFAULT = JSON.stringify({
+  service: "telegram",
+  id: "default",
+  botToken: "t",
+  chatId: "c",
+});
+
+const DISCORD_OPS = JSON.stringify({
+  service: "discord",
+  id: "ops",
+  webhookUrl: "https://discord.com/api/webhooks/1/t",
+});
+
+describe("readChannelRecord (ChannelRecordRead)", () => {
+  it("stored telegram record → validated config", async () => {
+    const { env } = await buildEnv({ "channel:telegram-default": TELEGRAM_DEFAULT });
+    expect(await readChannelRecord("telegram-default", env)).toEqual({
+      service: "telegram",
+      config: { id: "default", botToken: "t", chatId: "c" },
+    });
   });
 
-  it("empty env → []", () => {
-    const env = {} as Env;
-    const registry = buildChannelRegistry(env);
-    expect(registry).toEqual([]);
+  it("stored discord record → validated config", async () => {
+    const { env } = await buildEnv({ "channel:discord-ops": DISCORD_OPS });
+    expect(await readChannelRecord("discord-ops", env)).toEqual({
+      service: "discord",
+      config: { id: "ops", webhookUrl: "https://discord.com/api/webhooks/1/t" },
+    });
   });
 
-  it("malformed JSON in one service → that service yields 0, other still works; console.warn called", () => {
+  it("empty KV → null", async () => {
+    const { env, kv } = await buildEnv();
+    expect(await readChannelRecord("telegram-default", env)).toBeNull();
+    expect(kv.gets).toEqual(["channel:telegram-default"]);
+  });
+
+  it("malformed channel id → null with zero KV gets", async () => {
+    const { env, kv } = await buildEnv({ "channel:telegram-default": TELEGRAM_DEFAULT });
+    expect(await readChannelRecord("../user:admin", env)).toBeNull();
+    expect(kv.gets).toEqual([]);
+  });
+
+  it("unknown service segment → null with zero KV gets", async () => {
+    const { env, kv } = await buildEnv();
+    expect(await readChannelRecord("nosuchservice-x", env)).toBeNull();
+    expect(kv.gets).toEqual([]);
+  });
+
+  it("id with no dash → null with zero KV gets", async () => {
+    const { env, kv } = await buildEnv();
+    expect(await readChannelRecord("telegram", env)).toBeNull();
+    expect(kv.gets).toEqual([]);
+  });
+
+  it("unparseable JSON → null and one warning naming the key", async () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv({ "channel:telegram-ops": "not json" });
 
-    const env = {
-      TELEGRAM_INSTANCES: "not json",
-      DISCORD_INSTANCES: JSON.stringify([
-        { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-      ]),
-    } as Env;
-    const registry = buildChannelRegistry(env);
-    expect(registry).toHaveLength(1);
-    expect(registry[0]?.channelId).toBe("discord-team-a");
-    expect(warnSpy).toHaveBeenCalledWith("TELEGRAM_INSTANCES: invalid JSON");
+    expect(await readChannelRecord("telegram-ops", env)).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("channel:telegram-ops");
 
     warnSpy.mockRestore();
   });
-});
 
-describe("getChannelConfigs (BC4)", () => {
-  it("includes service field, name like 'Telegram (alerts)', enabled: true", () => {
-    const env = {
-      TELEGRAM_INSTANCES: JSON.stringify([
-        { id: "alerts", botToken: "bot123", chatId: "chat456" },
-      ]),
-      DISCORD_INSTANCES: JSON.stringify([
-        { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-      ]),
-    } as Env;
-    const configs = getChannelConfigs(env);
-    expect(configs).toHaveLength(2);
-
-    const telegramConfig = configs.find((c) => c.id === "telegram-alerts");
-    expect(telegramConfig).toEqual({
-      id: "telegram-alerts",
-      name: "Telegram (alerts)",
-      enabled: true,
-      service: "telegram",
+  it("record id contradicting the key → null (D-M3)", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv({
+      "channel:telegram-ops": JSON.stringify({
+        service: "telegram",
+        id: "other",
+        botToken: "t",
+        chatId: "c",
+      }),
     });
 
-    const discordConfig = configs.find((c) => c.id === "discord-team-a");
-    expect(discordConfig).toEqual({
-      id: "discord-team-a",
-      name: "Discord (team-a)",
-      enabled: true,
-      service: "discord",
+    expect(await readChannelRecord("telegram-ops", env)).toBeNull();
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("channel:telegram-ops");
+
+    warnSpy.mockRestore();
+  });
+
+  it("record service contradicting the key → null (D-M3)", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv({ "channel:telegram-ops": DISCORD_OPS });
+
+    expect(await readChannelRecord("telegram-ops", env)).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith("channel:telegram-ops: service mismatch");
+
+    warnSpy.mockRestore();
+  });
+
+  it("invalid record → warning is the KV key plus the bare adapter message (D-M6)", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv({
+      "channel:telegram-ops": JSON.stringify({ service: "telegram", id: "ops" }),
     });
+
+    expect(await readChannelRecord("telegram-ops", env)).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith("channel:telegram-ops: missing 'botToken'");
+    expect(String(warnSpy.mock.calls[0]?.[0])).not.toContain("INSTANCES");
+
+    warnSpy.mockRestore();
   });
 
-  it("empty env → []", () => {
-    const env = {} as Env;
-    const configs = getChannelConfigs(env);
-    expect(configs).toEqual([]);
-  });
-});
+  it("plain miss warns nothing", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv();
 
-describe("sendToChannel (BC5)", () => {
-  beforeEach(() => {
-    mock.restore();
-  });
+    expect(await readChannelRecord("telegram-default", env)).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
 
-  it("sendToChannel('telegram-alerts', content, env) → success, channel = 'telegram-alerts'", async () => {
-    const mockFetch = mock(() => {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            result: { message_id: 123, text: "Hello", chat: { id: "chat456" } },
-          }),
-          { status: 200 }
-        )
-      );
-    });
-    globalThis.fetch = mockFetch as any;
-
-    const env = {
-      TELEGRAM_INSTANCES: JSON.stringify([
-        { id: "alerts", botToken: "bot123", chatId: "chat456" },
-      ]),
-    } as Env;
-    const result = await sendToChannel("telegram-alerts", { text: "Hello" }, env);
-    expect(result.success).toBe(true);
-    expect(result.channel).toBe("telegram-alerts");
-    expect(result.messageId).toBe("123");
-  });
-
-  it("sendToChannel('slack-general', ...) → { success: false, error: 'Unknown channel' }", async () => {
-    const env = {} as Env;
-    const result = await sendToChannel("slack-general", { text: "Hello" }, env);
-    expect(result).toEqual({
-      success: false,
-      channel: "slack-general",
-      error: "Unknown channel",
-    });
-  });
-
-  it("sendToChannel('telegram', ...) → { success: false, error: 'Unknown channel' }", async () => {
-    const env = {
-      TELEGRAM_INSTANCES: JSON.stringify([
-        { id: "alerts", botToken: "bot123", chatId: "chat456" },
-      ]),
-    } as Env;
-    const result = await sendToChannel("telegram", { text: "msg" }, env);
-    expect(result).toEqual({
-      success: false,
-      channel: "telegram",
-      error: "Unknown channel",
-    });
-  });
-
-  it("routes to Discord provider with embed", async () => {
-    const mockFetch = mock(() => {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            id: "discord-123",
-            embeds: [{ title: "Test" }],
-            channel_id: "ch-123",
-          }),
-          { status: 200 }
-        )
-      );
-    });
-    globalThis.fetch = mockFetch as any;
-
-    const env = {
-      DISCORD_INSTANCES: JSON.stringify([
-        { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-      ]),
-    } as Env;
-    const result = await sendToChannel(
-      "discord-team-a",
-      { embed: { title: "Test" } },
-      env
-    );
-    expect(result.success).toBe(true);
-    expect(result.channel).toBe("discord-team-a");
-    expect(result.messageId).toBe("discord-123");
+    warnSpy.mockRestore();
   });
 });

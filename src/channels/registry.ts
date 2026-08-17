@@ -1,53 +1,128 @@
+/**
+ * KV-backed channel registry.
+ *
+ * A channel lives under exactly one key, `channel:<service>-<instanceId>`
+ * (see `channelKey`). The key is authoritative for the channel's identity;
+ * the record's own `service` / `id` fields are a cross-check and a record
+ * that contradicts its key is treated as corrupt (D-M3).
+ *
+ * Notify resolves one channel with one `KV.get`; listing pays one `KV.list`
+ * plus one `get` per record so a corrupt record is skipped rather than
+ * advertised as a working channel (D-M2). No caching.
+ */
+
 import type { Env, ChannelConfig, SendResult } from "../types.js";
-import type { MessageContent, ServiceAdapter, ChannelRegistration } from "./types.js";
+import type {
+  MessageContent,
+  ServiceAdapter,
+  TelegramInstanceConfig,
+  DiscordInstanceConfig,
+} from "./types.js";
 import { telegramAdapter } from "./telegram.js";
 import { discordAdapter } from "./discord.js";
-import { splitChannelId } from "./utils.js";
+import { splitChannelId, channelKey, CHANNEL_KEY_PREFIX } from "./utils.js";
 
-const adapters: ServiceAdapter[] = [telegramAdapter, discordAdapter];
+const adapters: ServiceAdapter[] = [
+  telegramAdapter as ServiceAdapter,
+  discordAdapter as ServiceAdapter,
+];
 
-export function buildChannelRegistry(env: Env): ChannelRegistration[] {
-  const registrations: ChannelRegistration[] = [];
+const adapterMap = new Map<string, ServiceAdapter>(adapters.map((a) => [a.service, a]));
 
-  for (const adapter of adapters) {
-    const rawValue = env[adapter.envKey as keyof Env];
-    const jsonString = typeof rawValue === "string" ? rawValue : undefined;
-    const { instances, errors } = adapter.parseInstances(jsonString);
+/**
+ * Conservative charset guard applied before any KV read, mirroring
+ * `readUserRecord` — an attacker-supplied channel id must never be able to
+ * probe arbitrary KV entries.
+ */
+const CHANNEL_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
-    for (const error of errors) {
-      console.warn(error);
-    }
-
-    for (const instance of instances) {
-      const instanceWithId = instance as { id: string };
-      const channelId = `${adapter.service}-${instanceWithId.id}`;
-      registrations.push({
-        channelId,
-        service: adapter.service,
-        createProvider: () => adapter.createProvider(channelId, instance),
-      });
-    }
-  }
-
-  return registrations;
+export interface ChannelRecord {
+  service: string;
+  config: TelegramInstanceConfig | DiscordInstanceConfig;
 }
 
-export function getChannelConfigs(env: Env): ChannelConfig[] {
-  const registry = buildChannelRegistry(env);
-  const adapterMap = new Map(adapters.map((a) => [a.service, a]));
+/**
+ * Read and validate one stored channel record. Returns `null` for a malformed
+ * id (no KV read is issued), an unknown service, a KV miss, unparseable JSON,
+ * a rejected record, or a record that disagrees with its own key.
+ */
+export async function readChannelRecord(
+  channelId: string,
+  env: Env
+): Promise<ChannelRecord | null> {
+  if (typeof channelId !== "string" || !CHANNEL_ID_REGEX.test(channelId)) {
+    return null;
+  }
 
-  return registry.map((reg) => {
-    const adapter = adapterMap.get(reg.service);
-    const split = splitChannelId(reg.channelId);
-    const instanceId = split?.instance ?? reg.channelId;
+  const split = splitChannelId(channelId);
+  if (!split) {
+    return null;
+  }
 
-    return {
-      id: reg.channelId,
-      name: adapter?.displayName(instanceId) ?? reg.channelId,
+  const adapter = adapterMap.get(split.service);
+  if (!adapter) {
+    return null;
+  }
+
+  const key = channelKey(split.service, split.instance);
+  const raw = await env.OAUTH_KV.get(key);
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.warn(`${key}: invalid JSON`);
+    return null;
+  }
+
+  const result = adapter.parseRecord(parsed);
+  if (!result.ok) {
+    console.warn(`${key}: ${result.error}`);
+    return null;
+  }
+
+  const config = result.config as TelegramInstanceConfig | DiscordInstanceConfig;
+  if (config.id !== split.instance) {
+    console.warn(`${key}: record id '${config.id}' does not match its key`);
+    return null;
+  }
+
+  return { service: split.service, config };
+}
+
+/**
+ * Every channel whose stored record is valid, ascending by channel id.
+ * Corrupt records are omitted (and warned about) so one bad channel cannot
+ * hide the others. A KV `list` failure propagates — an unavailable KV is not
+ * the same as "no channels".
+ */
+export async function getChannelConfigs(env: Env): Promise<ChannelConfig[]> {
+  const listing = await env.OAUTH_KV.list({ prefix: CHANNEL_KEY_PREFIX });
+
+  const configs: ChannelConfig[] = [];
+
+  for (const entry of listing.keys) {
+    const channelId = entry.name.slice(CHANNEL_KEY_PREFIX.length);
+    const record = await readChannelRecord(channelId, env);
+    if (!record) {
+      continue;
+    }
+
+    const adapter = adapterMap.get(record.service);
+    configs.push({
+      id: channelId,
+      name: adapter ? adapter.displayName(record.config.id) : channelId,
       enabled: true,
-      service: reg.service,
-    };
-  });
+      service: record.service,
+    });
+  }
+
+  configs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  return configs;
 }
 
 export async function sendToChannel(
@@ -55,10 +130,9 @@ export async function sendToChannel(
   content: MessageContent,
   env: Env
 ): Promise<SendResult> {
-  const registry = buildChannelRegistry(env);
-  const registration = registry.find((r) => r.channelId === channelId);
+  const record = await readChannelRecord(channelId, env);
 
-  if (!registration) {
+  if (!record) {
     return {
       success: false,
       channel: channelId,
@@ -66,6 +140,14 @@ export async function sendToChannel(
     };
   }
 
-  const provider = registration.createProvider();
-  return provider.send(content);
+  const adapter = adapterMap.get(record.service);
+  if (!adapter) {
+    return {
+      success: false,
+      channel: channelId,
+      error: "Unknown channel",
+    };
+  }
+
+  return adapter.createProvider(channelId, record.config).send(content);
 }
