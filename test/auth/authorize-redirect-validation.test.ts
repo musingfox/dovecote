@@ -58,8 +58,6 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
   return {
     OAUTH_KV: new MockKV() as any,
     HMAC_PEPPER: "pepper",
-    TELEGRAM_INSTANCES: undefined,
-    DISCORD_INSTANCES: undefined,
     ...overrides,
   } as any;
 }

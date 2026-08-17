@@ -14,8 +14,6 @@ function makeEnv(): Env {
   return {
     OAUTH_KV: new MockKV() as any,
     HMAC_PEPPER: "test-pepper",
-    TELEGRAM_INSTANCES: undefined,
-    DISCORD_INSTANCES: undefined,
     ADMIN_REVOKE_TOKEN: "admin-token-123",
     ENABLE_CLIENT_BOOTSTRAP: "1",
   };

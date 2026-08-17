@@ -15,6 +15,58 @@ const oauthDefaults = {
   ENABLE_CLIENT_BOOTSTRAP: "1",
 };
 
+const DISCORD_TEST_RECORD = JSON.stringify({
+  service: "discord",
+  id: "test",
+  webhookUrl: "https://discord.com/api/webhooks/123/abc",
+});
+const TELEGRAM_TEST_RECORD = JSON.stringify({
+  service: "telegram",
+  id: "test",
+  botToken: "fake:token",
+  chatId: "123",
+});
+
+/**
+ * An Env whose channel set is exactly `records`. Channels live in KV now, but
+ * the OAuth grants/tokens minted for these in-process tests live in the shared
+ * `config.env.OAUTH_KV`, so this layers the `channel:` keyspace on top of the
+ * shared namespace instead of replacing it — each scenario sees only its own
+ * channels while still authenticating against the shared token store.
+ */
+function envWithChannels(records: Record<string, string>): Env {
+  const shared = config.env.OAUTH_KV as any;
+  const kv = {
+    get: async (key: string, options?: unknown) => {
+      if (!key.startsWith("channel:")) return shared.get(key, options);
+      return records[key] ?? null;
+    },
+    put: async (key: string, value: string, options?: unknown) => {
+      if (!key.startsWith("channel:")) return shared.put(key, value, options);
+      records[key] = value;
+    },
+    delete: async (key: string) => {
+      if (!key.startsWith("channel:")) return shared.delete(key);
+      delete records[key];
+    },
+    list: async (options?: { prefix?: string; limit?: number }) => {
+      if (options?.prefix?.startsWith("channel:")) {
+        const keys = Object.keys(records)
+          .filter((name) => name.startsWith(options.prefix!))
+          .map((name) => ({ name }));
+        return { keys, list_complete: true };
+      }
+      return shared.list(options);
+    },
+    getWithMetadata: async (key: string) => {
+      if (!key.startsWith("channel:")) return shared.getWithMetadata(key);
+      const value = records[key] ?? null;
+      return { value, metadata: null };
+    },
+  };
+  return { ...oauthDefaults, OAUTH_KV: kv as any };
+}
+
 const authenticatedCtx = {
   props: { userId: "test-user", scopes: ["dovecote:notify"] },
   waitUntil: () => {},
@@ -356,11 +408,9 @@ describe("E2E: send_notification → unknown channel", () => {
 // ========================================
 
 describe("E2E: no Telegram config", () => {
-  const envNoTelegram: Env = {
-    ...oauthDefaults,
-    OAUTH_KV: config.env.OAUTH_KV, // Share KV to access OAuth tokens
-    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
-  };
+  const envNoTelegram: Env = envWithChannels({
+    "channel:discord-test": DISCORD_TEST_RECORD,
+  });
 
   it("list_channels shows only discord", async () => {
     if (config.isRemote) {
@@ -400,11 +450,9 @@ describe("E2E: no Telegram config", () => {
 });
 
 describe("E2E: no Discord config", () => {
-  const envNoDiscord: Env = {
-    ...oauthDefaults,
-    OAUTH_KV: config.env.OAUTH_KV, // Share KV to access OAuth tokens
-    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
-  };
+  const envNoDiscord: Env = envWithChannels({
+    "channel:telegram-test": TELEGRAM_TEST_RECORD,
+  });
 
   it("list_channels shows only telegram", async () => {
     if (config.isRemote) {
@@ -444,10 +492,7 @@ describe("E2E: no Discord config", () => {
 });
 
 describe("E2E: no channel config at all", () => {
-  const envEmpty: Env = {
-    ...oauthDefaults,
-    OAUTH_KV: config.env.OAUTH_KV, // Share KV to access OAuth tokens
-  };
+  const envEmpty: Env = envWithChannels({});
 
   it("list_channels returns empty array", async () => {
     if (config.isRemote) {
@@ -491,12 +536,10 @@ describe("E2E: no channel config at all", () => {
 // ========================================
 
 describe("E2E: scope guard", () => {
-  const envWithChannels: Env = {
-    ...oauthDefaults,
-    OAUTH_KV: config.env.OAUTH_KV,
-    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/123/abc" }]),
-    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "fake:token", chatId: "123" }]),
-  };
+  const envBothChannels: Env = envWithChannels({
+    "channel:discord-test": DISCORD_TEST_RECORD,
+    "channel:telegram-test": TELEGRAM_TEST_RECORD,
+  });
 
   const noScopeCtx = {
     props: { userId: "e2e-no-scope", scopes: [] },
@@ -528,7 +571,7 @@ describe("E2E: scope guard", () => {
       }),
     });
 
-    const res = await apiApp.fetch(req, envWithChannels, noScopeCtx);
+    const res = await apiApp.fetch(req, envBothChannels, noScopeCtx);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());
@@ -560,7 +603,7 @@ describe("E2E: scope guard", () => {
       }),
     });
 
-    const res = await apiApp.fetch(req, envWithChannels, noScopeCtx);
+    const res = await apiApp.fetch(req, envBothChannels, noScopeCtx);
     expect(res.status).toBe(200);
 
     const data = parseSSEData(await res.text());

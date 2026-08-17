@@ -1,8 +1,11 @@
 import type { KVNamespace } from "@cloudflare/workers-types";
 
 export interface Env {
-  TELEGRAM_INSTANCES?: string;
-  DISCORD_INSTANCES?: string;
+  /**
+   * Channels are NOT configured here. Each channel is one `channel:<service>-<id>`
+   * record inside OAUTH_KV, written by `bun run channel:add`; the worker has no
+   * environment-variable configuration surface for them and no fallback.
+   */
   OAUTH_KV: KVNamespace;
   ADMIN_REVOKE_TOKEN?: string;
   HMAC_PEPPER: string;

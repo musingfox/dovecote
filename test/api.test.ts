@@ -6,9 +6,17 @@ import { createMockExecutionCtx } from "./helpers/mock-execution-ctx";
 const mockEnv: Env = {
   OAUTH_KV: {} as any,
   HMAC_PEPPER: "test-pepper",
-  TELEGRAM_INSTANCES: undefined,
-  DISCORD_INSTANCES: undefined,
 };
+
+// ChannelEnvBindingRemovedFromWorker T1: channels come from `channel:<id>` KV
+// records, never from the environment. Nothing named *_INSTANCES may survive on
+// a worker Env fixture — reintroducing such a field on the interface is caught
+// by `bun run typecheck`, and a leftover fixture field is caught here.
+test("the worker Env carries no channel-configuration binding", () => {
+  for (const key of Object.keys(mockEnv)) {
+    expect(key).not.toMatch(/_INSTANCES$/);
+  }
+});
 
 test("POST /mcp with MCP initialize returns 200", async () => {
   const initializeRequest = {

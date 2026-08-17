@@ -31,40 +31,21 @@ export function parseDevVars(path: string): Record<string, string> {
   return vars;
 }
 
-function deriveExpectedChannels(env: Env): string[] {
-  const channels: string[] = [];
-
-  if (env.TELEGRAM_INSTANCES) {
-    try {
-      const parsed = JSON.parse(env.TELEGRAM_INSTANCES);
-      if (Array.isArray(parsed)) {
-        for (const instance of parsed) {
-          if (instance.id) {
-            channels.push(`telegram-${instance.id.toLowerCase()}`);
-          }
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  if (env.DISCORD_INSTANCES) {
-    try {
-      const parsed = JSON.parse(env.DISCORD_INSTANCES);
-      if (Array.isArray(parsed)) {
-        for (const instance of parsed) {
-          if (instance.id) {
-            channels.push(`discord-${instance.id.toLowerCase()}`);
-          }
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  return channels;
+/**
+ * The channels the target worker is expected to serve, stated explicitly by the
+ * operator running the suite (D-M8). Channels live as `channel:<id>` records in
+ * the worker's KV namespace, which this process cannot read, so the expectation
+ * is declared rather than derived — that also makes the assertion stronger: a
+ * worker that lost a channel fails instead of quietly lowering the bar.
+ *
+ * `TEST_EXPECTED_CHANNELS="telegram-default,discord-ops"`; absent or empty → [].
+ */
+export function parseExpectedChannels(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
 }
 
 function loadConfig(): E2EConfig {
@@ -73,28 +54,7 @@ function loadConfig(): E2EConfig {
 
   // Remote mode
   if (testBaseUrl) {
-    // Read JSON env vars if provided, else construct from individual env vars for convenience
-    let telegramInstances = process.env.TEST_TELEGRAM_INSTANCES;
-    let discordInstances = process.env.TEST_DISCORD_INSTANCES;
-
-    if (!telegramInstances && process.env.TEST_TELEGRAM_BOT_TOKEN && process.env.TEST_TELEGRAM_CHAT_ID) {
-      telegramInstances = JSON.stringify([{
-        id: "default",
-        botToken: process.env.TEST_TELEGRAM_BOT_TOKEN,
-        chatId: process.env.TEST_TELEGRAM_CHAT_ID,
-      }]);
-    }
-
-    if (!discordInstances && process.env.TEST_DISCORD_WEBHOOK_URL) {
-      discordInstances = JSON.stringify([{
-        id: "default",
-        webhookUrl: process.env.TEST_DISCORD_WEBHOOK_URL,
-      }]);
-    }
-
     const env: Env = {
-      TELEGRAM_INSTANCES: telegramInstances,
-      DISCORD_INSTANCES: discordInstances,
       OAUTH_KV: {} as any,
       HMAC_PEPPER: "test-pepper",
       ADMIN_REVOKE_TOKEN: process.env.TEST_ADMIN_REVOKE_TOKEN,
@@ -105,7 +65,7 @@ function loadConfig(): E2EConfig {
       isRemote: true,
       authToken: testAuthToken || null,
       env,
-      expectedChannels: deriveExpectedChannels(env),
+      expectedChannels: parseExpectedChannels(process.env.TEST_EXPECTED_CHANNELS),
     };
   }
 
@@ -114,8 +74,6 @@ function loadConfig(): E2EConfig {
   const vars = parseDevVars(varsPath);
 
   const env: Env = {
-    TELEGRAM_INSTANCES: vars.TELEGRAM_INSTANCES,
-    DISCORD_INSTANCES: vars.DISCORD_INSTANCES,
     OAUTH_KV: new MockKV() as any,
     HMAC_PEPPER: vars.HMAC_PEPPER || "test-pepper",
     ADMIN_REVOKE_TOKEN: vars.ADMIN_REVOKE_TOKEN || "admin-test-token",
@@ -127,7 +85,7 @@ function loadConfig(): E2EConfig {
     isRemote: false,
     authToken: null,
     env,
-    expectedChannels: deriveExpectedChannels(env),
+    expectedChannels: parseExpectedChannels(process.env.TEST_EXPECTED_CHANNELS),
   };
 }
 

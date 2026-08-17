@@ -49,8 +49,6 @@ function makeEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
     OAUTH_KV: new MockKV() as any,
     HMAC_PEPPER: "test-pepper",
     OAUTH_PROVIDER: makeMockProvider(),
-    TELEGRAM_INSTANCES: undefined,
-    DISCORD_INSTANCES: undefined,
     ...overrides,
   };
 }
