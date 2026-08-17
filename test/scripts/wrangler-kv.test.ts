@@ -3,7 +3,11 @@
  * driven through it (the wizard's local-mint path, no server endpoint).
  */
 import { test, expect } from "bun:test";
-import { makeWranglerKv, type WranglerRunner } from "../../scripts/lib/wrangler-kv.js";
+import {
+  makeWranglerKv,
+  type WranglerRunResult,
+  type WranglerRunner,
+} from "../../scripts/lib/wrangler-kv.js";
 import { issueToken, KVWriteError } from "../../src/auth/api-token.js";
 import type { Env } from "../../src/types.js";
 
@@ -84,4 +88,80 @@ test("makeWranglerKv: onWrite progress hook fires per key", async () => {
   const kv = makeWranglerKv("production", runner, (key) => seen.push(key));
   await kv.put("apitoken:z", "{}", { expirationTtl: 60 });
   expect(seen).toEqual(["apitoken:z"]);
+});
+
+// ---------- WranglerKvGetRecord ----------
+
+/**
+ * The stderr wrangler actually emits when `kv key get --remote` misses:
+ * `fetchKVGetValue` throws on a 404 from the CF API values endpoint.
+ */
+function notFoundStderr(key: string): string {
+  return (
+    "✘ [ERROR] Failed to fetch https://api.cloudflare.com/client/v4/accounts/acct/" +
+    `storage/kv/namespaces/ns/values/${encodeURIComponent(key)} - 404: Not Found);`
+  );
+}
+
+function makeGetRunner(result: WranglerRunResult): {
+  runner: WranglerRunner;
+  calls: string[][];
+} {
+  const calls: string[][] = [];
+  const runner: WranglerRunner = (args) => {
+    calls.push(args);
+    return result;
+  };
+  return { runner, calls };
+}
+
+test("WranglerKvGetRecord T1: a present key resolves to its stored value verbatim", async () => {
+  const { runner } = makeGetRunner({ code: 0, stdout: '{"service":"telegram"}' });
+  const kv = makeWranglerKv("staging", runner);
+  await expect(kv.get("channel:telegram-ops")).resolves.toBe('{"service":"telegram"}');
+});
+
+test("WranglerKvGetRecord T2: get() targets the deployed namespace — --remote, OAUTH_KV binding, --env last", async () => {
+  const { runner, calls } = makeGetRunner({ code: 0, stdout: "{}" });
+  const kv = makeWranglerKv("production", runner);
+  await kv.get("channel:telegram-ops");
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toEqual([
+    "kv",
+    "key",
+    "get",
+    "--remote",
+    "--binding",
+    "OAUTH_KV",
+    "channel:telegram-ops",
+    "--env",
+    "production",
+  ]);
+});
+
+test("WranglerKvGetRecord T3: a missing key resolves to null, not an error", async () => {
+  const { runner } = makeGetRunner({
+    code: 1,
+    stderr: notFoundStderr("channel:telegram-nope"),
+  });
+  const kv = makeWranglerKv("staging", runner);
+  await expect(kv.get("channel:telegram-nope")).resolves.toBeNull();
+});
+
+test("WranglerKvGetRecord T4: a non-404 wrangler failure throws, naming the key and the exit code", async () => {
+  const { runner } = makeGetRunner({ code: 1, stderr: "Authentication error" });
+  const kv = makeWranglerKv("staging", runner);
+  await expect(kv.get("channel:x")).rejects.toThrow(/channel:x/);
+  await expect(kv.get("channel:x")).rejects.toThrow(/1/);
+});
+
+test("WranglerKvGetRecord: wrangler's stdout banner is stripped from the returned value", async () => {
+  const { runner } = makeGetRunner({
+    code: 0,
+    stdout: '\u{1F44B} Getting value...\n{"service":"telegram","id":"ops"}',
+  });
+  const kv = makeWranglerKv("staging", runner);
+  await expect(kv.get("channel:telegram-ops")).resolves.toBe(
+    '{"service":"telegram","id":"ops"}',
+  );
 });

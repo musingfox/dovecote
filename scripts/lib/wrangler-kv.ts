@@ -28,6 +28,37 @@ export interface WranglerKv {
     value: string,
     options?: { expirationTtl?: number },
   ): Promise<void>;
+  /** Read one key back; `null` when the key does not exist. */
+  get(key: string): Promise<string | null>;
+}
+
+/**
+ * `wrangler kv key get --remote` on a missing key resolves the CF API
+ * `.../values/<key>` endpoint to a 404, which wrangler surfaces as
+ * `Failed to fetch <url> - 404: Not Found);` on a non-zero exit
+ * (wrangler-dist/cli.js `fetchKVGetValue`). Anything else non-zero — auth,
+ * network, bad namespace binding — is a real failure and must throw (A2).
+ */
+export function isKvKeyNotFound(res: WranglerRunResult): boolean {
+  const text = `${res.stderr ?? ""}\n${res.stdout ?? ""}`;
+  return /Failed to fetch/i.test(text) && /\b404\b/.test(text);
+}
+
+/**
+ * `wrangler kv key get` logs `Getting value...` through its logger, which
+ * writes to stdout (`console.log`), before streaming the raw value. Drop that
+ * banner line so callers receive exactly the stored bytes.
+ */
+export function stripKvGetBanner(stdout: string): string {
+  const newlineIndex = stdout.indexOf("\n");
+  if (newlineIndex === -1) {
+    return stdout;
+  }
+  const firstLine = stdout.slice(0, newlineIndex);
+  if (/Getting value\.\.\./.test(firstLine)) {
+    return stdout.slice(newlineIndex + 1);
+  }
+  return stdout;
 }
 
 /**
@@ -66,6 +97,30 @@ export function makeWranglerKv(
           `wrangler kv key put failed for ${key} (exit ${res.code})${res.stderr ? `: ${res.stderr.trim()}` : ""}`,
         );
       }
+    },
+
+    async get(key) {
+      const args = [
+        "kv",
+        "key",
+        "get",
+        "--remote",
+        "--binding",
+        "OAUTH_KV",
+        key,
+        "--env",
+        envName,
+      ];
+      const res = await runner(args);
+      if (res.code !== 0) {
+        if (isKvKeyNotFound(res)) {
+          return null;
+        }
+        throw new Error(
+          `wrangler kv key get failed for ${key} (exit ${res.code})${res.stderr ? `: ${res.stderr.trim()}` : ""}`,
+        );
+      }
+      return stripKvGetBanner(res.stdout ?? "");
     },
   };
 }
