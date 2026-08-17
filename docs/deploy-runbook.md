@@ -230,6 +230,164 @@ After deploying 4.1 to staging, run a real-KV smoke test:
   KV may differ at the exact boundary. Cross-check the truncated flag
   against `wrangler kv key list --binding OAUTH_KV --prefix apitoken_user:<user>:`.
 
+## Channel Cutover: worker secrets to KV records
+
+Channels used to be configured through two worker secrets, one per service,
+whose names end in `_INSTANCES`. They now live one-per-record in KV as
+`channel:<service>-<id>` (`src/channels/registry.ts`). The worker has no
+environment-variable fallback, so an existing deployment needs a one-time
+cutover, run once per environment.
+
+> Editing this file: the two legacy secret names are deliberately not spelled
+> out. `test/removal/channel-env-surface.test.ts` scans every tracked file for
+> them and fails the build, so no document can re-teach an operator to write a
+> dead variable back into production. Get the exact names from
+> `wrangler secret list`.
+
+### Order of operations (do not reorder)
+
+Run steps 1-7 against `staging` first, confirm it, then repeat the whole
+sequence against `production`. The order matters in one direction only: the
+worker must be able to read channels from KV **before** the secrets go away.
+Deploying the KV-reading worker first, or deleting the secrets first, opens a
+window in which the worker has no channels at all and every notification fails.
+
+1. **Recover the current channel config.** Wrangler cannot read a secret back,
+   so take the JSON from wherever it was originally authored (password manager,
+   provisioning script, local `.env`) and save it as `backup.json`:
+
+   ```json
+   {
+     "telegram": [{ "id": "ops", "botToken": "...", "chatId": "..." }],
+     "discord":  [{ "id": "alerts", "webhookUrl": "https://discord.com/api/webhooks/..." }]
+   }
+   ```
+
+   A service value may also be the raw secret body as a single JSON string; it
+   is parsed a second time, so the old value can be pasted in verbatim without
+   hand-unwrapping it.
+
+2. **Dry-run the migration.** Nothing is written. Every entry is validated with
+   the same parser the worker uses, and one bad entry aborts the whole run.
+
+   ```bash
+   bun run channel:migrate -- --env staging --file backup.json --dry-run
+   ```
+
+   Fix every reported record before continuing. Note the limit of the
+   all-or-nothing promise: it covers *validation*, not *transport*. If wrangler
+   fails partway through the real run, earlier keys stay written; re-running is
+   safe and converges, because every write is an unconditional put.
+
+3. **Migrate.**
+
+   ```bash
+   bun run channel:migrate -- --env staging --file backup.json
+   ```
+
+4. **Read the records back before touching the deployment.**
+
+   ```bash
+   wrangler kv key list --binding OAUTH_KV --prefix channel: --remote --env staging
+   ```
+
+   `--remote` is mandatory on wrangler 4.x. Without it you are inspecting a
+   local cache and verifying nothing. Expect exactly one
+   `channel:<service>-<id>` key per channel. Do not proceed until this list is
+   correct — this is the last checkpoint before the deployment changes.
+
+5. **Deploy the worker that reads KV.**
+
+   ```bash
+   wrangler deploy --env staging
+   ```
+
+6. **Verify through the live read path.** Only this step proves the deployed
+   worker actually resolves the records, rather than that the keys exist:
+
+   ```bash
+   dovecote channels list
+   ```
+
+   Every expected channel must appear. A record that is corrupt or disagrees
+   with its own key is skipped silently by design, so a channel *missing* here
+   means a bad record, not an empty namespace. Send one probe before moving on:
+
+   ```bash
+   dovecote channels test <channel-id>
+   ```
+
+7. **Only now, delete the legacy secrets.**
+
+   ```bash
+   wrangler secret list --env staging            # the two names ending in _INSTANCES
+   wrangler secret delete <NAME> --env staging   # once per name
+   ```
+
+8. **Repeat 1-7 for `production`.** `channel:migrate` has no default
+   environment: `--env` is mandatory, and the production path additionally
+   requires typing `production` when prompted. Confirm you are aimed at the
+   right environment — a missing key and a wrong namespace both surface as
+   `404: Not Found`, so an environment mix-up reads as "this channel does not
+   exist yet" and writes the credential into the wrong namespace.
+
+### Rollback
+
+Through step 6, rollback is a redeploy of the previous worker version: the
+secrets are still present and the old worker still reads them. The KV records
+written in step 3 are inert to the old worker, so leave them in place. After
+step 7 there is no deployment to roll back to — recovery means re-creating the
+secrets from `backup.json` and redeploying the old version, which is why
+`backup.json` must survive until production is verified.
+
+### Handling `backup.json`
+
+`--file backup.json` leaves a plaintext file containing every bot token and
+webhook URL on disk. Treat it as a live credential for its whole lifetime.
+
+- Keep it out of the repository and out of any directory that syncs to a cloud
+  service (iCloud Drive, Dropbox, OneDrive, Google Drive).
+- Destroy it as soon as production is verified. On macOS, `rm -P backup.json`
+  overwrites before unlinking (best-effort on APFS); shredding is not a
+  substitute for the file never having existed.
+- To avoid the file entirely, omit `--file` and pipe the document in on stdin:
+
+  ```bash
+  <your secret manager's read command> | bun run channel:migrate -- --env staging
+  ```
+
+### The stored credentials are readable — the CF API token is the real credential
+
+Channel records are stored as plaintext JSON in KV. This is an accepted posture,
+not an oversight. Anyone holding a Cloudflare API token that can read the
+`OAUTH_KV` namespace can retrieve a live bot token:
+
+```bash
+wrangler kv key get --binding OAUTH_KV --remote --env production "channel:telegram-<id>"
+```
+
+Operate accordingly:
+
+- The Cloudflare API token is the credential of record. Guard it at least as
+  tightly as the bot tokens, and scope it to the minimum set of namespaces.
+- If that token is ever exposed, assume every channel credential is exposed.
+  Rotate all Telegram bot tokens via BotFather, regenerate every Discord webhook
+  URL, then write the new values back with
+  `bun run channel:add -- --env <env> --force` or by re-running
+  `channel:migrate`. Records are overwritten unconditionally, so a re-run is the
+  rotation.
+- Revoking the Cloudflare token alone is not sufficient: anything already read
+  out of KV stays valid until the bot tokens themselves are rotated.
+
+### Credentials pass through process arguments
+
+`channel:add`, `channel:migrate` and the setup wizard all write via
+`wrangler kv key put ... <value>`, so the credential is an argument to the
+`wrangler` process. For the duration of that call, any other user on the same
+machine can read it with `ps auxww`. Nothing is echoed to logs or stdout — argv
+is the whole exposure. On a single-operator laptop this is acceptable; on a
+shared host or a CI runner you do not control, run the cutover elsewhere.
+
 ## Related Documentation
 
 - [Client Bootstrap Guide](./client-bootstrap.md) – Detailed OAuth client setup instructions
