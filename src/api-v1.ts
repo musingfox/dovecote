@@ -38,7 +38,7 @@ export type V1Services = {
     ctx: ExecutionContext,
     args: { channel: string; content: MessageContent }
   ) => Promise<SendResult>;
-  listChannels: (env: Env, auth: AuthCtx) => ChannelConfig[] | Promise<ChannelConfig[]>;
+  listChannels: (env: Env, auth: AuthCtx) => Promise<ChannelConfig[]>;
   issueToken: (
     params: { userId: string; scopes: string[]; label?: string; ttlSeconds?: number },
     env: Env
@@ -174,6 +174,11 @@ export function createV1App(services: V1Services) {
     const env = c.env;
 
     try {
+      // Gate the scope here, ahead of the service call: the listing is now a KV
+      // read, and an unauthorised caller must not reach it at all.
+      if (!auth.scopes.includes("dovecote:notify")) {
+        throw new ScopeError("dovecote:notify");
+      }
       const channels = await services.listChannels(env, auth);
       return c.json({ channels });
     } catch (err) {

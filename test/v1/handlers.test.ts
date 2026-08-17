@@ -1,6 +1,7 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import { Hono } from "hono";
-import { createV1App } from "../../src/api-v1.js";
+import { createV1App, type V1Services } from "../../src/api-v1.js";
+import { listChannels as realListChannels } from "../../src/services/channels.js";
 import type { Env } from "../../src/types.js";
 import type { AuthCtx } from "../../src/auth/ctx.js";
 import { MockKV } from "../helpers/mock-kv.js";
@@ -22,7 +23,7 @@ function makeServices(overrides: {
           messageId: "msg-default",
         }))
     ),
-    listChannels: mock(overrides.listChannels ?? ((_env: any, _auth: any) => [] as any[])),
+    listChannels: mock(overrides.listChannels ?? (async (_env: any, _auth: any) => [] as any[])),
     checkRateLimit: mock(
       overrides.checkRateLimit ??
         (async (_kv: any, _ip: string, _namespace: string, _limit?: number) => ({
@@ -44,14 +45,25 @@ function buildApp(auth: AuthCtx | null, services = makeServices()) {
   return { app, services };
 }
 
-function buildTestEnv(
-  channels: Array<{ id: string; webhookUrl: string }> = []
-): Env {
+function buildTestEnv(): Env {
   const kv = new MockKV();
   return {
     OAUTH_KV: kv as any,
     HMAC_PEPPER: "test-pepper",
-    DISCORD_INSTANCES: JSON.stringify(channels),
+  };
+}
+
+// Channels live in KV under `channel:<service>-<id>`; there is no env-var source.
+async function buildKvChannelEnv(
+  records: Record<string, unknown> = {}
+): Promise<Env> {
+  const kv = new MockKV();
+  for (const [key, record] of Object.entries(records)) {
+    await kv.put(key, JSON.stringify(record));
+  }
+  return {
+    OAUTH_KV: kv as any,
+    HMAC_PEPPER: "test-pepper",
   };
 }
 
@@ -289,7 +301,7 @@ test("C2.4.a - POST /v1/notify 400 invalid_request (non-string channel)", async 
 test("C2.4.b - GET /v1/channels success with scope, no channels configured", async () => {
   const { app } = buildApp(
     NOTIFY_AUTH,
-    makeServices({ listChannels: () => [] })
+    makeServices({ listChannels: async () => [] })
   );
   const env = buildTestEnv();
 
@@ -305,7 +317,7 @@ test("C2.4.b - GET /v1/channels success with scope, two channels configured", as
   const { app } = buildApp(
     NOTIFY_AUTH,
     makeServices({
-      listChannels: () => [
+      listChannels: async () => [
         { id: "discord-main", name: "Main Discord", enabled: true, service: "discord" },
         { id: "discord-test", name: "Test Discord", enabled: true, service: "discord" },
       ],
@@ -331,11 +343,116 @@ test("C2.4.b - GET /v1/channels success with scope, two channels configured", as
   });
 });
 
+// ChannelsEndpointAwaitsAsyncRegistry — the list now comes from KV, awaited.
+
+test("channels/T1 - GET /v1/channels reports the channels stored in KV", async () => {
+  const { app } = buildApp(
+    NOTIFY_AUTH,
+    makeServices({ listChannels: realListChannels })
+  );
+  const env = await buildKvChannelEnv({
+    "channel:telegram-default": {
+      service: "telegram",
+      id: "default",
+      botToken: "bot123:token",
+      chatId: "-100123456",
+    },
+  });
+
+  const req = new Request("http://localhost/v1/channels");
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  expect(res.status).toBe(200);
+
+  expect(await res.json()).toEqual({
+    channels: [
+      {
+        id: "telegram-default",
+        name: "Telegram (default)",
+        enabled: true,
+        service: "telegram",
+      },
+    ],
+  });
+});
+
+test("channels/T2 - GET /v1/channels returns an empty list when KV holds no channels", async () => {
+  const { app } = buildApp(
+    NOTIFY_AUTH,
+    makeServices({ listChannels: realListChannels })
+  );
+  const env = await buildKvChannelEnv();
+
+  const req = new Request("http://localhost/v1/channels");
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ channels: [] });
+});
+
+test("channels/T3 - GET /v1/channels 403 without dovecote:notify never calls listChannels", async () => {
+  // The stub resolves normally: a 403 can only come from the route's own gate,
+  // and the KV listing must never be reached by an unauthorised caller.
+  const { app, services } = buildApp(
+    NO_SCOPE_AUTH,
+    makeServices({ listChannels: async () => [] })
+  );
+  const env = await buildKvChannelEnv({
+    "channel:telegram-default": {
+      service: "telegram",
+      id: "default",
+      botToken: "bot123:token",
+      chatId: "-100123456",
+    },
+  });
+
+  const req = new Request("http://localhost/v1/channels");
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  expect(res.status).toBe(403);
+
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("forbidden");
+  expect(body.error_description).toContain("dovecote:notify");
+  expect(services.listChannels).not.toHaveBeenCalled();
+});
+
+test("channels/T4 - GET /v1/channels 500 when the registry promise rejects", async () => {
+  const { app } = buildApp(
+    NOTIFY_AUTH,
+    makeServices({
+      listChannels: async () => {
+        throw new Error("KV unavailable");
+      },
+    })
+  );
+  const env = buildTestEnv();
+
+  const req = new Request("http://localhost/v1/channels");
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  // Without the await the rejected promise would serialise as `{}` with a 200.
+  expect(res.status).toBe(500);
+
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("internal_error");
+});
+
+test("channels/T6 - V1Services.listChannels is declared async", () => {
+  // Compile-time contract, asserted where the v1 mock files consume the type:
+  // the async mock style used by all six of them is assignable...
+  const asyncSlot: V1Services["listChannels"] = makeServices().listChannels;
+  // ...and the real service satisfies the slot without widening.
+  const realSlot: V1Services["listChannels"] = realListChannels;
+  // @ts-expect-error listChannels must be (env, auth) => Promise<ChannelConfig[]>, not a sync array
+  const syncSlot: V1Services["listChannels"] = (_env: Env, _auth: AuthCtx) => [];
+
+  expect(typeof asyncSlot).toBe("function");
+  expect(typeof realSlot).toBe("function");
+  expect(typeof syncSlot).toBe("function");
+});
+
 test("C2.4.b - GET /v1/channels 403 forbidden (missing scope)", async () => {
   const { app } = buildApp(
     NO_SCOPE_AUTH,
     makeServices({
-      listChannels: () => {
+      listChannels: async () => {
         throw new ScopeError("dovecote:notify");
       },
     })

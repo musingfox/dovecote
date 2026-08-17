@@ -4,6 +4,13 @@ import type { Env } from "../../src/types.js";
 import type { AuthCtx } from "../../src/auth/ctx.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { MockKV } from "../helpers/mock-kv.js";
+import * as channelsService from "../../src/services/channels.js";
+
+// Snapshot the real service before any module mocking so the stub in the T5
+// test below can be undone — bun's module registry is process-global and this
+// module is also imported by the v1 route suites.
+const REAL_CHANNELS_SERVICE = { ...channelsService };
+const CHANNELS_SERVICE_PATH = "../../src/services/channels.js";
 
 async function buildEnvWithChannels(): Promise<Env> {
   const kv = new MockKV();
@@ -44,6 +51,30 @@ function captureHandler(env: Env): (args?: unknown) => Promise<any> {
   if (!capturedHandler) throw new Error("handler was not captured");
   return capturedHandler;
 }
+
+test("list_channels/T5: the tool awaits listChannels and returns the resolved array", async () => {
+  const resolved = [
+    { id: "telegram-default", name: "Telegram (default)", enabled: true, service: "telegram" },
+  ];
+  mock.module(CHANNELS_SERVICE_PATH, () => ({
+    ...REAL_CHANNELS_SERVICE,
+    listChannels: async () => resolved,
+  }));
+
+  try {
+    const env: Env = { OAUTH_KV: new MockKV() as any, HMAC_PEPPER: "test-pepper" };
+    const handler = captureHandler(env);
+
+    const result = await handler({});
+    expect(result.isError).toBeUndefined();
+    const parsed = JSON.parse(result.content[0].text);
+    // Without the await this would serialise the pending promise as `{}`.
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toEqual(resolved);
+  } finally {
+    mock.module(CHANNELS_SERVICE_PATH, () => ({ ...REAL_CHANNELS_SERVICE }));
+  }
+});
 
 test("list_channels: returns array with at least discord and telegram entries", async () => {
   const env = await buildEnvWithChannels();

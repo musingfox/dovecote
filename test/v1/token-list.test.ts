@@ -18,7 +18,7 @@ function makeServices(overrides: {
 } = {}) {
   return {
     sendNotification: mock(async () => ({ success: true })),
-    listChannels: mock(() => [] as any[]),
+    listChannels: mock(async () => [] as any[]),
     issueToken: mock(async () => ({ token: "x", tokenId: "x", expiresAt: 0 })),
     revokeToken: mock(async () => ({ revoked: true })),
     checkRateLimit: mock(

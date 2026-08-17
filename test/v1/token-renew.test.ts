@@ -9,7 +9,7 @@ import { verifyToken, KVWriteError } from "../../src/auth/api-token.js";
 function makeServices(overrides: Record<string, any> = {}) {
   return {
     sendNotification: mock(async () => ({ success: true })),
-    listChannels: mock(() => [] as any[]),
+    listChannels: mock(async () => [] as any[]),
     issueToken: mock(
       overrides.issueToken ??
         (async (params: any, _env: any) => ({

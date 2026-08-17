@@ -20,7 +20,7 @@ function buildTestEnv(): Env {
 function buildApp(auth: AuthCtx | null, servicesOverrides: Record<string, unknown> = {}) {
   const baseServices = {
     sendNotification: async () => ({ success: true, channel: "test" }),
-    listChannels: () => [],
+    listChannels: async () => [],
     issueToken: async () => ({ token: "x", tokenId: "x", expiresAt: 0 }),
     revokeToken: async () => ({ revoked: true }),
     checkRateLimit: async () => ({ allowed: true, current: 0 }),
@@ -52,7 +52,7 @@ const U1_AUTH: AuthCtx = {
 function buildBearerApp() {
   const v1 = createV1App({
     sendNotification: async () => ({ success: true, channel: "test" }),
-    listChannels: () => [],
+    listChannels: async () => [],
     issueToken: async () => ({ token: "x", tokenId: "x", expiresAt: 0 }),
     revokeToken: async () => ({ revoked: true }),
     checkRateLimit: async () => ({ allowed: true, current: 0 }),
