@@ -5,17 +5,29 @@ import type { AuthCtx } from "../../src/auth/ctx.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { MockKV } from "../helpers/mock-kv.js";
 
-function buildEnvWithChannels(): Env {
+async function buildEnvWithChannels(): Promise<Env> {
   const kv = new MockKV();
+  // Channels live in KV under their canonical keys, not in env vars.
+  await kv.put(
+    "channel:discord-main",
+    JSON.stringify({
+      service: "discord",
+      id: "main",
+      webhookUrl: "https://discord.com/api/webhooks/123/abc",
+    })
+  );
+  await kv.put(
+    "channel:telegram-main",
+    JSON.stringify({
+      service: "telegram",
+      id: "main",
+      botToken: "bot123:token",
+      chatId: "-100123456",
+    })
+  );
   return {
     OAUTH_KV: kv as any,
     HMAC_PEPPER: "test-pepper",
-    DISCORD_INSTANCES: JSON.stringify([
-      { id: "main", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]),
-    TELEGRAM_INSTANCES: JSON.stringify([
-      { id: "main", botToken: "bot123:token", chatId: "-100123456" },
-    ]),
   };
 }
 
@@ -34,7 +46,7 @@ function captureHandler(env: Env): (args?: unknown) => Promise<any> {
 }
 
 test("list_channels: returns array with at least discord and telegram entries", async () => {
-  const env = buildEnvWithChannels();
+  const env = await buildEnvWithChannels();
   const handler = captureHandler(env);
 
   const result = await handler({});
@@ -60,7 +72,7 @@ test("list_channels: returns array with at least discord and telegram entries", 
 });
 
 test("list_channels: each channel entry has id, name, enabled, service fields", async () => {
-  const env = buildEnvWithChannels();
+  const env = await buildEnvWithChannels();
   const handler = captureHandler(env);
 
   const result = await handler({});
@@ -96,11 +108,21 @@ test("list_channels: empty env returns empty array", async () => {
 
 test("C3: list_channels forbidden (user-C, scopes=[]) → isError, no notify.* audit", async () => {
   const kv = new MockKV();
+  await kv.put(
+    "channel:discord-test",
+    JSON.stringify({
+      service: "discord",
+      id: "test",
+      webhookUrl: "https://discord.com/api/webhooks/1/abc",
+    })
+  );
+  await kv.put(
+    "channel:telegram-test",
+    JSON.stringify({ service: "telegram", id: "test", botToken: "bot:token", chatId: "123" })
+  );
   const env: Env = {
     OAUTH_KV: kv as any,
     HMAC_PEPPER: "test-pepper",
-    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
-    TELEGRAM_INSTANCES: JSON.stringify([{ id: "test", botToken: "bot:token", chatId: "123" }]),
   };
   const auth: AuthCtx = { userId: "user-C", scopes: [], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
@@ -136,10 +158,17 @@ test("C3: list_channels forbidden (user-C, scopes=[]) → isError, no notify.* a
 
 test("C4: list_channels scope-pass with discord stub → isError undefined, length=1, id=discord-test", async () => {
   const kv = new MockKV();
+  await kv.put(
+    "channel:discord-test",
+    JSON.stringify({
+      service: "discord",
+      id: "test",
+      webhookUrl: "https://discord.com/api/webhooks/1/abc",
+    })
+  );
   const env: Env = {
     OAUTH_KV: kv as any,
     HMAC_PEPPER: "test-pepper",
-    DISCORD_INSTANCES: JSON.stringify([{ id: "test", webhookUrl: "https://discord.com/api/webhooks/1/abc" }]),
   };
   const auth: AuthCtx = { userId: "user-pass", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;

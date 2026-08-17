@@ -17,7 +17,7 @@ export function registerListChannelsTool(
     {},
     async () => {
       try {
-        const channels = listChannels(env, auth);
+        const channels = await listChannels(env, auth);
         return {
           content: [
             {

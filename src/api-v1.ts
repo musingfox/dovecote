@@ -38,7 +38,7 @@ export type V1Services = {
     ctx: ExecutionContext,
     args: { channel: string; content: MessageContent }
   ) => Promise<SendResult>;
-  listChannels: (env: Env, auth: AuthCtx) => ChannelConfig[];
+  listChannels: (env: Env, auth: AuthCtx) => ChannelConfig[] | Promise<ChannelConfig[]>;
   issueToken: (
     params: { userId: string; scopes: string[]; label?: string; ttlSeconds?: number },
     env: Env
@@ -174,7 +174,7 @@ export function createV1App(services: V1Services) {
     const env = c.env;
 
     try {
-      const channels = services.listChannels(env, auth);
+      const channels = await services.listChannels(env, auth);
       return c.json({ channels });
     } catch (err) {
       return mapError(c, err);

@@ -242,3 +242,95 @@ describe("sendToChannel (ChannelSendRoutesViaKv)", () => {
     expect(result.messageId).toBe("discord-123");
   });
 });
+
+describe("getChannelConfigs (ChannelRegistryListing)", () => {
+  it("valid telegram + discord records → ascending channel-id order", async () => {
+    const { env } = await buildEnv({
+      "channel:telegram-default": TELEGRAM_DEFAULT,
+      "channel:discord-ops": DISCORD_OPS,
+    });
+
+    expect(await getChannelConfigs(env)).toEqual([
+      { id: "discord-ops", name: "Discord (ops)", enabled: true, service: "discord" },
+      { id: "telegram-default", name: "Telegram (default)", enabled: true, service: "telegram" },
+    ]);
+  });
+
+  it("empty KV → []", async () => {
+    const { env } = await buildEnv();
+    expect(await getChannelConfigs(env)).toEqual([]);
+  });
+
+  it("a corrupt record does not hide its healthy sibling", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv({
+      "channel:telegram-good": JSON.stringify({
+        service: "telegram",
+        id: "good",
+        botToken: "t",
+        chatId: "c",
+      }),
+      "channel:telegram-bad": "{",
+    });
+
+    const configs = await getChannelConfigs(env);
+    expect(configs).toHaveLength(1);
+    expect(configs[0]?.id).toBe("telegram-good");
+
+    warnSpy.mockRestore();
+  });
+
+  it("two records of the same service both appear", async () => {
+    const { env } = await buildEnv({
+      "channel:telegram-a": JSON.stringify({
+        service: "telegram",
+        id: "a",
+        botToken: "t",
+        chatId: "c",
+      }),
+      "channel:telegram-b": JSON.stringify({
+        service: "telegram",
+        id: "b",
+        botToken: "t",
+        chatId: "c",
+      }),
+    });
+
+    expect((await getChannelConfigs(env)).map((c) => c.id)).toEqual([
+      "telegram-a",
+      "telegram-b",
+    ]);
+  });
+
+  it("unrelated KV keys are ignored", async () => {
+    const { env } = await buildEnv({ "user:alice": JSON.stringify({ username: "alice" }) });
+    expect(await getChannelConfigs(env)).toEqual([]);
+  });
+
+  it("performs exactly one list call, scoped to the channel prefix", async () => {
+    const { env, kv } = await buildEnv({
+      "channel:telegram-good": JSON.stringify({
+        service: "telegram",
+        id: "good",
+        botToken: "t",
+        chatId: "c",
+      }),
+    });
+
+    await getChannelConfigs(env);
+
+    expect(kv.lists).toEqual(["channel:"]);
+  });
+
+  it("a KV list failure rejects rather than reporting no channels", async () => {
+    const env = {
+      OAUTH_KV: {
+        list: () => Promise.reject(new Error("kv down")),
+        get: () => Promise.resolve(null),
+      },
+      HMAC_PEPPER: "test-pepper",
+    } as unknown as Env;
+
+    await expect(getChannelConfigs(env)).rejects.toThrow("kv down");
+  });
+});
