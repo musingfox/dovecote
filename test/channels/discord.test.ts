@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { DiscordProvider, discordAdapter } from "../../src/channels/discord";
+import { serializeChannelRecord } from "../../src/channels/utils";
 
 describe("DiscordProvider (BC7)", () => {
   beforeEach(() => {
@@ -309,160 +310,139 @@ describe("DiscordProvider (BC7)", () => {
   });
 });
 
-describe("discordAdapter (BC2, BC8)", () => {
+describe("discordAdapter (DiscordRecordValidation)", () => {
   it("service === 'discord'", () => {
     expect(discordAdapter.service).toBe("discord");
   });
 
-  it("envKey === 'DISCORD_INSTANCES'", () => {
-    expect(discordAdapter.envKey).toBe("DISCORD_INSTANCES");
+  it("has no envKey property and no parseInstances method", () => {
+    expect("envKey" in discordAdapter).toBe(false);
+    expect("parseInstances" in discordAdapter).toBe(false);
   });
 
-  it("parseInstances: undefined → empty, no errors", () => {
-    const result = discordAdapter.parseInstances(undefined);
-    expect(result).toEqual({ instances: [], errors: [] });
+  it("parseRecord: valid record → ok with config", () => {
+    const result = discordAdapter.parseRecord({
+      service: "discord",
+      id: "ops",
+      webhookUrl: "https://discord.com/api/webhooks/1/tok",
+    });
+    expect(result).toEqual({
+      ok: true,
+      config: { id: "ops", webhookUrl: "https://discord.com/api/webhooks/1/tok" },
+    });
   });
 
-  it("parseInstances: empty string → empty, no errors", () => {
-    const result = discordAdapter.parseInstances("");
-    expect(result).toEqual({ instances: [], errors: [] });
+  it("parseRecord: dashed instance id accepted", () => {
+    const result = discordAdapter.parseRecord({
+      service: "discord",
+      id: "team-a",
+      webhookUrl: "https://discord.com/api/webhooks/1/tok",
+    });
+    expect(result).toEqual({
+      ok: true,
+      config: { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/1/tok" },
+    });
   });
 
-  it("parseInstances: valid single instance", () => {
-    const json = JSON.stringify([
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    expect(result.errors).toEqual([]);
+  it("parseRecord: non-Discord host → 'invalid webhookUrl' (SSRF allowlist preserved)", () => {
+    const result = discordAdapter.parseRecord({
+      service: "discord",
+      id: "ops",
+      webhookUrl: "https://evil.example/api/webhooks/1/tok",
+    });
+    expect(result).toEqual({ ok: false, error: "invalid webhookUrl" });
   });
 
-  it("parseInstances: id lowercased", () => {
-    const json = JSON.stringify([
-      { id: "TeamA", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "teama", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
+  it("parseRecord: http webhook URL → 'invalid webhookUrl'", () => {
+    const result = discordAdapter.parseRecord({
+      service: "discord",
+      id: "ops",
+      webhookUrl: "http://discord.com/api/webhooks/1/tok",
+    });
+    expect(result).toEqual({ ok: false, error: "invalid webhookUrl" });
   });
 
-  it("parseInstances: dash allowed (my-bot)", () => {
-    const json = JSON.stringify([
-      { id: "my-bot", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "my-bot", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    expect(result.errors).toEqual([]);
+  it("parseRecord: missing webhookUrl → \"missing 'webhookUrl'\"", () => {
+    const result = discordAdapter.parseRecord({ service: "discord", id: "ops" });
+    expect(result).toEqual({ ok: false, error: "missing 'webhookUrl'" });
   });
 
-  it("parseInstances: dash allowed (team-a)", () => {
-    const json = JSON.stringify([
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    expect(result.errors).toEqual([]);
+  it("parseRecord: uppercase id rejected, not lowercased", () => {
+    const result = discordAdapter.parseRecord({
+      service: "discord",
+      id: "Ops",
+      webhookUrl: "https://discord.com/api/webhooks/1/tok",
+    });
+    expect(result).toEqual({ ok: false, error: "invalid id 'Ops'" });
   });
 
-  it("parseInstances: multiple valid instances", () => {
-    const json = JSON.stringify([
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/1/a" },
-      { id: "team-b", webhookUrl: "https://discord.com/api/webhooks/2/b" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toHaveLength(2);
-    expect(result.instances[0]?.id).toBe("team-a");
-    expect(result.instances[1]?.id).toBe("team-b");
-    expect(result.errors).toEqual([]);
+  it("parseRecord: malformed ids rejected ('-bad', 'trail-', 'bad--id')", () => {
+    for (const id of ["-bad", "trail-", "bad--id"]) {
+      const result = discordAdapter.parseRecord({
+        service: "discord",
+        id,
+        webhookUrl: "https://discord.com/api/webhooks/1/tok",
+      });
+      expect(result).toEqual({ ok: false, error: `invalid id '${id}'` });
+    }
   });
 
-  it("parseInstances: 'not json' → invalid JSON error, no instances", () => {
-    const result = discordAdapter.parseInstances("not json");
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toEqual(["DISCORD_INSTANCES: invalid JSON"]);
+  it("parseRecord: non-string id → missing or invalid 'id'", () => {
+    const result = discordAdapter.parseRecord({
+      service: "discord",
+      id: 7,
+      webhookUrl: "https://discord.com/api/webhooks/1/tok",
+    });
+    expect(result).toEqual({ ok: false, error: "missing or invalid 'id'" });
   });
 
-  it("parseInstances: duplicate id → no instances, duplicate error", () => {
-    const json = JSON.stringify([
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/1/a" },
-      { id: "team-a", webhookUrl: "https://discord.com/api/webhooks/2/b" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toEqual(["DISCORD_INSTANCES: duplicate id 'team-a'"]);
+  it("parseRecord: wrong service → 'service mismatch'", () => {
+    const result = discordAdapter.parseRecord({
+      service: "telegram",
+      id: "ops",
+      webhookUrl: "https://discord.com/api/webhooks/1/t",
+    });
+    expect(result).toEqual({ ok: false, error: "service mismatch" });
   });
 
-  it("parseInstances: id '-bad' → invalid id error", () => {
-    const json = JSON.stringify([
-      { id: "-bad", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: invalid id '-bad'");
+  it("parseRecord: null / array / string → 'record must be an object'", () => {
+    for (const raw of [null, [], "discord"]) {
+      expect(discordAdapter.parseRecord(raw)).toEqual({
+        ok: false,
+        error: "record must be an object",
+      });
+    }
   });
 
-  it("parseInstances: id 'trail-' → invalid id error", () => {
-    const json = JSON.stringify([
-      { id: "trail-", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: invalid id 'trail-'");
+  it("parseRecord: no rejection message mentions INSTANCES (D-M6)", () => {
+    const rejects: unknown[] = [
+      null,
+      [],
+      { service: "telegram", id: "ops", webhookUrl: "https://discord.com/api/webhooks/1/t" },
+      { service: "discord", id: 7 },
+      { service: "discord", id: "Ops", webhookUrl: "https://discord.com/api/webhooks/1/t" },
+      { service: "discord", id: "ops" },
+      { service: "discord", id: "ops", webhookUrl: "https://evil.example/api/webhooks/1/t" },
+    ];
+    for (const raw of rejects) {
+      const result = discordAdapter.parseRecord(raw);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).not.toContain("INSTANCES");
+      }
+    }
   });
 
-  it("parseInstances: id 'bad--id' → invalid id error (consecutive dashes)", () => {
-    const json = JSON.stringify([
-      { id: "bad--id", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: invalid id 'bad--id'");
-  });
-
-  it("parseInstances: missing webhookUrl → missing-field error", () => {
-    const json = JSON.stringify([
-      { id: "team-a" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: missing 'webhookUrl' for id 'team-a'");
-  });
-
-  it("parseInstances: http webhook URL rejected (BC-SSRF2)", () => {
-    const json = JSON.stringify([
-      { id: "bad", webhookUrl: "http://discord.com/api/webhooks/1/t" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: invalid webhookUrl for id 'bad'");
-  });
-
-  it("parseInstances: evil.com webhook URL rejected (BC-SSRF2)", () => {
-    const json = JSON.stringify([
-      { id: "bad", webhookUrl: "https://evil.com/api/webhooks/1/t" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: invalid webhookUrl for id 'bad'");
-  });
-
-  it("parseInstances: mixed valid+invalid webhooks (BC-SSRF2)", () => {
-    const json = JSON.stringify([
-      { id: "good", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-      { id: "bad", webhookUrl: "https://localhost/api/webhooks/1/t" },
-    ]);
-    const result = discordAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "good", webhookUrl: "https://discord.com/api/webhooks/123/abc" },
-    ]);
-    expect(result.errors).toContain("DISCORD_INSTANCES: invalid webhookUrl for id 'bad'");
+  it("round-trip: serializeChannelRecord output parses back to ok", () => {
+    const serialized = serializeChannelRecord("discord", {
+      id: "ops",
+      webhookUrl: "https://discord.com/api/webhooks/1/tok",
+    });
+    const result = discordAdapter.parseRecord(JSON.parse(serialized));
+    expect(result).toEqual({
+      ok: true,
+      config: { id: "ops", webhookUrl: "https://discord.com/api/webhooks/1/tok" },
+    });
   });
 
   it("createProvider returns object with .send", () => {

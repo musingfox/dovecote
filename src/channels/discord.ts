@@ -1,5 +1,11 @@
 import type { SendResult } from "../types.js";
-import type { ChannelProvider, MessageContent, ServiceAdapter, DiscordInstanceConfig } from "./types.js";
+import type {
+  ChannelProvider,
+  MessageContent,
+  ParseRecordResult,
+  ServiceAdapter,
+  DiscordInstanceConfig,
+} from "./types.js";
 import { isValidInstanceId, isValidDiscordWebhookUrl } from "./utils.js";
 
 const MAX_ERROR_DETAIL = 100;
@@ -116,67 +122,40 @@ export class DiscordProvider implements ChannelProvider {
 
 export const discordAdapter: ServiceAdapter<DiscordInstanceConfig> = {
   service: "discord",
-  envKey: "DISCORD_INSTANCES",
 
-  parseInstances(json: string | undefined): { instances: DiscordInstanceConfig[]; errors: string[] } {
-    if (json === undefined || json === "") {
-      return { instances: [], errors: [] };
+  /**
+   * Validate one stored `channel:discord-<id>` record body. Errors are bare
+   * (D-M6) — the reader prefixes the KV key that produced them.
+   */
+  parseRecord(raw: unknown): ParseRecordResult<DiscordInstanceConfig> {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      return { ok: false, error: "record must be an object" };
     }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      return { instances: [], errors: ["DISCORD_INSTANCES: invalid JSON"] };
+    const { service, id, webhookUrl } = raw as Record<string, unknown>;
+
+    if (service !== "discord") {
+      return { ok: false, error: "service mismatch" };
     }
 
-    if (!Array.isArray(parsed)) {
-      return { instances: [], errors: ["DISCORD_INSTANCES: expected array"] };
+    if (typeof id !== "string") {
+      return { ok: false, error: "missing or invalid 'id'" };
     }
 
-    const instances: DiscordInstanceConfig[] = [];
-    const errors: string[] = [];
-    const seenIds = new Set<string>();
-
-    for (const entry of parsed) {
-      if (typeof entry !== "object" || entry === null) {
-        errors.push("DISCORD_INSTANCES: entry must be object");
-        continue;
-      }
-
-      const { id, webhookUrl } = entry as Record<string, unknown>;
-
-      if (typeof id !== "string") {
-        errors.push("DISCORD_INSTANCES: missing or invalid 'id'");
-        continue;
-      }
-
-      const normalizedId = id.toLowerCase();
-
-      if (!isValidInstanceId(normalizedId)) {
-        errors.push(`DISCORD_INSTANCES: invalid id '${id}'`);
-        continue;
-      }
-
-      if (typeof webhookUrl !== "string") {
-        errors.push(`DISCORD_INSTANCES: missing 'webhookUrl' for id '${id}'`);
-        continue;
-      }
-
-      if (!isValidDiscordWebhookUrl(webhookUrl)) {
-        errors.push(`DISCORD_INSTANCES: invalid webhookUrl for id '${id}'`);
-        continue;
-      }
-
-      if (seenIds.has(normalizedId)) {
-        return { instances: [], errors: [`DISCORD_INSTANCES: duplicate id '${id}'`] };
-      }
-
-      seenIds.add(normalizedId);
-      instances.push({ id: normalizedId, webhookUrl });
+    // Uppercase is rejected, not lowercased — writers normalise (D-M7).
+    if (!isValidInstanceId(id)) {
+      return { ok: false, error: `invalid id '${id}'` };
     }
 
-    return { instances, errors };
+    if (typeof webhookUrl !== "string") {
+      return { ok: false, error: "missing 'webhookUrl'" };
+    }
+
+    if (!isValidDiscordWebhookUrl(webhookUrl)) {
+      return { ok: false, error: "invalid webhookUrl" };
+    }
+
+    return { ok: true, config: { id, webhookUrl } };
   },
 
   createProvider(channelId: string, config: DiscordInstanceConfig): ChannelProvider {
