@@ -1,5 +1,11 @@
 import type { SendResult } from "../types.js";
-import type { ChannelProvider, MessageContent, ServiceAdapter, TelegramInstanceConfig } from "./types.js";
+import type {
+  ChannelProvider,
+  MessageContent,
+  ParseRecordResult,
+  ServiceAdapter,
+  TelegramInstanceConfig,
+} from "./types.js";
 import { isValidInstanceId } from "./utils.js";
 import { escapeTelegramHtml, renderEmbedAsHtml } from "./telegram-format.js";
 
@@ -110,67 +116,40 @@ export class TelegramProvider implements ChannelProvider {
 
 export const telegramAdapter: ServiceAdapter<TelegramInstanceConfig> = {
   service: "telegram",
-  envKey: "TELEGRAM_INSTANCES",
 
-  parseInstances(json: string | undefined): { instances: TelegramInstanceConfig[]; errors: string[] } {
-    if (json === undefined || json === "") {
-      return { instances: [], errors: [] };
+  /**
+   * Validate one stored `channel:telegram-<id>` record body. Errors are bare
+   * (D-M6) — the reader prefixes the KV key that produced them.
+   */
+  parseRecord(raw: unknown): ParseRecordResult<TelegramInstanceConfig> {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      return { ok: false, error: "record must be an object" };
     }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      return { instances: [], errors: ["TELEGRAM_INSTANCES: invalid JSON"] };
+    const { service, id, botToken, chatId } = raw as Record<string, unknown>;
+
+    if (service !== "telegram") {
+      return { ok: false, error: "service mismatch" };
     }
 
-    if (!Array.isArray(parsed)) {
-      return { instances: [], errors: ["TELEGRAM_INSTANCES: expected array"] };
+    if (typeof id !== "string") {
+      return { ok: false, error: "missing or invalid 'id'" };
     }
 
-    const instances: TelegramInstanceConfig[] = [];
-    const errors: string[] = [];
-    const seenIds = new Set<string>();
-
-    for (const entry of parsed) {
-      if (typeof entry !== "object" || entry === null) {
-        errors.push("TELEGRAM_INSTANCES: entry must be object");
-        continue;
-      }
-
-      const { id, botToken, chatId } = entry as Record<string, unknown>;
-
-      if (typeof id !== "string") {
-        errors.push("TELEGRAM_INSTANCES: missing or invalid 'id'");
-        continue;
-      }
-
-      const normalizedId = id.toLowerCase();
-
-      if (!isValidInstanceId(normalizedId)) {
-        errors.push(`TELEGRAM_INSTANCES: invalid id '${id}'`);
-        continue;
-      }
-
-      if (typeof botToken !== "string") {
-        errors.push(`TELEGRAM_INSTANCES: missing 'botToken' for id '${id}'`);
-        continue;
-      }
-
-      if (typeof chatId !== "string") {
-        errors.push(`TELEGRAM_INSTANCES: missing 'chatId' for id '${id}'`);
-        continue;
-      }
-
-      if (seenIds.has(normalizedId)) {
-        return { instances: [], errors: [`TELEGRAM_INSTANCES: duplicate id '${id}'`] };
-      }
-
-      seenIds.add(normalizedId);
-      instances.push({ id: normalizedId, botToken, chatId });
+    // Uppercase is rejected, not lowercased — writers normalise (D-M7).
+    if (!isValidInstanceId(id)) {
+      return { ok: false, error: `invalid id '${id}'` };
     }
 
-    return { instances, errors };
+    if (typeof botToken !== "string") {
+      return { ok: false, error: "missing 'botToken'" };
+    }
+
+    if (typeof chatId !== "string") {
+      return { ok: false, error: "missing 'chatId'" };
+    }
+
+    return { ok: true, config: { id, botToken, chatId } };
   },
 
   createProvider(channelId: string, config: TelegramInstanceConfig): ChannelProvider {

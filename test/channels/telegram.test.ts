@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { TelegramProvider, telegramAdapter } from "../../src/channels/telegram";
+import { serializeChannelRecord } from "../../src/channels/utils";
 
 describe("TelegramProvider (BC6)", () => {
   beforeEach(() => {
@@ -266,130 +267,138 @@ describe("TelegramProvider (BC6)", () => {
   });
 });
 
-describe("telegramAdapter (BC1, BC8)", () => {
+describe("telegramAdapter (TelegramRecordValidation)", () => {
   it("service === 'telegram'", () => {
     expect(telegramAdapter.service).toBe("telegram");
   });
 
-  it("envKey === 'TELEGRAM_INSTANCES'", () => {
-    expect(telegramAdapter.envKey).toBe("TELEGRAM_INSTANCES");
+  it("has no envKey property and no parseInstances method", () => {
+    expect("envKey" in telegramAdapter).toBe(false);
+    expect("parseInstances" in telegramAdapter).toBe(false);
   });
 
-  it("parseInstances: undefined → empty, no errors", () => {
-    const result = telegramAdapter.parseInstances(undefined);
-    expect(result).toEqual({ instances: [], errors: [] });
+  it("parseRecord: valid record → ok with config", () => {
+    const result = telegramAdapter.parseRecord({
+      service: "telegram",
+      id: "default",
+      botToken: "123:abc",
+      chatId: "-1001",
+    });
+    expect(result).toEqual({
+      ok: true,
+      config: { id: "default", botToken: "123:abc", chatId: "-1001" },
+    });
   });
 
-  it("parseInstances: empty string → empty, no errors", () => {
-    const result = telegramAdapter.parseInstances("");
-    expect(result).toEqual({ instances: [], errors: [] });
+  it("parseRecord: dashed instance id accepted", () => {
+    const result = telegramAdapter.parseRecord({
+      service: "telegram",
+      id: "team-a",
+      botToken: "t",
+      chatId: "c",
+    });
+    expect(result).toEqual({ ok: true, config: { id: "team-a", botToken: "t", chatId: "c" } });
   });
 
-  it("parseInstances: valid single instance", () => {
-    const json = JSON.stringify([
-      { id: "alerts", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "alerts", botToken: "bot123", chatId: "chat456" },
-    ]);
-    expect(result.errors).toEqual([]);
+  it("parseRecord: missing botToken → \"missing 'botToken'\"", () => {
+    const result = telegramAdapter.parseRecord({ service: "telegram", id: "ops" });
+    expect(result).toEqual({ ok: false, error: "missing 'botToken'" });
   });
 
-  it("parseInstances: id lowercased", () => {
-    const json = JSON.stringify([
-      { id: "Alerts", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "alerts", botToken: "bot123", chatId: "chat456" },
-    ]);
+  it("parseRecord: missing chatId → \"missing 'chatId'\"", () => {
+    const result = telegramAdapter.parseRecord({
+      service: "telegram",
+      id: "ops",
+      botToken: "t",
+    });
+    expect(result).toEqual({ ok: false, error: "missing 'chatId'" });
   });
 
-  it("parseInstances: dash allowed (my-bot)", () => {
-    const json = JSON.stringify([
-      { id: "my-bot", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "my-bot", botToken: "bot123", chatId: "chat456" },
-    ]);
-    expect(result.errors).toEqual([]);
+  it("parseRecord: uppercase id rejected, not lowercased", () => {
+    const result = telegramAdapter.parseRecord({
+      service: "telegram",
+      id: "Ops",
+      botToken: "t",
+      chatId: "c",
+    });
+    expect(result).toEqual({ ok: false, error: "invalid id 'Ops'" });
   });
 
-  it("parseInstances: dash allowed (team-a)", () => {
-    const json = JSON.stringify([
-      { id: "team-a", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([
-      { id: "team-a", botToken: "bot123", chatId: "chat456" },
-    ]);
-    expect(result.errors).toEqual([]);
+  it("parseRecord: malformed ids rejected ('-bad', 'trail-', 'bad--id')", () => {
+    for (const id of ["-bad", "trail-", "bad--id"]) {
+      const result = telegramAdapter.parseRecord({
+        service: "telegram",
+        id,
+        botToken: "t",
+        chatId: "c",
+      });
+      expect(result).toEqual({ ok: false, error: `invalid id '${id}'` });
+    }
   });
 
-  it("parseInstances: multiple valid instances", () => {
-    const json = JSON.stringify([
-      { id: "alerts", botToken: "bot1", chatId: "chat1" },
-      { id: "team-a", botToken: "bot2", chatId: "chat2" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toHaveLength(2);
-    expect(result.instances[0]?.id).toBe("alerts");
-    expect(result.instances[1]?.id).toBe("team-a");
-    expect(result.errors).toEqual([]);
+  it("parseRecord: non-string id → missing or invalid 'id'", () => {
+    const result = telegramAdapter.parseRecord({
+      service: "telegram",
+      id: 7,
+      botToken: "t",
+      chatId: "c",
+    });
+    expect(result).toEqual({ ok: false, error: "missing or invalid 'id'" });
   });
 
-  it("parseInstances: 'not json' → invalid JSON error, no instances", () => {
-    const result = telegramAdapter.parseInstances("not json");
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toEqual(["TELEGRAM_INSTANCES: invalid JSON"]);
+  it("parseRecord: wrong service → 'service mismatch'", () => {
+    const result = telegramAdapter.parseRecord({
+      service: "discord",
+      id: "ops",
+      botToken: "t",
+      chatId: "c",
+    });
+    expect(result).toEqual({ ok: false, error: "service mismatch" });
   });
 
-  it("parseInstances: duplicate id → no instances, duplicate error", () => {
-    const json = JSON.stringify([
-      { id: "alerts", botToken: "bot1", chatId: "chat1" },
-      { id: "alerts", botToken: "bot2", chatId: "chat2" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toEqual(["TELEGRAM_INSTANCES: duplicate id 'alerts'"]);
+  it("parseRecord: null → 'record must be an object'", () => {
+    expect(telegramAdapter.parseRecord(null)).toEqual({
+      ok: false,
+      error: "record must be an object",
+    });
   });
 
-  it("parseInstances: id '-bad' → invalid id error", () => {
-    const json = JSON.stringify([
-      { id: "-bad", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("TELEGRAM_INSTANCES: invalid id '-bad'");
+  it("parseRecord: array / string / number → 'record must be an object'", () => {
+    for (const raw of [[], "telegram", 42]) {
+      expect(telegramAdapter.parseRecord(raw)).toEqual({
+        ok: false,
+        error: "record must be an object",
+      });
+    }
   });
 
-  it("parseInstances: id 'trail-' → invalid id error", () => {
-    const json = JSON.stringify([
-      { id: "trail-", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("TELEGRAM_INSTANCES: invalid id 'trail-'");
+  it("parseRecord: no rejection message mentions INSTANCES (D-M6)", () => {
+    const rejects: unknown[] = [
+      null,
+      [],
+      { service: "discord", id: "ops", botToken: "t", chatId: "c" },
+      { service: "telegram", id: 7 },
+      { service: "telegram", id: "Ops", botToken: "t", chatId: "c" },
+      { service: "telegram", id: "ops" },
+      { service: "telegram", id: "ops", botToken: "t" },
+    ];
+    for (const raw of rejects) {
+      const result = telegramAdapter.parseRecord(raw);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).not.toContain("INSTANCES");
+      }
+    }
   });
 
-  it("parseInstances: id 'bad--id' → invalid id error (consecutive dashes)", () => {
-    const json = JSON.stringify([
-      { id: "bad--id", botToken: "bot123", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("TELEGRAM_INSTANCES: invalid id 'bad--id'");
-  });
-
-  it("parseInstances: missing botToken → missing-field error", () => {
-    const json = JSON.stringify([
-      { id: "alerts", chatId: "chat456" },
-    ]);
-    const result = telegramAdapter.parseInstances(json);
-    expect(result.instances).toEqual([]);
-    expect(result.errors).toContain("TELEGRAM_INSTANCES: missing 'botToken' for id 'alerts'");
+  it("round-trip: serializeChannelRecord output parses back to ok (ChannelKeyAndRecordFormat)", () => {
+    const serialized = serializeChannelRecord("telegram", {
+      id: "ops",
+      botToken: "t",
+      chatId: "c",
+    });
+    const result = telegramAdapter.parseRecord(JSON.parse(serialized));
+    expect(result).toEqual({ ok: true, config: { id: "ops", botToken: "t", chatId: "c" } });
   });
 
   it("createProvider returns object with .send", () => {

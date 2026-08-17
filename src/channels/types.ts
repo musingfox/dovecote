@@ -6,10 +6,16 @@ export interface ChannelProvider {
   send(content: MessageContent): Promise<SendResult>;
 }
 
+/** Outcome of validating one stored channel record body. */
+export type ParseRecordResult<C> = { ok: true; config: C } | { ok: false; error: string };
+
 export interface ServiceAdapter<C = unknown> {
   service: string;
-  envKey: string;
-  parseInstances(json: string | undefined): { instances: C[]; errors: string[] };
+  /**
+   * Validate one stored KV record body. Errors are bare messages with no
+   * environment-variable name and no KV key — the reader adds the key (D-M6).
+   */
+  parseRecord(raw: unknown): ParseRecordResult<C>;
   createProvider(channelId: string, config: C): ChannelProvider;
   displayName(instanceId: string): string;
 }
