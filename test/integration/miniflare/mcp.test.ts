@@ -25,11 +25,18 @@ const REDIRECT_URI = "https://claude.ai/api/mcp/auth_callback";
 let accessToken: string;
 
 beforeAll(async () => {
-  await initMiniflare({
-    TELEGRAM_INSTANCES: JSON.stringify([
-      { id: "c9", botToken: "fake:token", chatId: "123" },
-    ]),
-  });
+  await initMiniflare();
+  // Channels live in KV under their canonical key, not in a worker binding.
+  const kv = await getMiniflare().getKVNamespace("OAUTH_KV");
+  await kv.put(
+    "channel:telegram-c9",
+    JSON.stringify({
+      service: "telegram",
+      id: "c9",
+      botToken: "fake:token",
+      chatId: "123",
+    }),
+  );
   accessToken = await obtainAccessToken();
 }, 60_000);
 
@@ -198,4 +205,33 @@ test("C9: tools/call list_channels with the form-flow token is NOT Forbidden (Au
   // scope carried → the seeded telegram channel is visible
   const channels = JSON.parse(text) as Array<{ id: string }>;
   expect(channels.map((c) => c.id)).toContain("telegram-c9");
+});
+
+test("C9: tools/call send_notification resolves the KV-seeded channel (not Unknown channel)", async () => {
+  const mf = getMiniflare();
+
+  const res = await mf.dispatchFetch("https://example.com/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "send_notification",
+        arguments: { channel: "telegram-c9", content: { text: "hi" } },
+      },
+    }),
+  });
+
+  expect(res.status).toBe(200);
+  const resultJson = parseMcpBody(await res.text());
+  const text: string = resultJson.result.content[0].text;
+  // The outbound Telegram call fails in Miniflare; what matters is that the
+  // channel itself resolved from KV.
+  expect(text).not.toContain("Unknown channel");
 });

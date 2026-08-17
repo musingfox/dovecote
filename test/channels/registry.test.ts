@@ -150,3 +150,95 @@ describe("readChannelRecord (ChannelRecordRead)", () => {
     warnSpy.mockRestore();
   });
 });
+
+describe("sendToChannel (ChannelSendRoutesViaKv)", () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  it("valid stored telegram channel → provider result", async () => {
+    const mockFetch = mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: true, result: { message_id: 7, text: "hi", chat: { id: "c" } } }),
+          { status: 200 }
+        )
+      )
+    );
+    globalThis.fetch = mockFetch as any;
+
+    const { env } = await buildEnv({ "channel:telegram-default": TELEGRAM_DEFAULT });
+    const result = await sendToChannel("telegram-default", { text: "hi" }, env);
+
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("telegram-default");
+    expect(result.messageId).toBe("7");
+  });
+
+  it("resolves with exactly one KV get of that channel's key and no list", async () => {
+    const mockFetch = mock(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ ok: true, result: { message_id: 7 } }), { status: 200 })
+      )
+    );
+    globalThis.fetch = mockFetch as any;
+
+    const { env, kv } = await buildEnv({ "channel:telegram-default": TELEGRAM_DEFAULT });
+    await sendToChannel("telegram-default", { text: "hi" }, env);
+
+    expect(kv.gets).toEqual(["channel:telegram-default"]);
+    expect(kv.lists).toEqual([]);
+  });
+
+  it("empty KV → Unknown channel", async () => {
+    const { env } = await buildEnv();
+    expect(await sendToChannel("telegram-default", { text: "hi" }, env)).toEqual({
+      success: false,
+      channel: "telegram-default",
+      error: "Unknown channel",
+    });
+  });
+
+  it("stored record without credentials → Unknown channel", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const { env } = await buildEnv({
+      "channel:telegram-ops": JSON.stringify({ service: "telegram", id: "ops" }),
+    });
+
+    expect(await sendToChannel("telegram-ops", { text: "hi" }, env)).toEqual({
+      success: false,
+      channel: "telegram-ops",
+      error: "Unknown channel",
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it("channel id without a service segment → Unknown channel", async () => {
+    const { env } = await buildEnv({ "channel:telegram-default": TELEGRAM_DEFAULT });
+    expect(await sendToChannel("telegram", { text: "hi" }, env)).toEqual({
+      success: false,
+      channel: "telegram",
+      error: "Unknown channel",
+    });
+  });
+
+  it("routes a stored discord channel to the Discord provider", async () => {
+    const mockFetch = mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ id: "discord-123", embeds: [{ title: "Test" }], channel_id: "ch-1" }),
+          { status: 200 }
+        )
+      )
+    );
+    globalThis.fetch = mockFetch as any;
+
+    const { env } = await buildEnv({ "channel:discord-ops": DISCORD_OPS });
+    const result = await sendToChannel("discord-ops", { embed: { title: "Test" } }, env);
+
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("discord-ops");
+    expect(result.messageId).toBe("discord-123");
+  });
+});

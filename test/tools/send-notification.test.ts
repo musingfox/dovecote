@@ -5,12 +5,16 @@ import type { AuthCtx } from "../../src/auth/ctx.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
 import { MockKV } from "../helpers/mock-kv.js";
 
-function buildEnvWithDiscord(webhookUrl: string): Env {
+async function buildEnvWithDiscord(webhookUrl: string): Promise<Env> {
   const kv = new MockKV();
+  // The channel lives in KV under its canonical key, not in an env var.
+  await kv.put(
+    "channel:discord-main",
+    JSON.stringify({ service: "discord", id: "main", webhookUrl })
+  );
   return {
     OAUTH_KV: kv as any,
     HMAC_PEPPER: "test-pepper",
-    DISCORD_INSTANCES: JSON.stringify([{ id: "main", webhookUrl }]),
   };
 }
 
@@ -34,7 +38,7 @@ beforeEach(() => {
 
 test("send_notification: discord 200 → handler resolves, fetch called with content", async () => {
   const webhookUrl = "https://discord.com/api/webhooks/123/abc";
-  const env = buildEnvWithDiscord(webhookUrl);
+  const env = await buildEnvWithDiscord(webhookUrl);
 
   let capturedBody: string | undefined;
   const mockFetch = mock((_url: string, options?: any) => {
@@ -67,7 +71,7 @@ test("send_notification: SSRF URL rejected at config time → handler returns er
   // A malicious URL that would be an SSRF target.
   // isValidDiscordWebhookUrl rejects non-discord.com URLs, so the channel won't be registered.
   const ssrfUrl = "https://169.254.169.254/api/webhooks/123/abc";
-  const env = buildEnvWithDiscord(ssrfUrl);
+  const env = await buildEnvWithDiscord(ssrfUrl);
 
   const mockFetch = mock(() => {
     return Promise.resolve(new Response("should not be called", { status: 200 }));
@@ -229,10 +233,13 @@ test("C2: send_notification scope-pass with stub channel → success, no notify.
   // Use a real Discord channel in env and mock globalThis.fetch to return success
   const webhookUrl = "https://discord.com/api/webhooks/999/stubtoken";
   const kv = new MockKV();
+  await kv.put(
+    "channel:discord-stub",
+    JSON.stringify({ service: "discord", id: "stub", webhookUrl })
+  );
   const env: Env = {
     OAUTH_KV: kv as any,
     HMAC_PEPPER: "test-pepper",
-    DISCORD_INSTANCES: JSON.stringify([{ id: "stub", webhookUrl }]),
   };
   const auth: AuthCtx = { userId: "user-stub", scopes: ["dovecote:notify"], authMethod: "oauth", ip: "unknown" };
   const ctx = createMockExecutionCtx(auth) as any;
