@@ -32,6 +32,14 @@ const noScope: AuthCtx = {
   tokenId: "t",
 };
 
+const notifyAuth: AuthCtx = {
+  userId: "u",
+  scopes: ["dovecote:notify"],
+  authMethod: "api_token",
+  ip: "127.0.0.1",
+  tokenId: "t",
+};
+
 const adminAuth: AuthCtx = {
   userId: "admin",
   scopes: ["dovecote:admin"],
@@ -49,8 +57,8 @@ function makeEnv(extra: Partial<Env> = {}): Env {
 }
 
 // /v1/notify → sendNotification throws ScopeError("dovecote:notify") on missing scope.
-// listChannels also throws "dovecote:notify"; differentiate via route-specific request shape:
-// sendNotification rejects on body, listChannels on a GET.
+// Method+path pins the route; the ScopeError target pins the service, which is the
+// only v1 service that raises it from inside a POST body handler.
 test("wiring: POST /v1/notify delegates to sendNotification (ScopeError signature)", async () => {
   const app = buildApp(noScope);
   const res = await app.fetch(
@@ -67,18 +75,34 @@ test("wiring: POST /v1/notify delegates to sendNotification (ScopeError signatur
   expect(body.error_description).toContain("dovecote:notify");
 });
 
-// /v1/channels → listChannels throws ScopeError("dovecote:notify") on missing scope.
-// Method+path identifies the route, ScopeError target confirms the service.
-test("wiring: GET /v1/channels delegates to listChannels (ScopeError signature)", async () => {
-  const app = buildApp(noScope);
+// /v1/channels → listChannels. A 403 no longer identifies the service: src/api-v1.ts
+// gates "dovecote:notify" in the route itself, ahead of the call, so a missing-scope
+// assertion passes even with the listChannels slot unbound, removed, or swapped. This
+// discriminates on the positive path instead — one sentinel channel record seeded into
+// KV must surface in the response body, which only a live route → listChannels →
+// registry → KV chain can produce. (The complementary property, that a 403 is raised
+// without any KV read, is pinned by ChannelsEndpointAwaitsAsyncRegistry.)
+test("wiring: GET /v1/channels delegates to listChannels (seeded channel reaches the body)", async () => {
+  const kv = new MockKV();
+  await kv.put(
+    "channel:telegram-wiresentinel",
+    JSON.stringify({
+      service: "telegram",
+      id: "wiresentinel",
+      botToken: "t",
+      chatId: "c",
+    }),
+  );
+
+  const app = buildApp(notifyAuth);
   const res = await app.fetch(
     new Request("http://localhost/v1/channels"),
-    makeEnv(),
+    makeEnv({ OAUTH_KV: kv as any }),
     createMockExecutionCtx(null) as any,
   );
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(200);
   const body = (await res.json()) as any;
-  expect(body.error_description).toContain("dovecote:notify");
+  expect(body.channels.map((ch: any) => ch.id)).toContain("telegram-wiresentinel");
 });
 
 // /v1/tokens POST → admin gate inside route, then issueToken. Identifying signature:
