@@ -10,8 +10,14 @@ const mockEnv: Env = {
 
 // ChannelEnvBindingRemovedFromWorker T1: channels come from `channel:<id>` KV
 // records, never from the environment. Nothing named *_INSTANCES may survive on
-// a worker Env fixture — reintroducing such a field on the interface is caught
-// by `bun run typecheck`, and a leftover fixture field is caught here.
+// a worker Env fixture, and a leftover fixture field is caught here.
+//
+// This does NOT guard the interface, and neither does `bun run typecheck`: adding
+// the field back to `Env` in src/types.ts leaves tsc clean, because an unused
+// optional property is not a type error (measured, not assumed). The guard that
+// actually catches an interface-level reintroduction is
+// test/removal/channel-env-surface.test.ts — "T1: no tracked file mentions either
+// channel env identifier" — which scans every tracked file for the identifiers.
 test("the worker Env carries no channel-configuration binding", () => {
   for (const key of Object.keys(mockEnv)) {
     expect(key).not.toMatch(/_INSTANCES$/);
