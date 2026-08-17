@@ -30,3 +30,11 @@ export interface DiscordInstanceConfig {
   id: string;
   webhookUrl: string;
 }
+
+/**
+ * The JSON body stored under a `channel:<service>-<instanceId>` KV key.
+ * `service` / `id` are self-description; the key stays authoritative (D-M3).
+ */
+export type StoredChannelRecord =
+  | ({ service: "telegram" } & TelegramInstanceConfig)
+  | ({ service: "discord" } & DiscordInstanceConfig);

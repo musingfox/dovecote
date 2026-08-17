@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { splitChannelId, isValidDiscordWebhookUrl } from "../../src/channels/utils";
+import {
+  splitChannelId,
+  isValidDiscordWebhookUrl,
+  channelKey,
+  serializeChannelRecord,
+  CHANNEL_KEY_PREFIX,
+} from "../../src/channels/utils";
 
 describe("splitChannelId (BC3a)", () => {
   it("telegram-alerts → { service: 'telegram', instance: 'alerts' }", () => {
@@ -98,5 +104,56 @@ describe("isValidDiscordWebhookUrl (BC-SSRF1)", () => {
 
   it("rejects https://discord.com:81/api/webhooks/1/t (non-default port)", () => {
     expect(isValidDiscordWebhookUrl("https://discord.com:81/api/webhooks/1/t")).toBe(false);
+  });
+});
+
+describe("channelKey / CHANNEL_KEY_PREFIX (ChannelKeyAndRecordFormat)", () => {
+  it("channelKey('telegram', 'default') → 'channel:telegram-default'", () => {
+    expect(channelKey("telegram", "default")).toBe("channel:telegram-default");
+  });
+
+  it("channelKey('discord', 'team-frontend') → 'channel:discord-team-frontend'", () => {
+    expect(channelKey("discord", "team-frontend")).toBe("channel:discord-team-frontend");
+  });
+
+  it("CHANNEL_KEY_PREFIX === 'channel:'", () => {
+    expect(CHANNEL_KEY_PREFIX).toBe("channel:");
+  });
+
+  it("channelKey is the prefix followed by the composite channel id", () => {
+    const key = channelKey("telegram", "ops");
+    expect(key.startsWith(CHANNEL_KEY_PREFIX)).toBe(true);
+    expect(key.slice(CHANNEL_KEY_PREFIX.length)).toBe("telegram-ops");
+  });
+});
+
+describe("serializeChannelRecord (ChannelKeyAndRecordFormat)", () => {
+  it("telegram record: fixed key order, service and id first", () => {
+    expect(serializeChannelRecord("telegram", { id: "ops", botToken: "t", chatId: "c" })).toBe(
+      '{"service":"telegram","id":"ops","botToken":"t","chatId":"c"}'
+    );
+  });
+
+  it("discord record: fixed key order, service and id first", () => {
+    expect(
+      serializeChannelRecord("discord", {
+        id: "ops",
+        webhookUrl: "https://discord.com/api/webhooks/1/t",
+      })
+    ).toBe('{"service":"discord","id":"ops","webhookUrl":"https://discord.com/api/webhooks/1/t"}');
+  });
+
+  it("serializing the same config twice yields identical strings (idempotency precondition)", () => {
+    const config = { id: "ops", botToken: "t", chatId: "c" };
+    expect(serializeChannelRecord("telegram", config)).toBe(
+      serializeChannelRecord("telegram", config)
+    );
+  });
+
+  it("caller key order does not leak into the serialized record", () => {
+    const reordered = { chatId: "c", botToken: "t", id: "ops" };
+    expect(serializeChannelRecord("telegram", reordered)).toBe(
+      '{"service":"telegram","id":"ops","botToken":"t","chatId":"c"}'
+    );
   });
 });
