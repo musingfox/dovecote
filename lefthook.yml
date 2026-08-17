@@ -19,6 +19,7 @@ pre-commit:
     no-bun-api-in-src:
       glob: "src/**/*.ts"
       run: |
+        command -v rg >/dev/null || { echo "ripgrep required for no-bun-api-in-src guard"; exit 1; }
         if rg -n '\bBun\.' {staged_files} ; then
           echo "Bun.* API found in src/** — worker module must stay portable; move Bun-specific code to cli/ or scripts/."
           exit 1
