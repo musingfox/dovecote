@@ -16,8 +16,15 @@
 
 import { randomBytes } from "node:crypto";
 import { DEFAULT_SCOPES } from "./wizard-defaults.js";
-import { makeWranglerKv } from "./lib/wrangler-kv.js";
+import { makeWranglerKv, type WranglerKv } from "./lib/wrangler-kv.js";
 import { issueToken, KVWriteError } from "../src/auth/api-token.js";
+import { discordAdapter } from "../src/channels/discord.js";
+import { telegramAdapter } from "../src/channels/telegram.js";
+import {
+  CHANNEL_KEY_PREFIX,
+  channelKey,
+  serializeChannelRecord,
+} from "../src/channels/utils.js";
 import type { Env } from "../src/types.js";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout, stderr, env, argv, exit } from "node:process";
@@ -55,24 +62,36 @@ if (envName !== "staging" && envName !== "production") {
 
 // ---------- IO helpers ----------
 
-const rl = createInterface({ input: stdin, output: stdout });
+// Created on first prompt, not at import: this module exports the channel
+// helpers for tests, and an eager readline interface would hold stdin open.
+let rlInstance: ReturnType<typeof createInterface> | null = null;
+
+function rl(): ReturnType<typeof createInterface> {
+  rlInstance ??= createInterface({ input: stdin, output: stdout });
+  return rlInstance;
+}
+
+function closeRl(): void {
+  rlInstance?.close();
+  rlInstance = null;
+}
 
 async function ask(prompt: string, def?: string): Promise<string> {
   const suffix = def !== undefined ? ` [${def}]` : "";
-  const ans = await rl.question(`${prompt}${suffix} `);
+  const ans = await rl().question(`${prompt}${suffix} `);
   return ans.trim() || def || "";
 }
 
 async function askSecret(prompt: string): Promise<string> {
   // Best-effort: disable echo via raw mode on TTY; readline reveals it
   // anyway. Acceptable for a local wizard the user is driving themselves.
-  const ans = await rl.question(`${prompt} `);
+  const ans = await rl().question(`${prompt} `);
   return ans.trim();
 }
 
 async function askYesNo(prompt: string, def = true): Promise<boolean> {
   const tag = def ? "[Y/n]" : "[y/N]";
-  const ans = (await rl.question(`${prompt} ${tag} `)).trim().toLowerCase();
+  const ans = (await rl().question(`${prompt} ${tag} `)).trim().toLowerCase();
   if (ans === "") return def;
   return ans === "y" || ans === "yes";
 }
@@ -95,7 +114,7 @@ function warn(msg: string): void {
 
 function fail(msg: string): never {
   stderr.write(`  ✘ ${msg}\n`);
-  rl.close();
+  closeRl();
   exit(1);
 }
 
@@ -308,6 +327,81 @@ async function step2_secrets(): Promise<SecretPlan[]> {
   return plan;
 }
 
+// ---------- channel provisioning (SetupWizardWritesChannelToKv) ----------
+
+/** Answers the channel step collected from the operator, before validation. */
+export interface ChannelAnswers {
+  telegram?: { id: string; botToken: string; chatId: string };
+  discord?: { id: string; webhookUrl: string };
+}
+
+export interface ChannelWrite {
+  key: string;
+  value: string;
+}
+
+/** Shown when the operator skips the channel step — names no env var (D3). */
+export const CHANNEL_SKIP_WARNING =
+  "skipped channel config — `dovecote notify` will return no_channels until you " +
+  "add one with `bun run channel:add -- --env <env>`.";
+
+/**
+ * Turn the collected answers into the canonical KV records to write. Ids are
+ * lowercased here (D-M7) and each record is validated with the production
+ * `parseRecord`; a service that fails validation is reported through `onWarn`
+ * and skipped rather than aborting the wizard.
+ */
+export function collectChannelRecords(
+  answers: ChannelAnswers,
+  onWarn?: (message: string) => void
+): ChannelWrite[] {
+  const writes: ChannelWrite[] = [];
+
+  if (answers.telegram) {
+    const id = answers.telegram.id.toLowerCase();
+    const parsed = telegramAdapter.parseRecord({ ...answers.telegram, service: "telegram", id });
+    if (!parsed.ok) {
+      onWarn?.(`telegram: ${parsed.error} — skipping telegram`);
+    } else {
+      writes.push({
+        key: channelKey("telegram", parsed.config.id),
+        value: serializeChannelRecord("telegram", parsed.config),
+      });
+    }
+  }
+
+  if (answers.discord) {
+    const id = answers.discord.id.toLowerCase();
+    const parsed = discordAdapter.parseRecord({ ...answers.discord, service: "discord", id });
+    if (!parsed.ok) {
+      onWarn?.(`discord: ${parsed.error} — skipping discord`);
+    } else {
+      writes.push({
+        key: channelKey("discord", parsed.config.id),
+        value: serializeChannelRecord("discord", parsed.config),
+      });
+    }
+  }
+
+  return writes;
+}
+
+/**
+ * Write one KV record per configured channel and return the composed channel
+ * ids (`telegram-ops`, ...). No worker secret is touched.
+ */
+export async function provisionChannels(
+  writes: ChannelWrite[],
+  kv: WranglerKv
+): Promise<string[]> {
+  const channelIds: string[] = [];
+  for (const write of writes) {
+    await kv.put(write.key, write.value);
+    channelIds.push(write.key.slice(CHANNEL_KEY_PREFIX.length));
+  }
+  return channelIds;
+}
+
 async function step3_channel(): Promise<string[]> {
   header(3, 9, "Configure at least one notification channel");
   const choice = (
@@ -317,8 +411,12 @@ async function step3_channel(): Promise<string[]> {
     )
   ).toLowerCase();
 
-  const instances: { name: string; payload: string }[] = [];
-  const channelIds: string[] = [];
+  if (choice === "skip") {
+    warn(CHANNEL_SKIP_WARNING);
+    return [];
+  }
+
+  const answers: ChannelAnswers = {};
 
   if (choice === "telegram" || choice === "both") {
     info(
@@ -330,11 +428,7 @@ async function step3_channel(): Promise<string[]> {
     if (!botToken || !chatId) {
       warn("missing bot token or chat id — skipping telegram");
     } else {
-      instances.push({
-        name: "TELEGRAM_INSTANCES",
-        payload: JSON.stringify([{ id, botToken, chatId }]),
-      });
-      channelIds.push(`telegram-${id}`);
+      answers.telegram = { id, botToken, chatId };
     }
   }
 
@@ -347,38 +441,30 @@ async function step3_channel(): Promise<string[]> {
     if (!webhookUrl) {
       warn("missing webhook url — skipping discord");
     } else {
-      instances.push({
-        name: "DISCORD_INSTANCES",
-        payload: JSON.stringify([{ id, webhookUrl }]),
-      });
-      channelIds.push(`discord-${id}`);
+      answers.discord = { id, webhookUrl };
     }
   }
 
-  if (choice === "skip") {
-    warn(
-      "skipped channel config — `dovecote notify` will return no_channels until you set TELEGRAM_INSTANCES or DISCORD_INSTANCES."
-    );
-    return [];
-  }
-
-  if (instances.length === 0) {
+  const writes = collectChannelRecords(answers, warn);
+  if (writes.length === 0) {
     warn("no channel configured — you can re-run the wizard later.");
     return [];
   }
 
-  const dir = mkdtempSync(join(tmpdir(), "dovecote-setup-"));
-  const file = join(dir, "channels.json");
-  const payload: Record<string, string> = {};
-  for (const i of instances) payload[i.name] = i.payload;
-  writeFileSync(file, JSON.stringify(payload), { mode: 0o600 });
+  const kv = makeWranglerKv(
+    envName,
+    (args) => wrangler(args, { capture: true }),
+    (key) => info(`writing ${key} (--remote)`)
+  );
+
+  let channelIds: string[];
   try {
-    const r = wrangler(["secret", "bulk", file, "--env", envName]);
-    if (r.code !== 0) fail("wrangler secret bulk failed for channels");
-    for (const i of instances) ok(`pushed ${i.name} (${i.payload.length} chars)`);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+    channelIds = await provisionChannels(writes, kv);
+  } catch (e) {
+    return fail(`writing channel record to KV failed: ${(e as Error).message}`);
   }
+  for (const id of channelIds) ok(`${CHANNEL_KEY_PREFIX}${id} written`);
+
   saveState(envName, { channelIds });
   return channelIds;
 }
@@ -679,12 +765,16 @@ async function main(): Promise<void> {
     channelIds.length > 0 ? channelIds : loadState(envName).channelIds ?? []
   );
 
-  rl.close();
+  closeRl();
   stdout.write("\n  ✓ setup complete\n");
 }
 
-main().catch((e) => {
-  stderr.write(`\n✘ wizard failed: ${(e as Error).stack || e}\n`);
-  rl.close();
-  exit(1);
-});
+// Guarded so the channel helpers above can be imported by tests without the
+// wizard running.
+if (import.meta.main) {
+  main().catch((e) => {
+    stderr.write(`\n✘ wizard failed: ${(e as Error).stack || e}\n`);
+    closeRl();
+    exit(1);
+  });
+}
