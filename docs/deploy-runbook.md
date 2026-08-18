@@ -22,7 +22,13 @@ Before deploying to production:
    Ensure all required secrets are set via `wrangler secret put`:
    - `HMAC_PEPPER`
    - `ADMIN_REVOKE_TOKEN`
-   - Channel-specific credentials (if using notifications)
+
+   Notification channels are **not** secrets. Each channel is a
+   `channel:<service>-<id>` record in `OAUTH_KV`; provision one with
+   `bun run channel:add -- --env <env>`. Upgrading a deployment that still
+   configures channels through worker secrets? Follow
+   [Channel Cutover](#channel-cutover-worker-secrets-to-kv-records) below, in
+   order.
 
 ## Users and Tokens (M1 auth model)
 
@@ -67,6 +73,19 @@ Username charset: lowercase letters, digits, `_`, `-`, 1–64 chars.
 Secrets belonging to auth mechanisms removed in M1 are no longer read by
 the worker. List them with `wrangler secret list` and delete any that are
 not in the required set above (`wrangler secret delete <name>`).
+
+Two exceptions this blanket rule would otherwise sweep up:
+
+- **The two secrets whose names end in `_INSTANCES`** are the live channel
+  configuration on any environment that has not been migrated yet. Deleting
+  them before the cutover opens a window in which the worker has no channels
+  at all and every notification fails. Leave them until you have completed
+  [Channel Cutover](#channel-cutover-worker-secrets-to-kv-records) below; that
+  procedure deletes them itself, as its last step.
+- **`MCP_AUTH_TOKEN`** is not read by the worker either, but
+  `scripts/setup-worker-vars.sh` still requires it and exits 1 without it, so
+  deleting it will break the next run of that script. Its retirement is
+  tracked separately; leave it in place for now.
 
 ## First-Time Client Provisioning
 
@@ -310,8 +329,12 @@ window in which the worker has no channels at all and every notification fails.
    ```
 
    Every expected channel must appear. A record that is corrupt or disagrees
-   with its own key is skipped silently by design, so a channel *missing* here
-   means a bad record, not an empty namespace. Send one probe before moving on:
+   with its own key is skipped rather than failing the call, so a channel
+   *missing* here means a bad record, not an empty namespace. The reason is
+   logged by the worker instead of being returned to the CLI — run
+   `wrangler tail --env staging` while repeating the call to see which record
+   was rejected and why (`invalid JSON`, a parse error, or
+   `record id '<id>' does not match its key`). Send one probe before moving on:
 
    ```bash
    dovecote channels test <channel-id>

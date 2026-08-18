@@ -123,7 +123,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/v1/channels",
-  description: "List configured notification channels. Requires scope `dovecote:read`.",
+  description: "List configured notification channels. Requires scope `dovecote:notify`.",
   responses: {
     200: jsonOk(channelsListSchema, "Channels listed"),
     ...commonAuthErrors,

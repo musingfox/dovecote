@@ -36,7 +36,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 - **Runtime**: Cloudflare Workers (TypeScript, Hono)
 - **Transport**: Streamable HTTP (SSE)
-- **Storage**: Cloudflare KV (`OAUTH_KV` — OAuth clients/grants/tokens + encrypted channel config)
+- **Storage**: Cloudflare KV (`OAUTH_KV` — OAuth clients/grants/tokens + one plaintext record per notification channel)
 - **Auth**: `@cloudflare/workers-oauth-provider` (OAuth 2.1)
 
 ## Development
@@ -49,7 +49,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 2. Create a `.dev.vars` file (see `.dev.vars.example`):
    ```env
    HMAC_PEPPER=...
-```
+   ```
 
    Channels are not read from `.dev.vars` — the worker resolves them from
    `channel:<service>-<id>` records in `OAUTH_KV`.
@@ -93,11 +93,20 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
    Required:
    - `HMAC_PEPPER` — HMAC pepper for `dvct_*` token hashing; `/authorize` shows a form to paste a pre-issued `dvct_*` token
+   - `MCP_AUTH_TOKEN` — the script exits 1 without it. The worker no longer
+     reads it; it is a leftover of the pre-`dvct_*` bearer path and is pending
+     removal, but until the script drops it you cannot complete this step
+     without supplying a value.
 
    Notification channels are no longer secrets. Each channel is a
    `channel:<service>-<id>` record in `OAUTH_KV`: add one with
    `bun run channel:add -- --env production`, or move a saved JSON array over
    in one shot with `bun run channel:migrate -- --env production --file backup.json`.
+
+   Upgrading a deployment whose channels still live in worker secrets? Follow
+   [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records)
+   in order — migrating after you deploy, or deleting the old secrets first,
+   drops every channel.
 
    For the staging environment: `WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`.
 

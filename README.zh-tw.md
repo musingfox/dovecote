@@ -34,7 +34,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
 - **Runtime**：Cloudflare Workers（TypeScript、Hono）
 - **Transport**：Streamable HTTP (SSE)
-- **儲存**：Cloudflare KV（`OAUTH_KV` — OAuth clients/grants/tokens 與加密後的 channel 設定）
+- **儲存**：Cloudflare KV（`OAUTH_KV` — OAuth clients/grants/tokens，以及每個通知頻道一筆明文記錄）
 - **認證**：`@cloudflare/workers-oauth-provider`（OAuth 2.1）
 
 ## 開發
@@ -47,7 +47,7 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 2. 建立 `.dev.vars`（可參考 `.dev.vars.example`）：
    ```env
    HMAC_PEPPER=...
-```
+   ```
 
    頻道不從 `.dev.vars` 讀取 — worker 改從 `OAUTH_KV` 的
    `channel:<service>-<id>` 記錄解析。
@@ -91,10 +91,17 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
    必要：
    - `HMAC_PEPPER` — `dvct_*` token 雜湊用 pepper；`/authorize` 顯示貼上 `dvct_*` token 的表單
+   - `MCP_AUTH_TOKEN` — 沒有它 script 會 exit 1。worker 已不再讀取此值，它是
+     `dvct_*` 之前的 bearer 路徑遺留、待移除；但在 script 拿掉它之前，這一步
+     沒填值就無法完成。
 
    通知頻道已不再是 secret。每個頻道是 `OAUTH_KV` 裡的
    `channel:<service>-<id>` 記錄：用 `bun run channel:add -- --env production` 新增，
    或用 `bun run channel:migrate -- --env production --file backup.json` 一次匯入舊的 JSON 陣列。
+
+   若是升級既有部署、頻道還放在 worker secret 裡？請照
+   [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records)
+   的順序做 — 先部署再 migrate，或先刪舊 secret，都會讓所有頻道消失。
 
    Staging 環境：`WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`。
 

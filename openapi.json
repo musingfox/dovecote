@@ -519,7 +519,7 @@
     },
     "/v1/channels": {
       "get": {
-        "description": "List configured notification channels. Requires scope `dovecote:read`.",
+        "description": "List configured notification channels. Requires scope `dovecote:notify`.",
         "responses": {
           "200": {
             "description": "Channels listed",
