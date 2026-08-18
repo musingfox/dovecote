@@ -71,6 +71,10 @@ test("C-Tooling-1: lefthook.yml contains the no-bun-api-in-src hook block", asyn
   const yml = await fs.readFile("lefthook.yml", "utf-8");
   expect(yml).toContain("no-bun-api-in-src");
   expect(yml).toContain("\\bBun\\.");
-  // The tool-presence check is part of the guard, not an optimisation.
-  expect(yml).toContain("command -v rg");
+  // The tool-presence check is part of the guard, not an optimisation. Pin
+  // this guard's own message: a bare "command -v rg" would also match a
+  // sibling hook's check and stay green with this one unfixed.
+  expect(yml).toContain(
+    'command -v rg >/dev/null || { echo "ripgrep required for no-bun-api-in-src guard"; exit 1; }',
+  );
 });
