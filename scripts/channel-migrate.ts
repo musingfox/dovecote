@@ -8,18 +8,26 @@
  *
  * Usage:
  *   bun run channel:migrate -- --env staging --file backup.json
+ *   bun run channel:migrate -- --env production --file backup.json  # asks you to type 'production'
  *   bun run channel:migrate -- --env production --dry-run < backup.json
  *
  * Input document: { "telegram"?: Array | string, "discord"?: Array | string }
  * — a string value is parsed as JSON first, so the raw env-var body can be
  * pasted verbatim without hand-unwrapping it (D-M5).
  *
+ * `--env` is mandatory with no default and a real write to production requires
+ * typing `production` at the confirmation prompt, exactly as `channel:add`
+ * does (D-M4): one run pours several live credentials into a namespace, so
+ * aiming at the wrong environment is the standing risk and it is asked
+ * directly. `--dry-run` writes nothing and is therefore never prompted.
+ *
  * Validate-all-then-write (D-M5): if any entry fails validation nothing is
  * written at all. Writes are unconditional puts, so a re-run converges to the
  * same state and repairs a hand-edited record.
  */
 
-import { readFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
+import { createReadStream, createWriteStream, closeSync, openSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { discordAdapter } from "../src/channels/discord.js";
 import { telegramAdapter } from "../src/channels/telegram.js";
@@ -149,6 +157,12 @@ export interface MigrateIo {
   err?: (msg: string) => void;
   /** Overrides `--file` / stdin; injected by tests to stay off the filesystem. */
   readInput?: () => Promise<string>;
+  /**
+   * Ask the operator one question and return their trimmed answer. Only the
+   * production confirmation uses it. Absent means "cannot ask", which is
+   * treated as "not confirmed" rather than as consent.
+   */
+  ask?: (prompt: string) => Promise<string>;
 }
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -177,6 +191,19 @@ export async function runChannelMigrate(
     return 1;
   }
   const dryRun = argv.includes("--dry-run");
+
+  // Same gate, same wording as `channel:add` (scripts/channel-add.ts). A
+  // dry run is exempt because it puts nothing anywhere.
+  if (envName === "production" && !dryRun) {
+    const ask = io.ask ?? (async () => "");
+    const confirmation = await ask(
+      "  This writes live credentials to PRODUCTION. Type 'production' to continue:",
+    );
+    if (confirmation.trim() !== "production") {
+      err("✘ production not confirmed — nothing was written");
+      return 1;
+    }
+  }
 
   let text: string;
   try {
@@ -248,6 +275,38 @@ const wranglerRunner: WranglerRunner = (args) => {
   };
 };
 
+/**
+ * Ask on the controlling terminal rather than on stdin: the migration document
+ * itself may be arriving on stdin (`... | bun run channel:migrate`), so the
+ * prompt cannot share that channel the way `channel:add`'s can. With no
+ * terminal at all (CI, cron, `</dev/null`) there is nobody to ask, so the
+ * answer is empty and the caller refuses to write.
+ */
+async function askOnTerminal(prompt: string): Promise<string> {
+  try {
+    closeSync(openSync("/dev/tty", "r"));
+  } catch {
+    process.stderr.write(
+      "  no terminal available to confirm production — re-run interactively\n",
+    );
+    return "";
+  }
+  const input = createReadStream("/dev/tty");
+  const output = createWriteStream("/dev/tty");
+  const rl = createInterface({ input, output });
+  try {
+    return (await rl.question(`${prompt} `)).trim();
+  } finally {
+    rl.close();
+    input.destroy();
+    output.destroy();
+  }
+}
+
 if (import.meta.main) {
-  process.exit(await runChannelMigrate(process.argv.slice(2), wranglerRunner));
+  process.exit(
+    await runChannelMigrate(process.argv.slice(2), wranglerRunner, {
+      ask: askOnTerminal,
+    }),
+  );
 }

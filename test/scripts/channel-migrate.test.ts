@@ -158,7 +158,10 @@ test("ChannelMigrateWritesKvRecords T9: every put targets the deployed namespace
     telegram: [{ id: "default", botToken: "t", chatId: "c" }],
     discord: [{ id: "ops", webhookUrl: "https://discord.com/api/webhooks/1/t" }],
   });
-  const code = await runChannelMigrate(["--env", "production"], runner, h.io);
+  const code = await runChannelMigrate(["--env", "production"], runner, {
+    ...h.io,
+    ask: async () => "production",
+  });
   expect(code).toBe(0);
   const puts = calls.filter((argv) => argv.includes("put"));
   expect(puts).toHaveLength(2);
@@ -170,6 +173,83 @@ test("ChannelMigrateWritesKvRecords T9: every put targets the deployed namespace
     "channel:telegram-default",
     "channel:discord-ops",
   ]);
+});
+
+// The production confirmation gate. `channel:add` has always had it; migrate
+// pours several live credentials in one run, so an environment mix-up costs
+// more here, and docs/deploy-runbook.md step 8 promises the gate exists.
+
+test("ChannelMigrateWritesKvRecords T10: production without typing 'production' writes nothing and exits non-zero", async () => {
+  const { runner, calls } = recordingRunner();
+  const h = io({ telegram: [{ id: "default", botToken: "t", chatId: "c" }] });
+  const asked: string[] = [];
+  const code = await runChannelMigrate(["--env", "production"], runner, {
+    ...h.io,
+    ask: async (prompt) => {
+      asked.push(prompt);
+      return "yes";
+    },
+  });
+  expect(code).not.toBe(0);
+  expect(calls).toHaveLength(0);
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toContain("production");
+  expect(h.err.join("\n")).toContain("production not confirmed");
+});
+
+test("ChannelMigrateWritesKvRecords T10b: production with no way to ask at all is refused, not assumed", async () => {
+  const { runner, calls } = recordingRunner();
+  const h = io({ telegram: [{ id: "default", botToken: "t", chatId: "c" }] });
+  // No `ask` supplied — a non-interactive caller must not be treated as consent.
+  const code = await runChannelMigrate(["--env", "production"], runner, h.io);
+  expect(code).not.toBe(0);
+  expect(calls).toHaveLength(0);
+  expect(h.err.join("\n")).toContain("production not confirmed");
+});
+
+test("ChannelMigrateWritesKvRecords T10c: typing 'production' lets the run proceed normally", async () => {
+  const { runner, calls } = recordingRunner();
+  const h = io({ telegram: [{ id: "default", botToken: "t", chatId: "c" }] });
+  const code = await runChannelMigrate(["--env", "production"], runner, {
+    ...h.io,
+    ask: async () => "  production  ",
+  });
+  expect(code).toBe(0);
+  expect(calls.filter((argv) => argv.includes("put"))).toHaveLength(1);
+  expect(h.out.join("\n")).toContain("wrote 1 channel record(s) to production");
+});
+
+test("ChannelMigrateWritesKvRecords T10d: staging is never prompted", async () => {
+  const { runner, calls } = recordingRunner();
+  const h = io({ telegram: [{ id: "default", botToken: "t", chatId: "c" }] });
+  const asked: string[] = [];
+  const code = await runChannelMigrate(["--env", "staging"], runner, {
+    ...h.io,
+    ask: async (prompt) => {
+      asked.push(prompt);
+      return "";
+    },
+  });
+  expect(code).toBe(0);
+  expect(asked).toEqual([]);
+  expect(calls.filter((argv) => argv.includes("put"))).toHaveLength(1);
+});
+
+test("ChannelMigrateWritesKvRecords T10e: --dry-run against production is not gated — it writes nothing to gate", async () => {
+  const { runner, calls } = recordingRunner();
+  const h = io({ telegram: [{ id: "default", botToken: "t", chatId: "c" }] });
+  const asked: string[] = [];
+  const code = await runChannelMigrate(["--env", "production", "--dry-run"], runner, {
+    ...h.io,
+    ask: async (prompt) => {
+      asked.push(prompt);
+      return "";
+    },
+  });
+  expect(code).toBe(0);
+  expect(asked).toEqual([]);
+  expect(calls).toHaveLength(0);
+  expect(h.out.join("\n")).toContain("would write 1 channel record(s) to production");
 });
 
 test("ChannelMigrateWritesKvRecords: a non-object document is rejected with no writes", () => {

@@ -325,11 +325,18 @@ window in which the worker has no channels at all and every notification fails.
    ```
 
 8. **Repeat 1-7 for `production`.** `channel:migrate` has no default
-   environment: `--env` is mandatory, and the production path additionally
-   requires typing `production` when prompted. Confirm you are aimed at the
-   right environment — a missing key and a wrong namespace both surface as
-   `404: Not Found`, so an environment mix-up reads as "this channel does not
-   exist yet" and writes the credential into the wrong namespace.
+   environment: `--env` is mandatory, and a real write to production stops to
+   ask you to type `production` before anything is put. Anything else typed
+   aborts with `production not confirmed — nothing was written` and exit 1.
+   Confirm you are aimed at the right environment — a missing key and a wrong
+   namespace both surface as `404: Not Found`, so an environment mix-up reads
+   as "this channel does not exist yet" and writes the credential into the
+   wrong namespace.
+
+   `--dry-run` is not prompted, because it writes nothing. The prompt is read
+   from the terminal rather than from stdin, so it still works when the
+   document is piped in; with no terminal at all (CI, `</dev/null`) production
+   is refused rather than assumed, so run the production step by hand.
 
 ### Rollback
 
