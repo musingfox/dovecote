@@ -74,7 +74,7 @@ Secrets belonging to auth mechanisms removed in M1 are no longer read by
 the worker. List them with `wrangler secret list` and delete any that are
 not in the required set above (`wrangler secret delete <name>`).
 
-Two exceptions this blanket rule would otherwise sweep up:
+One exception this blanket rule would otherwise sweep up:
 
 - **The two secrets whose names end in `_INSTANCES`** are the live channel
   configuration on any environment that has not been migrated yet. Deleting
@@ -82,10 +82,6 @@ Two exceptions this blanket rule would otherwise sweep up:
   at all and every notification fails. Leave them until you have completed
   [Channel Cutover](#channel-cutover-worker-secrets-to-kv-records) below; that
   procedure deletes them itself, as its last step.
-- **`MCP_AUTH_TOKEN`** is not read by the worker either, but
-  `scripts/setup-worker-vars.sh` still requires it and exits 1 without it, so
-  deleting it will break the next run of that script. Its retirement is
-  tracked separately; leave it in place for now.
 
 ## First-Time Client Provisioning
 

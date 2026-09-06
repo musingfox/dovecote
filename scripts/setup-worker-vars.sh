@@ -11,18 +11,6 @@ if [[ -f "$DEV_VARS_PATH" ]]; then
   source <(grep -v '^#' "$DEV_VARS_PATH" | sed 's/^/export /')
 fi
 
-# MCP_AUTH_TOKEN is required
-if [[ -z "${MCP_AUTH_TOKEN:-}" ]]; then
-  read -p "Enter MCP_AUTH_TOKEN (required): " MCP_AUTH_TOKEN
-  if [[ -z "$MCP_AUTH_TOKEN" ]]; then
-    echo "Error: MCP_AUTH_TOKEN is required"
-    exit 1
-  fi
-fi
-
-echo "Setting MCP_AUTH_TOKEN..."
-echo "$MCP_AUTH_TOKEN" | wrangler secret put ${WRANGLER_ENV:+--env $WRANGLER_ENV} MCP_AUTH_TOKEN
-
 # HMAC_PEPPER is required (dvct_* token hashing)
 if [[ -z "${HMAC_PEPPER:-}" ]]; then
   read -p "Enter HMAC_PEPPER (required, generate with: openssl rand -base64 32): " HMAC_PEPPER

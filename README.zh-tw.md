@@ -19,8 +19,7 @@ Agent (Claude Code / claude.ai / 任何 MCP client)
 Dovecote (Cloudflare Worker + OAUTH_KV)
   │
   ├──▶ Telegram Bot API
-  ├──▶ Discord Webhook
-  └──▶ Slack Webhook
+  └──▶ Discord Webhook
 ```
 
 ## MCP Tools
@@ -91,9 +90,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
    必要：
    - `HMAC_PEPPER` — `dvct_*` token 雜湊用 pepper；`/authorize` 顯示貼上 `dvct_*` token 的表單
-   - `MCP_AUTH_TOKEN` — 沒有它 script 會 exit 1。worker 已不再讀取此值，它是
-     `dvct_*` 之前的 bearer 路徑遺留、待移除；但在 script 拿掉它之前，這一步
-     沒填值就無法完成。
 
    通知頻道已不再是 secret。每個頻道是 `OAUTH_KV` 裡的
    `channel:<service>-<id>` 記錄：用 `bun run channel:add -- --env production` 新增，

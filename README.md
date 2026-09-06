@@ -21,8 +21,7 @@ Agent (Claude Code / claude.ai / any MCP client)
 Dovecote (Cloudflare Worker + OAUTH_KV)
   │
   ├──▶ Telegram Bot API
-  ├──▶ Discord Webhook
-  └──▶ Slack Webhook
+  └──▶ Discord Webhook
 ```
 
 ## MCP Tools
@@ -93,10 +92,6 @@ Dovecote (Cloudflare Worker + OAUTH_KV)
 
    Required:
    - `HMAC_PEPPER` — HMAC pepper for `dvct_*` token hashing; `/authorize` shows a form to paste a pre-issued `dvct_*` token
-   - `MCP_AUTH_TOKEN` — the script exits 1 without it. The worker no longer
-     reads it; it is a leftover of the pre-`dvct_*` bearer path and is pending
-     removal, but until the script drops it you cannot complete this step
-     without supplying a value.
 
    Notification channels are no longer secrets. Each channel is a
    `channel:<service>-<id>` record in `OAUTH_KV`: add one with

@@ -1,6 +1,3 @@
-# MCP Server Authentication Token (legacy bearer auth)
-MCP_AUTH_TOKEN=your-secure-token-here
-
 # HMAC pepper for API token hashing (generate with: openssl rand -base64 32)
 HMAC_PEPPER=your-32-character-hmac-pepper-here
 
