@@ -10,6 +10,7 @@ import { test, expect } from "bun:test";
 import authorizeApp from "../../src/auth/authorize.ts";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { MockKV } from "../helpers/mock-kv.ts";
+import { stubOAuthHelpers } from "../helpers/oauth-helpers-stub.js";
 
 const ISSUER = "https://idp.example.test";
 const AUTHORIZATION_ENDPOINT = "https://idp.example.test/oauth2/authorize";
@@ -25,7 +26,7 @@ const EVIL_REDIRECT = "https://evil.example/cb";
 const GOOD_REDIRECT = "https://client.example/callback";
 
 function makeProvider(behavior: "missing_client" | "ok"): OAuthHelpers {
-  return {
+  return stubOAuthHelpers({
     parseAuthRequest: async (_req: Request) => {
       if (behavior === "missing_client") {
         return {
@@ -60,7 +61,7 @@ function makeProvider(behavior: "missing_client" | "ok"): OAuthHelpers {
     revokeGrant: async () => {},
     unwrapToken: async () => null,
     exchangeToken: async () => ({}) as any,
-  };
+  });
 }
 
 function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {

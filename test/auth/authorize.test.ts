@@ -4,6 +4,7 @@ import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
 import { SCOPES_SUPPORTED, SCOPE_DESCRIPTIONS } from "../../src/auth/scopes.js";
 import { MockKV } from "../helpers/mock-kv.js";
+import { stubOAuthHelpers } from "../helpers/oauth-helpers-stub.js";
 
 const ISSUER = "https://idp.example.test";
 const AUTHORIZATION_ENDPOINT = "https://idp.example.test/oauth2/authorize";
@@ -13,7 +14,7 @@ const RP_CLIENT_ID = "rp-client-id";
 const STATE_SECRET = "s".repeat(32);
 
 function makeMockProvider(scope: string[] = ["dovecote:notify"]): OAuthHelpers {
-  return {
+  return stubOAuthHelpers({
     parseAuthRequest: async () => ({
       clientId: "abc",
       redirectUri: "https://claude.ai/api/mcp/auth_callback",
@@ -37,7 +38,7 @@ function makeMockProvider(scope: string[] = ["dovecote:notify"]): OAuthHelpers {
     revokeGrant: async () => {},
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 }
 
 interface AuthEnv extends Env {

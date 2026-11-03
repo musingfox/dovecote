@@ -11,13 +11,14 @@ import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
 import type { VerifyOutcome } from "../../src/auth/api-token.js";
 import { MockKV } from "../helpers/mock-kv.js";
+import { stubOAuthHelpers } from "../helpers/oauth-helpers-stub.js";
 
 interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
 }
 
 function makeProvider(): OAuthHelpers {
-  return {
+  return stubOAuthHelpers({
     parseAuthRequest: async (req: Request) => {
       const q = new URL(req.url).searchParams;
       return {
@@ -40,7 +41,7 @@ function makeProvider(): OAuthHelpers {
     revokeGrant: async () => {},
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 }
 
 function makeEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {

@@ -97,8 +97,8 @@ function collectOAuthParams(source: Iterable<[string, string]>): Array<[string, 
 }
 
 /**
- * workers-oauth-provider 0.4 treats an absent code_challenge as "PKCE off"
- * and lets the code be redeemed without a verifier, so S256 PKCE is enforced
+ * workers-oauth-provider lets confidential clients (the claude.ai connector
+ * registered client_secret_post) omit PKCE entirely, so S256 PKCE is enforced
  * here, before parseAuthRequest and therefore before completeAuthorization.
  */
 function hasS256Pkce(params: URLSearchParams): boolean {

@@ -3,6 +3,7 @@ import authorizeApp from "../../src/auth/authorize.js";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
+import { stubOAuthHelpers } from "../helpers/oauth-helpers-stub.js";
 
 interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
@@ -13,7 +14,7 @@ function makeProviderRecorder(): {
   calls: Array<{ grantId: string; userId: string }>;
 } {
   const calls: Array<{ grantId: string; userId: string }> = [];
-  const provider: OAuthHelpers = {
+  const provider = stubOAuthHelpers({
     revokeGrant: async (grantId: string, userId: string) => {
       calls.push({ grantId, userId });
     },
@@ -27,7 +28,7 @@ function makeProviderRecorder(): {
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
   return { provider, calls };
 }
 
@@ -314,7 +315,7 @@ test("admin revoke: missing grantId field returns 400", async () => {
 
 test("admin revoke: provider error returns 500", async () => {
   const kv = new MockKV();
-  const failingProvider: OAuthHelpers = {
+  const failingProvider = stubOAuthHelpers({
     revokeGrant: async () => {
       throw new Error("Provider error");
     },
@@ -328,7 +329,7 @@ test("admin revoke: provider error returns 500", async () => {
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
   const env = makeEnv({ OAUTH_KV: kv as any }, failingProvider);
 
   const req = new Request("https://example.com/admin/revoke", {

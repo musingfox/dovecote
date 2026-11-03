@@ -3,6 +3,7 @@ import authorizeApp from "../../src/auth/authorize.js";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
+import { stubOAuthHelpers } from "../helpers/oauth-helpers-stub.js";
 
 interface AuthEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
@@ -11,7 +12,7 @@ interface AuthEnv extends Env {
 test("bootstrap: flag absent returns 404 plain text, no audit", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -23,7 +24,7 @@ test("bootstrap: flag absent returns 404 plain text, no audit", async () => {
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -56,7 +57,7 @@ test("bootstrap: flag absent returns 404 plain text, no audit", async () => {
 test("bootstrap: flag=0 returns 404 plain text", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -68,7 +69,7 @@ test("bootstrap: flag=0 returns 404 plain text", async () => {
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -97,7 +98,7 @@ test("bootstrap: flag=0 returns 404 plain text", async () => {
 test("bootstrap: flag=1, no Authorization returns 401 json", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -109,7 +110,7 @@ test("bootstrap: flag=1, no Authorization returns 401 json", async () => {
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -137,7 +138,7 @@ test("bootstrap: flag=1, no Authorization returns 401 json", async () => {
 test("bootstrap: flag=1, Authorization: Basic xxx returns 401 json", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -149,7 +150,7 @@ test("bootstrap: flag=1, Authorization: Basic xxx returns 401 json", async () =>
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -178,7 +179,7 @@ test("bootstrap: flag=1, Authorization: Basic xxx returns 401 json", async () =>
 test("bootstrap: flag=1, wrong token returns 401 json, audit auth_failed", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -190,7 +191,7 @@ test("bootstrap: flag=1, wrong token returns 401 json, audit auth_failed", async
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -227,7 +228,7 @@ test("bootstrap: flag=1, wrong token returns 401 json, audit auth_failed", async
 test("bootstrap: flag=1, correct token, 6th call same IP returns 429 with Retry-After:60, audit rate_limited", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -239,7 +240,7 @@ test("bootstrap: flag=1, correct token, 6th call same IP returns 429 with Retry-
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -295,7 +296,7 @@ test("bootstrap: flag=1, correct token, 6th call same IP returns 429 with Retry-
 test("bootstrap: flag=1, correct token, body not-json returns 400 Invalid JSON, audit invalid_json", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -307,7 +308,7 @@ test("bootstrap: flag=1, correct token, body not-json returns 400 Invalid JSON, 
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -344,7 +345,7 @@ test("bootstrap: flag=1, correct token, body not-json returns 400 Invalid JSON, 
 test("bootstrap: flag=1, correct token, missing clientName returns 400, audit invalid_body", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -356,7 +357,7 @@ test("bootstrap: flag=1, correct token, missing clientName returns 400, audit in
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -393,7 +394,7 @@ test("bootstrap: flag=1, correct token, missing clientName returns 400, audit in
 test("bootstrap: flag=1, correct token, empty redirectUris returns 400, audit invalid_body", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -405,7 +406,7 @@ test("bootstrap: flag=1, correct token, empty redirectUris returns 400, audit in
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -442,7 +443,7 @@ test("bootstrap: flag=1, correct token, empty redirectUris returns 400, audit in
 test("bootstrap: flag=1, correct token, valid body, mock createClient throws returns 500 bootstrap failed, audit provider_error", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -456,7 +457,7 @@ test("bootstrap: flag=1, correct token, valid body, mock createClient throws ret
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,
@@ -494,7 +495,7 @@ test("bootstrap: flag=1, correct token, valid body, mock createClient throws ret
 test("bootstrap: flag=1, correct token, valid body, returns 200 with client_id, audit success, KV has bootstrap key", async () => {
   const kv = new MockKV();
 
-  const mockProvider: OAuthHelpers = {
+  const mockProvider = stubOAuthHelpers({
     revokeGrant: async () => {},
     parseAuthRequest: async () => ({} as any),
     completeAuthorization: async () => ({} as any),
@@ -506,7 +507,7 @@ test("bootstrap: flag=1, correct token, valid body, returns 200 with client_id, 
     listUserGrants: async () => ({ items: [] }),
     unwrapToken: async () => null,
     exchangeToken: async () => ({} as any),
-  };
+  });
 
   const env: AuthEnv = {
     OAUTH_KV: kv as any,

@@ -36,7 +36,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.4.0",
+    "@cloudflare/workers-oauth-provider": "1.2.4",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "hono": "^4.12.12",
     "jose": "^6.2.2",

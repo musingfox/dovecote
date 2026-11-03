@@ -41,15 +41,15 @@ test("GET /.well-known/oauth-authorization-server returns metadata", async () =>
   expect(json.code_challenge_methods_supported).not.toContain("plain");
 });
 
-test("GET /.well-known/oauth-protected-resource returns metadata", async () => {
+test("GET /.well-known/oauth-protected-resource/mcp returns metadata", async () => {
   const env = makeEnv();
-  const req = new Request("https://example.com/.well-known/oauth-protected-resource");
+  const req = new Request("https://example.com/.well-known/oauth-protected-resource/mcp");
   const res = await app.fetch(req, env, createMockExecutionCtx() as any);
 
   expect(res.status).toBe(200);
 
   const json = await res.json() as { resource: string };
-  expect(json.resource).toBeTruthy();
+  expect(json.resource).toBe("https://example.com/mcp");
 });
 
 test("POST /mcp without Authorization returns 401", async () => {

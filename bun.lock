@@ -5,7 +5,7 @@
     "": {
       "name": "dovecote",
       "dependencies": {
-        "@cloudflare/workers-oauth-provider": "^0.4.0",
+        "@cloudflare/workers-oauth-provider": "1.2.4",
         "@modelcontextprotocol/sdk": "^1.32.2",
         "hono": "^4.12.12",
         "jose": "^6.2.2",
@@ -111,7 +111,7 @@
 
     "@cloudflare/workerd-windows-64": ["@cloudflare/workerd-windows-64@1.20260409.1", "", { "os": "win32", "cpu": "x64" }, "sha512-GttFO0+TvE0rJNQbDlxC6kq2Q7uFxoZRo74Z9d/trUrLgA14HEVTTXobYyiWrDZ9Qp2W5KN1CrXQXiko0zE38Q=="],
 
-    "@cloudflare/workers-oauth-provider": ["@cloudflare/workers-oauth-provider@0.4.0", "", {}, "sha512-UtbV8hjC2NloB+Ds6J6v/9HiG8rx8MbdeYGCyFwOACT5vANWzDL6SKo3W5UZymsXiameAgC7jAmtUx4cc+Qpaw=="],
+    "@cloudflare/workers-oauth-provider": ["@cloudflare/workers-oauth-provider@1.2.4", "", {}, "sha512-ayo6Z8DBHdAxwDpplFU8BrEoxoSn6wNo+E7ypTENRHUOc8R89A8/+nZ+a8pMZjjXzF0JXfpYXhw/7qqG+DC18Q=="],
 
     "@cloudflare/workers-types": ["@cloudflare/workers-types@4.20260410.1", "", {}, "sha512-dPZT4aXxwhGHFhWA9iZhWVfFoO8g9exiLzeaS8y43Dw0Sard6Gb3o5LJjReav3ejHbQLHUfGEiZsRPGW8qmgMg=="],
 

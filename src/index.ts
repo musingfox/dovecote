@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import OAuthProvider, { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import type { OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import apiApp from "./api.js";
 import authorizeApp from "./auth/authorize.js";
@@ -15,19 +15,35 @@ import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
 import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 
-const oauthOptions: OAuthProviderOptions<Env> = {
-  apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
-  apiRoute: "/mcp",
-  defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) }, // GET/POST /authorize now form-based (dvct token)
-  authorizeEndpoint: "/authorize",
-  tokenEndpoint: "/token",
-  scopesSupported: [...SCOPES_SUPPORTED],
-  accessTokenTTL: 3600,
-  refreshTokenTTL: 2592000,
-  allowPlainPKCE: false,
-};
+// The resource is the URL MCP clients connect to, and 1.x binds every token to
+// it. It is derived per origin because production and staging serve this
+// Worker on different hostnames.
+function oauthOptionsFor(origin: string): OAuthProviderOptions<Env> {
+  return {
+    apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
+    apiRoute: "/mcp",
+    defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) }, // GET/POST /authorize now form-based (dvct token)
+    authorizeEndpoint: "/authorize",
+    tokenEndpoint: "/token",
+    scopesSupported: [...SCOPES_SUPPORTED],
+    // 0.4 published scopesSupported as the protected resource metadata's scopes_supported; 1.x takes it from here.
+    requiredScopes: [...SCOPES_SUPPORTED],
+    resourceMetadata: { resource: `${origin}/mcp` },
+    accessTokenTTL: 3600,
+    refreshTokenTTL: 2592000,
+  };
+}
 
-const oauthProvider = new OAuthProvider<Env>(oauthOptions);
+const oauthProviders = new Map<string, OAuthProvider<Env>>();
+
+function oauthProviderFor(origin: string): OAuthProvider<Env> {
+  let provider = oauthProviders.get(origin);
+  if (!provider) {
+    provider = new OAuthProvider<Env>(oauthOptionsFor(origin));
+    oauthProviders.set(origin, provider);
+  }
+  return provider;
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -38,7 +54,9 @@ app.get("/health", (c) => c.json(getHealthResponse()));
 const authExchangeApp = createAuthExchangeApp({
   issueToken,
   checkRateLimit,
-  unwrapOAuthToken: makeDefaultOAuthUnwrapper(oauthOptions),
+  unwrapOAuthToken: makeDefaultOAuthUnwrapper((env, origin) =>
+    getOAuthApi(oauthOptionsFor(origin), env),
+  ),
 });
 app.route("/", authExchangeApp);
 
@@ -60,13 +78,15 @@ const oauthPaths = [
   "/authorize",
   "/token",
   "/.well-known/oauth-authorization-server",
-  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/mcp",
   "/admin/revoke",
   "/admin/bootstrap-client",
 ];
 
 for (const path of oauthPaths) {
-  app.all(path, (c) => oauthProvider.fetch(c.req.raw, c.env, c.executionCtx));
+  app.all(path, (c) =>
+    oauthProviderFor(new URL(c.req.url).origin).fetch(c.req.raw, c.env, c.executionCtx),
+  );
 }
 
 export default app;

@@ -11,6 +11,7 @@ import { test, expect } from "bun:test";
 import authorizeApp from "../../src/auth/authorize.ts";
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { MockKV } from "../helpers/mock-kv.ts";
+import { stubOAuthHelpers } from "../helpers/oauth-helpers-stub.js";
 
 const ISSUER = "https://idp.example.test";
 const AUTHORIZATION_ENDPOINT = "https://idp.example.test/oauth2/authorize";
@@ -26,7 +27,7 @@ type ParseBehavior =
 
 function makeProvider(behavior: ParseBehavior): OAuthHelpers {
   const redirectUri = behavior.kind === "ok" ? behavior.redirectUri : "https://client.example/cb";
-  return {
+  return stubOAuthHelpers({
     parseAuthRequest: async (_req: Request) => {
       if (behavior.kind === "throw") throw new Error(behavior.message);
       return {
@@ -51,7 +52,7 @@ function makeProvider(behavior: ParseBehavior): OAuthHelpers {
     revokeGrant: async () => {},
     unwrapToken: async () => null,
     exchangeToken: async () => ({}) as any,
-  };
+  });
 }
 
 function makeEnv(overrides: Record<string, unknown> = {}) {

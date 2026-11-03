@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
-import type { OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
+import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { Env } from "./types.js";
 import {
@@ -35,7 +34,8 @@ export type ExchangeServices = {
    */
   unwrapOAuthToken: (
     token: string,
-    env: Env
+    env: Env,
+    origin: string
   ) => Promise<UnwrappedOAuthToken | null>;
 };
 
@@ -47,16 +47,16 @@ export interface UnwrappedOAuthToken {
 }
 
 /**
- * Default unwrapper: calls getOAuthApi(options, env).unwrapToken(token).
+ * Default unwrapper: calls helpersFor(env, origin).unwrapToken(token).
  * Reads scopes from `summary.grant.props.scopes` (populated by authorize handler)
  * and falls back to `summary.scope` if props is malformed.
  * Converts OAuth expiresAt (unix seconds) → milliseconds.
  */
 export function makeDefaultOAuthUnwrapper(
-  options: OAuthProviderOptions<Env>
-): (token: string, env: Env) => Promise<UnwrappedOAuthToken | null> {
-  return async (token: string, env: Env) => {
-    const api = getOAuthApi(options, env as any);
+  helpersFor: (env: Env, origin: string) => OAuthHelpers
+): (token: string, env: Env, origin: string) => Promise<UnwrappedOAuthToken | null> {
+  return async (token: string, env: Env, origin: string) => {
+    const api = helpersFor(env, origin);
     const summary = await api.unwrapToken<{
       userId?: string;
       scopes?: string[];
@@ -137,7 +137,7 @@ export function createAuthExchangeApp(services: ExchangeServices) {
     // Validate the OAuth bearer
     let unwrapped: UnwrappedOAuthToken | null;
     try {
-      unwrapped = await services.unwrapOAuthToken(token, env);
+      unwrapped = await services.unwrapOAuthToken(token, env, new URL(c.req.url).origin);
     } catch {
       return c.json(
         { error: "unauthorized", error_description: "invalid_token" },
