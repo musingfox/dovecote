@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { getOAuthApi } from "@cloudflare/workers-oauth-provider";
 import app from "../../src/index.js";
 import { issueToken } from "../../src/auth/api-token.js";
 import type { Env } from "../../src/types.js";
@@ -165,6 +166,48 @@ test("POST /token refuses a code redeemed without its S256 verifier", async () =
   );
   expect(res.status).toBe(400);
   expect(((await res.json()) as { access_token?: string }).access_token).toBeUndefined();
+});
+
+// The provider exempts confidential clients from PKCE; the app must not.
+test("a confidential client_secret_post client cannot authorize without a code_challenge", async () => {
+  const env = makeEnv();
+  const doFetch = fetcher(env);
+  const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+  const noop = { fetch: () => new Response(null, { status: 404 }) };
+  const client = await getOAuthApi(
+    {
+      apiHandler: noop,
+      apiRoute: "/mcp",
+      defaultHandler: noop,
+      authorizeEndpoint: "/authorize",
+      tokenEndpoint: "/token",
+      resourceMetadata: { resource: `${BASE}/mcp` },
+    },
+    env,
+  ).createClient({ redirectUris: [redirectUri], tokenEndpointAuthMethod: "client_secret_post" });
+  expect(client.clientSecret).toBeTruthy();
+
+  const params = new URLSearchParams({
+    client_id: client.clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    state: "s",
+  });
+  const form = await doFetch(new Request(`${BASE}/authorize?${params}`));
+  expect(form.status).toBe(400);
+  expect(await form.text()).not.toContain('name="token"');
+
+  const minted = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  params.set("token", minted.token);
+  const authorized = await doFetch(
+    new Request(`${BASE}/authorize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    }),
+  );
+  expect(authorized.status).toBe(400);
+  expect(authorized.headers.get("Location")).toBeNull();
 });
 
 // The bare origin is what the 0.4 root protected resource metadata advertised.
