@@ -134,7 +134,7 @@ runs:
         OIDC_AUDIENCE: ${{ inputs.oidc-audience }}
         MODE: oidc
       run: |
-        bash "${{ github.action_path }}/../../scripts/oidc-exchange.sh"
+        bash "${{ github.action_path }}/../../../scripts/oidc-exchange.sh"
 
     - name: Smoke probe
       shell: bash
