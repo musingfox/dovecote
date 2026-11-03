@@ -214,7 +214,7 @@ test("AuthorizeTokenGrant T2: tampered redirect_uri in POST (parseAuthRequest th
   const app = createAuthorizeApp({ verifyToken: async () => VALID_OUTCOME });
   const env = makeEnv({ OAUTH_PROVIDER: p });
   const res = await app.fetch(
-    postReq("token=dvct_x&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fevil%2Fcb&state=abc"),
+    postReq("token=dvct_x&response_type=code&client_id=test-client&redirect_uri=https%3A%2F%2Fevil%2Fcb&state=abc&code_challenge=cc-abc&code_challenge_method=S256"),
     env,
     makeCtx().ctx,
   );

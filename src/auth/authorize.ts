@@ -96,6 +96,15 @@ function collectOAuthParams(source: Iterable<[string, string]>): Array<[string, 
   return params;
 }
 
+/**
+ * workers-oauth-provider 0.4 treats an absent code_challenge as "PKCE off"
+ * and lets the code be redeemed without a verifier, so S256 PKCE is enforced
+ * here, before parseAuthRequest and therefore before completeAuthorization.
+ */
+function hasS256Pkce(params: URLSearchParams): boolean {
+  return !!params.get("code_challenge") && params.get("code_challenge_method") === "S256";
+}
+
 function renderAuthorizeForm(opts: {
   params: Array<[string, string]>;
   inlineError?: string;
@@ -146,6 +155,9 @@ function registerAuthorizeFormRoutes(
     const clientId = c.req.query("client_id");
     if (!clientId) {
       return c.json({ error: "invalid_redirect_uri" }, 400);
+    }
+    if (!hasS256Pkce(new URL(c.req.url).searchParams)) {
+      return c.json({ error: "invalid_request" }, 400);
     }
 
     // parseAuthRequest owns client_id/redirect_uri validation (turn-23/24 defenses).
@@ -204,6 +216,9 @@ function registerAuthorizeFormRoutes(
     for (const [name, value] of form.entries()) {
       if (name === "token" || typeof value !== "string") continue;
       qs.append(name, value);
+    }
+    if (!hasS256Pkce(qs)) {
+      return c.json({ error: "invalid_request" }, 400);
     }
     const syntheticUrl = new URL(c.req.url);
     syntheticUrl.search = qs.toString();

@@ -95,7 +95,7 @@ test("SCOPE_DESCRIPTIONS dovecote:notify has no warning", () => {
 test("GET /authorize → 200 form (paste dvct token)", async () => {
   const env = makeEnv();
   const res = await authorizeApp.fetch(
-    new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://claude.ai/api/mcp/auth_callback&state=xyz&response_type=code&scope=dovecote:notify"),
+    new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://claude.ai/api/mcp/auth_callback&state=xyz&response_type=code&scope=dovecote:notify&code_challenge=cc-abc&code_challenge_method=S256"),
     env,
   );
   expect(res.status).toBe(200);
@@ -109,7 +109,7 @@ test("GET /authorize → 200 form (paste dvct token)", async () => {
 test("GET /authorize → 200 has form with client_id hidden", async () => {
   const env = makeEnv();
   const res = await authorizeApp.fetch(
-    new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify"),
+    new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify&code_challenge=cc-abc&code_challenge_method=S256"),
     env,
   );
   expect(res.status).toBe(200);
@@ -121,7 +121,7 @@ test("GET /authorize → 200 has form with client_id hidden", async () => {
 test("GET /authorize → 200 form contains state hidden", async () => {
   const env = makeEnv();
   const res = await authorizeApp.fetch(
-    new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify"),
+    new Request("https://example.com/authorize?client_id=abc&redirect_uri=https://example.com&state=xyz&response_type=code&scope=dovecote:notify&code_challenge=cc-abc&code_challenge_method=S256"),
     env,
   );
   expect(res.status).toBe(200);
