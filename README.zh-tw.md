@@ -13,7 +13,7 @@ Dovecote 是部署在 Cloudflare Workers 上、可自行架設的通知閘道。
 ## 特色
 
 - **MCP server**：位於 `/mcp`，走 stateless Streamable HTTP，提供 `send_notification` 與 `list_channels` 兩個 tool。可以當 Claude.ai 的 custom connector，也可以從 Claude Code 使用。
-- **OAuth 2.1 授權伺服器**：建構在 [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider) 之上。PKCE 只接受 S256（拒絕 plain），提供 RFC 8414 授權伺服器 metadata 與 RFC 9728 protected resource metadata 供 MCP client discovery，並關閉 public（沒有 secret 的）客戶端的動態註冊。
+- **OAuth 2.1 授權伺服器**：建構在 [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider) 之上。每個 authorization code flow 都必須用 PKCE，且只接受 S256，提供 RFC 8414 授權伺服器 metadata 與 RFC 9728 protected resource metadata 供 MCP client discovery，並且不開放動態客戶端註冊。
 - **無密碼登入**：`/authorize` 頁面接受貼上的 `dvct_*` API token，整個系統裡不存在使用者密碼。
 - **三條身分路徑，一個認證 context**：MCP client 使用 OAuth access token；CLI 在 `/v1/auth/exchange` 把 OAuth token 換成 API token；GitHub Actions 在 `/v1/auth/github-oidc` 用 OIDC `id_token` 換 token（會驗證簽章、audience、到期時間與 repository owner，token 上限 15 分鐘）。
 - **REST API**：`/v1/*` 給不支援 MCP 的呼叫端使用。`openapi.json` 由 zod contract 產生，與程式碼不一致時 CI 會失敗。
@@ -163,7 +163,7 @@ cp -R .claude/skills/dovecote-notify ~/.claude/skills/
 1. **登入**：執行 `bunx wrangler login`，並照[快速開始](#快速開始)建立 KV namespace。
 2. **設定 secret**：執行 `bun run deploy:secrets`。script 會提示輸入 `HMAC_PEPPER`，環境裡有 `ADMIN_REVOKE_TOKEN` 時一併設定，並以 `.dev.vars` 的值作為預設。staging 環境請執行 `WRANGLER_ENV=staging bun run deploy:secrets`。頻道不是 secret，每個頻道是 `OAUTH_KV` 裡的一筆 `channel:<service>-<id>` 記錄。用 `bun run channel:add -- --env production` 新增，或用 `bun run channel:migrate -- --env production --file backup.json` 匯入以 `telegram` 與 `discord` 為 key 的 JSON 物件。
 3. **部署 worker**：執行 `bun run deploy`，Wrangler 會印出 worker URL。
-4. **驗證**：執行 `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`。smoke tests 會檢查 OAuth metadata、public 客戶端註冊是否被拒，以及端點可用性。
+4. **驗證**：執行 `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`。smoke tests 會檢查 OAuth metadata、`/register` 是否不存在，以及端點可用性。
 
 若是升級既有部署、頻道還放在 worker secret 裡，請照 [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records) 的順序做：先部署再 migrate，或先刪舊 secret，都會讓所有頻道消失。客戶端配置與維運細節見 [docs/deploy-runbook.md](./docs/deploy-runbook.md) 與 [docs/client-bootstrap.md](./docs/client-bootstrap.md)。
 
@@ -192,8 +192,8 @@ TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run test:e2e:remot
 
 ## 安全性
 
-- **OAuth 2.1 + PKCE**：PKCE code challenge 必須使用 S256，plain 會被拒絕。
-- **限制客戶端註冊**：public（沒有 secret 的）客戶端的動態註冊已停用。operator 透過 `/admin/bootstrap-client` 配置客戶端，這個端點在 `ENABLE_CLIENT_BOOTSTRAP=1` 之前保持關閉。
+- **OAuth 2.1 + PKCE**：`/authorize` 對沒有 S256 `code_challenge` 的請求一律回 `400 invalid_request`，所以沒有 PKCE 就拿不到 authorization code；plain 會被拒絕。
+- **不開放動態客戶端註冊**：沒有 `/register` 端點，授權伺服器 metadata 也不宣稱有。operator 透過 `/admin/bootstrap-client` 配置客戶端，這個端點在 `ENABLE_CLIENT_BOOTSTRAP=1` 之前保持關閉。
 - **貼 token 授權**：`/authorize` 只接受 POST 的 `dvct_*` token。因為不存在 cookie 這類環境憑證，token 本身就是防偽 secret，提交次數也依 IP 限制。
 - **雜湊儲存的 API token**：`dvct_*` token 以 `HMAC_PEPPER` 為金鑰做 HMAC-SHA256 雜湊後儲存，效期上限 90 天。
 - **速率限制**：admin 端點每個 IP 每 60 秒限 5 次。token、notify、OIDC 與 authorize 端點各有自己的每 IP 限制。

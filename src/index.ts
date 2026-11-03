@@ -21,12 +21,10 @@ const oauthOptions: OAuthProviderOptions<Env> = {
   defaultHandler: { fetch: authorizeApp.fetch.bind(authorizeApp) }, // GET/POST /authorize now form-based (dvct token)
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
-  clientRegistrationEndpoint: "/register",
   scopesSupported: [...SCOPES_SUPPORTED],
   accessTokenTTL: 3600,
   refreshTokenTTL: 2592000,
   allowPlainPKCE: false,
-  disallowPublicClientRegistration: true,
 };
 
 const oauthProvider = new OAuthProvider<Env>(oauthOptions);
@@ -61,7 +59,6 @@ const oauthPaths = [
   "/mcp",
   "/authorize",
   "/token",
-  "/register",
   "/.well-known/oauth-authorization-server",
   "/.well-known/oauth-protected-resource",
   "/admin/revoke",

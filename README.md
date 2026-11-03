@@ -13,7 +13,7 @@ Long-running agents (a Claude Code session, a Claude.ai conversation, a CI pipel
 ## Features
 
 - **MCP server** at `/mcp` over stateless Streamable HTTP, with two tools: `send_notification` and `list_channels`. It works as a Claude.ai custom connector and from Claude Code.
-- **OAuth 2.1 authorization server**, built on [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider): S256-only PKCE (plain is rejected), RFC 8414 authorization server metadata and RFC 9728 protected resource metadata for MCP client discovery, and dynamic registration of public (secretless) clients turned off.
+- **OAuth 2.1 authorization server**, built on [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider): PKCE required on every authorization code flow and S256-only, RFC 8414 authorization server metadata and RFC 9728 protected resource metadata for MCP client discovery, and no dynamic client registration.
 - **Passwordless sign-in.** The `/authorize` page accepts a pasted `dvct_*` API token, so no user password exists anywhere in the system.
 - **Three identity paths, one auth context.** MCP clients use OAuth access tokens; the CLI trades its OAuth token for an API token at `/v1/auth/exchange`; GitHub Actions trades its OIDC `id_token` at `/v1/auth/github-oidc` (signature, audience, expiry and repository owner are verified, and the token is capped at 15 minutes).
 - **REST API** under `/v1/*` for callers without MCP. `openapi.json` is generated from the zod contracts, and CI fails when it drifts.
@@ -163,7 +163,7 @@ The wizard covers a first deployment. To run the steps yourself:
 1. **Log in** with `bunx wrangler login`, and create the KV namespace as in [Quick start](#quick-start).
 2. **Set secrets** with `bun run deploy:secrets`. It prompts for `HMAC_PEPPER`, sets `ADMIN_REVOKE_TOKEN` if it is in your environment, and reads defaults from `.dev.vars`. For staging, run `WRANGLER_ENV=staging bun run deploy:secrets`. Channels are not secrets: each one is a `channel:<service>-<id>` record in `OAUTH_KV`. Add one with `bun run channel:add -- --env production`, or import a saved JSON object keyed by `telegram` and `discord` with `bun run channel:migrate -- --env production --file backup.json`.
 3. **Deploy the worker** with `bun run deploy`. Wrangler prints the worker URL.
-4. **Verify** with `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`. The smoke tests check OAuth metadata, the rejection of public-client registration, and endpoint availability.
+4. **Verify** with `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`. The smoke tests check OAuth metadata, that `/register` does not exist, and endpoint availability.
 
 Upgrading a deployment whose channels still live in worker secrets? Follow [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records) in order: migrating after you deploy, or deleting the old secrets first, drops every channel. Client provisioning and operations are covered in [docs/deploy-runbook.md](./docs/deploy-runbook.md) and [docs/client-bootstrap.md](./docs/client-bootstrap.md).
 
@@ -192,8 +192,8 @@ Without `TEST_BASE_URL`, the E2E tests run in-process through `app.fetch()`. Wit
 
 ## Security
 
-- **OAuth 2.1 + PKCE:** PKCE code challenges must use S256; plain challenges are rejected.
-- **Restricted client registration:** dynamic registration of public (secretless) clients is disabled. The operator provisions clients through `/admin/bootstrap-client`, which stays off unless `ENABLE_CLIENT_BOOTSTRAP=1`.
+- **OAuth 2.1 + PKCE:** `/authorize` rejects any request without an S256 `code_challenge` with `400 invalid_request`, so no authorization code is issued without PKCE; plain challenges are rejected.
+- **No dynamic client registration:** there is no `/register` endpoint, and the authorization server metadata advertises none. The operator provisions clients through `/admin/bootstrap-client`, which stays off unless `ENABLE_CLIENT_BOOTSTRAP=1`.
 - **Token-paste authorization:** `/authorize` accepts only a POSTed `dvct_*` token. The token itself is the anti-forgery secret, since no ambient cookie credential exists, and submissions are rate-limited per IP.
 - **Hashed API tokens:** `dvct_*` tokens are stored as HMAC-SHA256 hashes keyed by `HMAC_PEPPER`, with a maximum TTL of 90 days.
 - **Rate limiting:** admin endpoints allow 5 requests per 60 seconds per IP. The token, notify, OIDC and authorize endpoints have their own per-IP limits.

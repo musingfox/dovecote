@@ -29,13 +29,13 @@ test("GET /.well-known/oauth-authorization-server returns metadata", async () =>
   const json = await res.json() as {
     authorization_endpoint: string;
     token_endpoint: string;
-    registration_endpoint: string;
+    registration_endpoint?: string;
     scopes_supported: string[];
     code_challenge_methods_supported: string[];
   };
   expect(json.authorization_endpoint).toBeTruthy();
   expect(json.token_endpoint).toBeTruthy();
-  expect(json.registration_endpoint).toBeTruthy();
+  expect(json.registration_endpoint).toBeUndefined();
   expect(json.scopes_supported).toContain("dovecote:notify");
   expect(json.code_challenge_methods_supported).toContain("S256");
   expect(json.code_challenge_methods_supported).not.toContain("plain");

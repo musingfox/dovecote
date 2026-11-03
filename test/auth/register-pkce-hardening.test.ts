@@ -21,6 +21,27 @@ function fetcher(env: Env) {
   return (req: Request) => Promise.resolve(app.fetch(req, env, createMockExecutionCtx() as any));
 }
 
+test("POST /register does not exist, even for a confidential client", async () => {
+  const doFetch = fetcher(makeEnv());
+  const res = await doFetch(
+    new Request(`${BASE}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "attacker",
+        redirect_uris: ["https://attacker.example/cb"],
+        token_endpoint_auth_method: "client_secret_basic",
+      }),
+    }),
+  );
+  expect(res.status).toBe(404);
+});
+
+test("authorization server metadata no longer advertises a registration endpoint", async () => {
+  const res = await fetcher(makeEnv())(new Request(`${BASE}/.well-known/oauth-authorization-server`));
+  expect(((await res.json()) as Record<string, unknown>).registration_endpoint).toBeUndefined();
+});
+
 async function bootstrapClient(doFetch: (r: Request) => Promise<Response>): Promise<string> {
   const res = await doFetch(
     new Request(`${BASE}/admin/bootstrap-client`, {

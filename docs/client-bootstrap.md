@@ -80,8 +80,8 @@ Paste the `client_id` into the Claude.ai MCP connector configuration:
 
 If the bootstrap endpoint fails or is unavailable, you may temporarily re-enable DCR:
 
-1. **Remove the DCR restriction** (code change required):
-   - In `src/index.ts`, temporarily comment out `disallowPublicClientRegistration: true`
+1. **Re-open the registration endpoint** (code change required):
+   - In `src/index.ts`, temporarily add `clientRegistrationEndpoint: "/register"` and `disallowPublicClientRegistration: false` to `oauthOptions`, and add `"/register"` to `oauthPaths`
    - Deploy the change
 2. **Use DCR** within a 5-minute window:
    ```bash
@@ -93,8 +93,8 @@ If the bootstrap endpoint fails or is unavailable, you may temporarily re-enable
        "token_endpoint_auth_method": "none"
      }'
    ```
-3. **Immediately restore the restriction**:
-   - Uncomment `disallowPublicClientRegistration: true`
+3. **Immediately close it again**:
+   - Revert the step 1 change
    - Redeploy
 
 **Note:** This fallback increases attack surface. Use only when the bootstrap endpoint is unavailable.

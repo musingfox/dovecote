@@ -33,19 +33,18 @@ test("C2: GET /.well-known/oauth-authorization-server returns metadata", async (
   expect(json.scopes_supported).toContain("dovecote:notify");
 });
 
-test("C3: POST /register is closed (returns 4xx)", async () => {
+test("C3: POST /register does not exist, even for a confidential client", async () => {
   const res = await doFetch("/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       client_name: "test-client",
       redirect_uris: ["https://example.com/callback"],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: "client_secret_basic",
     }),
   });
 
-  expect(res.status).toBeGreaterThanOrEqual(400);
-  expect(res.status).toBeLessThan(500);
+  expect(res.status).toBe(404);
 });
 
 test("C4: POST /admin/bootstrap-client returns 404 when ENABLE_CLIENT_BOOTSTRAP is unset", async () => {
