@@ -19,6 +19,7 @@ import {
   tokenIssueResponseSchema as _tokenIssueResponseSchema,
   tokenRevokeResponseSchema as _tokenRevokeResponseSchema,
   tokenExchangeRequestSchema as _tokenExchangeRequestSchema,
+  tokenExchangeOidcRequestSchema as _tokenExchangeOidcRequestSchema,
   tokenRenewRequestSchema as _tokenRenewRequestSchema,
   tokenListResponseSchema as _tokenListResponseSchema,
 } from "../src/contracts/tokens.ts";
@@ -61,6 +62,7 @@ const tokenIdPathSchema = z.string().min(1).openapi({
 
 const tokenIssueRequestOpenapiSchema = tokenIssueRequestSchema.openapi("TokenIssueRequest");
 const tokenExchangeRequestOpenapiSchema = _tokenExchangeRequestSchema.openapi("TokenExchangeRequest");
+const tokenExchangeOidcRequestOpenapiSchema = _tokenExchangeOidcRequestSchema.openapi("TokenExchangeOidcRequest");
 const tokenRenewRequestOpenapiSchema = _tokenRenewRequestSchema.openapi("TokenRenewRequest");
 
 const sendResultSchema = _sendResultSchema.openapi("SendResult");
@@ -191,6 +193,25 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "post",
+  path: "/v1/auth/github-oidc",
+  description:
+    "Exchange a GitHub Actions OIDC id_token for a dvct_* runtime token. No Authorization header; the id_token is the credential.",
+  request: {
+    body: { content: { "application/json": { schema: tokenExchangeOidcRequestOpenapiSchema } } },
+  },
+  responses: {
+    201: jsonOk(tokenIssueResponseSchema, "Token issued"),
+    400: errorResponse("Invalid JSON body or request body failed zod validation"),
+    401: errorResponse("id_token failed verification, or its subject is not trusted"),
+    403: errorResponse("repository_owner claim does not match the allowed owner"),
+    429: errorResponse("Rate limit exceeded — Retry-After header indicates retry window"),
+    500: errorResponse("Internal server error"),
+    503: errorResponse("GitHub OIDC or HMAC_PEPPER is not configured on this deployment"),
+  },
+});
+
 // OpenApiSurfaceSync: /v1/auth/whoami (new surface after trimming device+general-oidc).
 // Uses 401/500 only (no admin gate, like exchange carve-outs).
 const whoamiResponseSchema = z
@@ -258,6 +279,7 @@ const requiredPaths = [
   "/v1/tokens/{tokenId}",
   "/v1/tokens/{tokenId}/renew",
   "/v1/auth/exchange",
+  "/v1/auth/github-oidc",
   "/v1/auth/whoami",
   "/health",
 ];
@@ -277,6 +299,7 @@ const requiredSchemas = [
   "TokenIssueRequest",
   "TokenIssueResponse",
   "TokenExchangeRequest",
+  "TokenExchangeOidcRequest",
   "TokenRenewRequest",
   "TokenListResponse",
   "RevokeResponse",

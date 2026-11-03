@@ -378,6 +378,31 @@
           }
         }
       },
+      "TokenExchangeOidcRequest": {
+        "type": "object",
+        "properties": {
+          "id_token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expiresIn": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d",
+              "60d",
+              "90d"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id_token"
+        ]
+      },
       "WhoamiResponse": {
         "type": "object",
         "properties": {
@@ -889,6 +914,92 @@
           },
           "503": {
             "description": "Admin token revocation pressure circuit open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/github-oidc": {
+      "post": {
+        "description": "Exchange a GitHub Actions OIDC id_token for a dvct_* runtime token. No Authorization header; the id_token is the credential.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeOidcRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token issued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenIssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON body or request body failed zod validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "id_token failed verification, or its subject is not trusted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "repository_owner claim does not match the allowed owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded — Retry-After header indicates retry window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "GitHub OIDC or HMAC_PEPPER is not configured on this deployment",
             "content": {
               "application/json": {
                 "schema": {
