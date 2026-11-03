@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const REPO = "/Users/nickhuang/workspace/dovecote";
+const REPO = join(import.meta.dir, "../..");
 const SCRIPT = `${REPO}/scripts/oidc-exchange.sh`;
 
 // ---------------------------------------------------------------------------
