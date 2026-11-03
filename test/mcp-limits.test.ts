@@ -1,6 +1,7 @@
 import { test, expect, mock, afterEach } from "bun:test";
 import apiApp, { MCP_MAX_REQUEST_BODY_SIZE } from "../src/api.js";
 import { ATTACHMENT_DATA_MAX } from "../src/contracts/notifications.js";
+import { MCP_MAX_TOOL_INPUT_ELEMENTS } from "../src/server.js";
 import type { Env } from "../src/types.js";
 import { createMockExecutionCtx } from "./helpers/mock-execution-ctx";
 import { MockKV } from "./helpers/mock-kv.js";
@@ -98,5 +99,18 @@ test("/mcp rejects a request body one byte over the limit with 413", async () =>
   const res = await postMcp(env, body);
 
   expect(res.status).toBe(413);
+  expect(fetchMock.mock.calls.length).toBe(0);
+});
+
+test("/mcp rejects send_notification arguments over the element limit before reaching the channel", async () => {
+  const env = await envWithDiscordChannel();
+  const fetchMock = mockDiscordOk();
+  const fields = Array.from({ length: MCP_MAX_TOOL_INPUT_ELEMENTS + 1 }, () => ({ name: "n", value: "v" }));
+
+  const res = await postMcp(env, sendNotificationCall({ embed: { fields } }));
+
+  const rpc = await readRpcResponse(res);
+  expect(rpc.result.isError).toBe(true);
+  expect(rpc.result.content[0].text).toContain(`maximum of ${MCP_MAX_TOOL_INPUT_ELEMENTS} elements`);
   expect(fetchMock.mock.calls.length).toBe(0);
 });
