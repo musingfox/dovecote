@@ -4,6 +4,12 @@ import type { Env } from "./types.js";
 import { extractAuth, enrichAuthFromRequest } from "./auth/ctx.js";
 import { createMCPServer } from "./server.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { ATTACHMENT_DATA_MAX } from "./contracts/notifications.js";
+
+// send_notification accepts up to ATTACHMENT_DATA_MAX of base64, which is above the
+// SDK's 4 MiB default; 1 MiB covers channel, text, embed and the JSON-RPC envelope.
+// GHSA-46jr-4wx8-v453 asks for an explicit cap sized to what the tools need.
+export const MCP_MAX_REQUEST_BODY_SIZE = ATTACHMENT_DATA_MAX + 1024 * 1024;
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +34,7 @@ app.post("/mcp", async (c) => {
   // Create new transport and server for each request (stateless mode)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
+    maxRequestBodySize: MCP_MAX_REQUEST_BODY_SIZE,
   });
 
   const server = createMCPServer(c.env, enrichedAuth, c.executionCtx);

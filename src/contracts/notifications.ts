@@ -30,7 +30,7 @@ export const discordEmbedSchema = z.object({
 
 // Base64-encoded attachment bytes. Bound to ~10MB of base64 (~7.5MB decoded),
 // comfortably under Discord's default ~8MB webhook attachment cap.
-const ATTACHMENT_DATA_MAX = 10 * 1024 * 1024;
+export const ATTACHMENT_DATA_MAX = 10 * 1024 * 1024;
 
 export const attachmentSchema = z.object({
   filename: z.string(),
