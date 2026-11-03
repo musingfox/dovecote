@@ -62,8 +62,8 @@ test("C-Tooling-1: ripgrep absent from PATH → guard exits non-zero instead of 
   const dir = await fs.mkdtemp(join(tmpdir(), "lefthook-guard-"));
   const f = join(dir, "evil.ts");
   await fs.writeFile(f, "export const x = Bun.serve({});\n");
-  // rg lives in /opt/homebrew/bin on this machine; this PATH deterministically hides it.
-  const code = await runGuard(f, { PATH: "/usr/bin:/bin" });
+  // A PATH naming no real directory hides rg wherever it is installed (CI puts it in /usr/bin).
+  const code = await runGuard(f, { PATH: "/nonexistent" });
   expect(code).not.toBe(0);
 });
 

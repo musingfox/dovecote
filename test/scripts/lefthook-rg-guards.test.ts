@@ -60,9 +60,10 @@ async function fixture(name: string, content: string): Promise<string> {
   return f;
 }
 
-// `PATH=/usr/bin:/bin` deterministically hides rg, which lives in
-// /opt/homebrew/bin on this machine.
-const NO_RG = { PATH: "/usr/bin:/bin" };
+// A PATH naming no real directory hides rg wherever it is installed: /usr/bin
+// is not enough, because CI installs rg there. The guards need only bash
+// builtins once rg is missing.
+const NO_RG = { PATH: "/nonexistent" };
 
 test("C-Tooling-2: no-empty-props-in-auth catches props:{} → exits 1", async () => {
   const f = await fixture("grant.ts", "export const g = { props: {} };\n");
