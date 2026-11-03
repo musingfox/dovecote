@@ -4,250 +4,204 @@
 
 [繁體中文](./README.zh-tw.md)
 
-Agent notification infrastructure — an MCP server deployed on Cloudflare Workers that receives messages from agents and forwards them to configured notification channels.
+Dovecote is a self-hosted notification gateway on Cloudflare Workers that lets AI agents, scripts and CI jobs send messages to Telegram and Discord through one authenticated endpoint, exposed both as an MCP server and as a REST API.
+
+## The problem
+
+Long-running agents (a Claude Code session, a Claude.ai conversation, a CI pipeline, a cron job) need a way to tell a person "done" or "failed". Most of those callers cannot speak MCP, and headless ones cannot click through an interactive OAuth flow. Giving each of them its own bot token or webhook URL spreads channel credentials across every machine and workflow. Dovecote keeps the channel credentials in one place and gives every caller a scoped, revocable token, obtained through whichever identity flow fits that caller.
 
 ## Features
 
-- **MCP over Streamable HTTP** — compatible with Claude Code, Claude web connector, and any MCP client
-- **OAuth 2.1 + PKCE** — sign-in flow for the Claude.ai web connector, with Dynamic Client Registration (RFC 7591) and Protected Resource Metadata (RFC 9728)
-- **Multi-instance channels** — each Telegram / Discord instance is a `channel:<service>-<id>` KV record, added with `bun run channel:add`
+- **MCP server** at `/mcp` over stateless Streamable HTTP, with two tools: `send_notification` and `list_channels`. It works as a Claude.ai custom connector and from Claude Code.
+- **OAuth 2.1 authorization server**, built on [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider): S256-only PKCE (plain is rejected), RFC 8414 authorization server metadata and RFC 9728 protected resource metadata for MCP client discovery, and dynamic registration of public (secretless) clients turned off.
+- **Passwordless sign-in.** The `/authorize` page accepts a pasted `dvct_*` API token, so no user password exists anywhere in the system.
+- **Three identity paths, one auth context.** MCP clients use OAuth access tokens; the CLI trades its OAuth token for an API token at `/v1/auth/exchange`; GitHub Actions trades its OIDC `id_token` at `/v1/auth/github-oidc` (signature, audience, expiry and repository owner are verified, and the token is capped at 15 minutes).
+- **REST API** under `/v1/*` for callers without MCP. `openapi.json` is generated from the zod contracts, and CI fails when it drifts.
+- **Companion CLI and GitHub Action.** The `dovecote` CLI logs in with OAuth + PKCE on a loopback redirect and ships as standalone binaries for Linux, macOS and Windows. The `setup-dovecote` action installs it in a workflow and checks it against `SHA256SUMS`.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  MCPC["MCP client<br/>Claude.ai / Claude Code"]
+  CLI["dovecote CLI<br/>curl / cron"]
+  GHA["GitHub Actions"]
+
+  subgraph Worker["Cloudflare Worker (Hono root router)"]
+    OP["OAuthProvider<br/>/authorize /token /.well-known/*"]
+    MCPS["/mcp<br/>MCP server"]
+    EX["/v1/auth/exchange<br/>/v1/auth/github-oidc"]
+    BM["/v1/* bearer middleware<br/>dvct_* tokens"]
+    SVC["Services<br/>scope checks + audit"]
+    REG["Channel registry"]
+  end
+
+  KV[("Workers KV: OAUTH_KV<br/>OAuth grants, token hashes,<br/>channels, audit, rate limits")]
+  TG["Telegram Bot API"]
+  DC["Discord webhook"]
+
+  MCPC -- "OAuth 2.1 + PKCE" --> OP
+  OP -- "validated bearer" --> MCPS
+  CLI -- "OAuth token for dvct_*" --> EX
+  GHA -- "OIDC id_token for dvct_*" --> EX
+  CLI -- "Bearer dvct_*" --> BM
+  GHA -- "Bearer dvct_*" --> BM
+  MCPS --> SVC
+  BM --> SVC
+  SVC --> REG
+  REG --> TG
+  REG --> DC
+  Worker -.-> KV
 ```
-Agent (Claude Code / claude.ai / any MCP client)
-  │
-  ▼  MCP over Streamable HTTP (OAuth 2.1 + PKCE)
-Dovecote (Cloudflare Worker + OAUTH_KV)
-  │
-  ├──▶ Telegram Bot API
-  └──▶ Discord Webhook
-```
 
-## MCP Tools
+The HTTP API is the trunk and MCP is one adapter on top of it. Both auth paths produce the same `AuthCtx`, so the service layer does not know which protocol called it. The reasoning is in [ADR 0001](./docs/decisions/0001-http-api-trunk-and-dual-auth.md).
 
-| Tool | Description |
-|------|-------------|
-| `send_notification` | Send a message to a specified notification channel |
-| `list_channels` | List all available notification channels |
+**Stack:** TypeScript on Cloudflare Workers, Hono, `@modelcontextprotocol/sdk`, `@cloudflare/workers-oauth-provider`, `jose` (OIDC JWT verification), zod with `zod-to-openapi`, Workers KV, Bun (tests and CLI binaries), Wrangler.
 
-## Tech Stack
+## Quick start
 
-- **Runtime**: Cloudflare Workers (TypeScript, Hono)
-- **Transport**: Streamable HTTP (SSE)
-- **Storage**: Cloudflare KV (`OAUTH_KV` — OAuth clients/grants/tokens + one plaintext record per notification channel)
-- **Auth**: `@cloudflare/workers-oauth-provider` (OAuth 2.1)
-
-## Development
-
-1. Install dependencies:
-   ```bash
-   bun install
-   ```
-
-2. Create a `.dev.vars` file (see `.dev.vars.example`):
-   ```env
-   HMAC_PEPPER=...
-   ```
-
-   Channels are not read from `.dev.vars` — the worker resolves them from
-   `channel:<service>-<id>` records in `OAUTH_KV`.
-
-3. Run locally:
-   ```bash
-   bun run dev
-   ```
-
-4. Run tests:
-   ```bash
-   # Run all tests
-   bun test
-
-   # Run E2E tests only (local mode)
-   bun test test/e2e/
-   ```
-
-## Deployment
-
-### Prerequisites
-
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed
-- Cloudflare account
-
-### Steps
-
-1. **Login to Cloudflare**
-   ```bash
-   wrangler login
-   ```
-
-2. **Set secrets**
-   ```bash
-   ./scripts/setup-worker-vars.sh
-   # or
-   bun run deploy:secrets
-   ```
-
-   This will prompt you to enter secrets. If `.dev.vars` exists, it will use values from there as defaults.
-
-   Required:
-   - `HMAC_PEPPER` — HMAC pepper for `dvct_*` token hashing; `/authorize` shows a form to paste a pre-issued `dvct_*` token
-
-   Notification channels are no longer secrets. Each channel is a
-   `channel:<service>-<id>` record in `OAUTH_KV`: add one with
-   `bun run channel:add -- --env production`, or move a saved JSON array over
-   in one shot with `bun run channel:migrate -- --env production --file backup.json`.
-
-   Upgrading a deployment whose channels still live in worker secrets? Follow
-   [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records)
-   in order — migrating after you deploy, or deleting the old secrets first,
-   drops every channel.
-
-   For the staging environment: `WRANGLER_ENV=staging ./scripts/setup-worker-vars.sh`.
-
-   Also create a KV namespace in the Cloudflare dashboard and write its id into the `[[kv_namespaces]]` block of `wrangler.toml` (binding `OAUTH_KV`).
-
-3. **Deploy the worker**
-   ```bash
-   ./scripts/deploy.sh
-   # or
-   bun run deploy
-   ```
-
-   The script will output the worker URL (e.g., `https://dovecote.your-subdomain.workers.dev`)
-
-4. **Verify deployment**
-   ```bash
-   TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify
-   ```
-
-   This runs smoke tests to verify OAuth metadata, closed DCR, and endpoint availability. For detailed deployment procedures including client provisioning, see [docs/deploy-runbook.md](./docs/deploy-runbook.md).
-
-### Claude.ai Web Connector (OAuth)
-
-When adding a connector on Claude.ai, fill in the MCP endpoint URL **including the `/mcp` suffix** (e.g., `https://dovecote.<sub>.workers.dev/mcp`). The bare base URL will fail OAuth discovery and surface as "Authorization with the MCP server failed." Claude redirects to `/authorize`, which shows a form to paste a `dvct_*` token (issued via wizard or exchange); on POST success it completes the OAuth 2.1 + PKCE flow to obtain an access token, and subsequent MCP calls carry the Bearer token automatically.
-
-5. **Run E2E tests against production** (optional)
-   ```bash
-   TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   bun test:e2e:remote
-   ```
-
-   To also assert which channels the deployment exposes, list their ids:
-   ```bash
-   TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-   TEST_EXPECTED_CHANNELS='telegram-default,discord-ops' \
-   bun test:e2e:remote
-   ```
-
-## CLI
-
-The dovecote CLI ships as a standalone binary for 5 platforms; releases are tagged `cli-v<semver>` and published as GitHub Releases with a `SHA256SUMS` sidecar.
-
-### Deploy your own (5 minutes)
+You need [Bun](https://bun.sh) and a Cloudflare account. Wrangler is installed as a dev dependency.
 
 ```bash
 git clone https://github.com/musingfox/dovecote.git
 cd dovecote
 bun install
-wrangler login          # one-time browser OAuth
-bun run setup           # interactive wizard
+bunx wrangler login
+bunx wrangler kv namespace create OAUTH_KV
 ```
 
-The wizard pushes 4 secrets to your Cloudflare Worker, configures at least one
-notification channel (Telegram or Discord), deploys, seeds your first user,
-mints a CLI token, and runs `bun run verify` end-to-end. Secrets are recorded
-to `~/.dovecote/secrets-<env>.txt` (mode 0600) — move them to your password
-manager and delete the file.
-
-See [docs/setup-dovecote-runbook.md](./docs/setup-dovecote-runbook.md) for the
-GH Actions consumer side.
-
-### Use from another Claude Code session
-
-Once `bun run setup` has minted a token into `~/.config/dovecote/config.json`,
-other Claude Code sessions can shell out to the `dovecote` CLI to send
-notifications. Install the bundled skill for explicit discovery:
+Copy the namespace id that Wrangler prints into `wrangler.toml`, replacing the `id` in both the top-level `[[kv_namespaces]]` block and the `[[env.production.kv_namespaces]]` block. The ids committed in the repo belong to the maintainer's account. Then run the setup wizard:
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -R .claude/skills/dovecote-notify ~/.claude/skills/
+bun run setup -- --env production
 ```
 
-The skill (defined in [.claude/skills/dovecote-notify/SKILL.md](./.claude/skills/dovecote-notify/SKILL.md))
-triggers on phrases like *"notify me"*, *"send to Telegram"*, *"ping ops"*,
-*"alert when X finishes"*, etc. — your agent will pick the right channel,
-shell out to `dovecote notify`, and handle errors (token expired, channel
-unknown, rate-limit) without further prompting.
+The wizard generates and pushes the `HMAC_PEPPER` and `ADMIN_REVOKE_TOKEN` secrets, prompts you to add a Telegram or Discord channel, deploys the worker, seeds your first user, mints a CLI token into `~/.config/dovecote/config.json`, and runs `bun run verify`. Without `--env` it targets staging. Generated secrets are also written to `~/.dovecote/secrets-<env>.txt` (mode 0600); move them to a password manager and delete the file.
 
-### Install in a GitHub Actions workflow
+To connect Claude.ai, first provision an OAuth client for it by following [docs/client-bootstrap.md](./docs/client-bootstrap.md); the wizard does not create one. Then add a custom connector with that client id and the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.<sub>.workers.dev/mcp`. The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token.
+
+To send from a shell, install the CLI (see [CLI](#cli)) and run:
+
+```bash
+dovecote ping
+dovecote notify telegram-ops --text "hello from dovecote"
+```
+
+Channel ids have the form `<service>-<id>`. The wizard's default instance id is `ops`, so a Telegram channel created with the defaults is `telegram-ops`.
+
+## MCP tools
+
+| Tool | Description |
+|------|-------------|
+| `send_notification` | Send a message (`text`, `embed`, or both) to a channel |
+| `list_channels` | List the configured notification channels |
+
+Both tools require the `dovecote:notify` scope.
+
+## HTTP API
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /health` | none | Liveness and minimum supported CLI version |
+| `POST /v1/notify` | `dvct_*` | Send a notification |
+| `GET /v1/channels` | `dvct_*` | List channels |
+| `GET /v1/auth/whoami` | `dvct_*` | Show the caller's identity and scopes |
+| `GET` / `POST /v1/tokens` | `dvct_*` | List or mint API tokens |
+| `POST /v1/tokens/:tokenId/renew` | `dvct_*` | Renew a token |
+| `DELETE /v1/tokens/:tokenId` | `dvct_*` | Revoke a token |
+| `POST /v1/auth/exchange` | OAuth bearer | Trade an OAuth access token for a `dvct_*` token |
+| `POST /v1/auth/github-oidc` | GitHub OIDC `id_token` | Trade a GitHub Actions identity for a short-lived `dvct_*` token |
+
+[`openapi.json`](./openapi.json) holds the schema for every endpoint above except `/v1/auth/github-oidc`, and is regenerated with `bun run openapi:gen`. The GitHub OIDC endpoint returns 503 until the worker has `GITHUB_OIDC_EXPECTED_AUD` and `GITHUB_OIDC_ALLOWED_OWNER` set.
+
+## CLI
+
+The CLI is released as standalone binaries for linux-x64, linux-arm64, darwin-x64, darwin-arm64 and windows-x64. Releases are tagged `cli-v<semver>` on [GitHub Releases](https://github.com/musingfox/dovecote/releases) with a `SHA256SUMS` file. The binaries are not code-signed yet; see [ADR 0003](./docs/decisions/0003-cli-binary-distribution.md) and [ADR 0004](./docs/decisions/0004-cli-binary-signing-direction.md).
+
+### Local install
+
+Download the archive for your platform, verify it against `SHA256SUMS`, extract it, and put `dovecote` on your `PATH`. If `bun run setup` already wrote `~/.config/dovecote/config.json`, the CLI is ready. Otherwise log in through the browser OAuth flow:
+
+```bash
+export DOVECOTE_CLIENT_ID=<id from POST /admin/bootstrap-client>
+dovecote auth login --server-url https://dovecote.your-subdomain.workers.dev
+dovecote ping
+dovecote notify telegram-ops --text "hello from cli"
+```
+
+The browser flow ends at `/v1/auth/exchange`, which requires the `dovecote:admin` scope. With a notify-only token, or on a headless machine, use `dovecote auth login --token`, which reads a `dvct_*` token from stdin. The token is stored in `$XDG_CONFIG_HOME/dovecote/config.json` (mode 0600), and the CLI renews it automatically when fewer than 14 days remain. Run `dovecote --help` for the full command list (`auth`, `notify`, `channels`, `tokens`, `ping`).
+
+### GitHub Actions
 
 ```yaml
 - uses: musingfox/dovecote/.github/actions/setup-dovecote@cli-v0.1.0
   with:
     version: "0.1.0"
     server-url: https://dovecote.your-subdomain.workers.dev
-  env:
-    DOVECOTE_TOKEN: ${{ secrets.DOVECOTE_TOKEN }}
+    token: ${{ secrets.DOVECOTE_TOKEN }}
 
-- run: dovecote notify ops --text "deploy complete"
+- run: dovecote notify telegram-ops --text "deploy complete"
 ```
 
-For end-to-end CI consumer setup (token provisioning, supported triples, troubleshooting), see [docs/setup-dovecote-runbook.md](./docs/setup-dovecote-runbook.md).
+The action exports `token` and `server-url` as `DOVECOTE_TOKEN` and `DOVECOTE_SERVER_URL` for the later steps of the job. For token provisioning, supported runners and troubleshooting, see [docs/setup-dovecote-runbook.md](./docs/setup-dovecote-runbook.md).
 
-### Local install
+### Use from another Claude Code session
 
-Download the archive for your platform from the [latest release](https://github.com/musingfox/dovecote/releases), verify the SHA256, extract, and place the binary on your `PATH`. Then run:
+Once a token is in `~/.config/dovecote/config.json`, other Claude Code sessions can shell out to the CLI. Install the bundled skill so the agent finds it:
 
 ```bash
-export DOVECOTE_CLIENT_ID=<id from POST /admin/bootstrap-client>
-dovecote auth login --server-url https://dovecote.your-subdomain.workers.dev
-dovecote ping
-dovecote notify ops --text "hello from cli"
+mkdir -p ~/.claude/skills
+cp -R .claude/skills/dovecote-notify ~/.claude/skills/
 ```
 
-The runtime token is stored under `$XDG_CONFIG_HOME/dovecote/config.json` (mode 0600). The CLI auto-renews tokens that have <14 days remaining on every request.
+The skill ([.claude/skills/dovecote-notify/SKILL.md](./.claude/skills/dovecote-notify/SKILL.md)) triggers on requests such as "notify me", "send to Telegram" or "alert me when X finishes", and runs `dovecote notify`.
 
-## Testing
+## Manual deployment
 
-### Local E2E Tests
+The wizard covers a first deployment. To run the steps yourself:
 
-By default, E2E tests run in local mode using `app.fetch()` (in-process testing):
+1. **Log in** with `bunx wrangler login`, and create the KV namespace as in [Quick start](#quick-start).
+2. **Set secrets** with `bun run deploy:secrets`. It prompts for `HMAC_PEPPER`, sets `ADMIN_REVOKE_TOKEN` if it is in your environment, and reads defaults from `.dev.vars`. For staging, run `WRANGLER_ENV=staging bun run deploy:secrets`. Channels are not secrets: each one is a `channel:<service>-<id>` record in `OAUTH_KV`. Add one with `bun run channel:add -- --env production`, or import a saved JSON object keyed by `telegram` and `discord` with `bun run channel:migrate -- --env production --file backup.json`.
+3. **Deploy the worker** with `bun run deploy`. Wrangler prints the worker URL.
+4. **Verify** with `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`. The smoke tests check OAuth metadata, the rejection of public-client registration, and endpoint availability.
+
+Upgrading a deployment whose channels still live in worker secrets? Follow [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records) in order: migrating after you deploy, or deleting the old secrets first, drops every channel. Client provisioning and operations are covered in [docs/deploy-runbook.md](./docs/deploy-runbook.md) and [docs/client-bootstrap.md](./docs/client-bootstrap.md).
+
+## Development
 
 ```bash
-bun test test/e2e/
+bun install
+cp .dev.vars.example .dev.vars   # then set HMAC_PEPPER
+bun run dev                      # wrangler dev
+bun test                         # unit tests
+bun run typecheck
 ```
 
-Requires `.dev.vars` with valid credentials.
+Channels are not read from `.dev.vars`; the worker resolves them from `channel:<service>-<id>` records in `OAUTH_KV`.
 
-### Remote E2E Tests
-
-To test against a deployed worker, set environment variables:
+`bun test` skips the E2E, integration and CLI suites (see `bunfig.toml`). Run them explicitly:
 
 ```bash
-TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
-bun test test/e2e/
+bun run test:e2e
+(cd cli && bun test)
+bun run test:integration:build && bun run test:integration
+TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run test:e2e:remote
 ```
 
-In remote mode:
-- Tests use actual HTTP requests via global `fetch()`
-- Tests that require custom environment configurations are skipped (they only apply to in-process testing)
+Without `TEST_BASE_URL`, the E2E tests run in-process through `app.fetch()`. With it, they send real HTTP requests and skip the cases that need a custom in-process environment. To also assert which channels a deployment exposes, add `TEST_EXPECTED_CHANNELS='telegram-default,discord-ops'`.
 
 ## Security
 
-dovecote implements defense-in-depth security controls:
+- **OAuth 2.1 + PKCE:** PKCE code challenges must use S256; plain challenges are rejected.
+- **Restricted client registration:** dynamic registration of public (secretless) clients is disabled. The operator provisions clients through `/admin/bootstrap-client`, which stays off unless `ENABLE_CLIENT_BOOTSTRAP=1`.
+- **Token-paste authorization:** `/authorize` accepts only a POSTed `dvct_*` token. The token itself is the anti-forgery secret, since no ambient cookie credential exists, and submissions are rate-limited per IP.
+- **Hashed API tokens:** `dvct_*` tokens are stored as HMAC-SHA256 hashes keyed by `HMAC_PEPPER`, with a maximum TTL of 90 days.
+- **Rate limiting:** admin endpoints allow 5 requests per 60 seconds per IP. The token, notify, OIDC and authorize endpoints have their own per-IP limits.
+- **Audit trail:** authorization and privileged operations are logged to KV with a 90-day TTL.
+- **Anti-clickjacking headers:** `/authorize` sends `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+- **Scopes:** `dovecote:notify` sends notifications. `dovecote:admin` is required to mint tokens, to manage other users' tokens, and to exchange an OAuth token at `/v1/auth/exchange`.
 
-- **OAuth 2.1 + PKCE**: Authorization flow requires S256 code challenge (plain challenge rejected)
-- **Closed Dynamic Client Registration**: Public DCR disabled; clients provisioned via operator-only `/admin/bootstrap-client` endpoint
-- **Token-paste authorization**: `/authorize` accepts only a POSTed `dvct_*` token — the token itself is the anti-forgery secret (no ambient cookie credential exists), and submissions are rate-limited per IP
-- **Rate Limiting**: 5 requests per 60 seconds per IP address on admin endpoints
-- **Audit Trail**: All authorization and privileged operations logged to KV with 90-day TTL
-- **Anti-Clickjacking Headers**: `/authorize` endpoint serves `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`
-- **Scope-Based Access Control**:
-  - `dovecote:notify` – Send notifications via configured channels
-  - `dovecote:admin` – **Admin privilege**: Execute admin-level operations. Requires the `dovecote:admin` scope on the issuing user record.
-
-### Vulnerability Reporting
+### Vulnerability reporting
 
 Please report security vulnerabilities privately via [GitHub Security Advisories](https://github.com/musingfox/dovecote/security/advisories/new). Do not file public issues for security problems.
 
