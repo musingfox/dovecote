@@ -21,10 +21,9 @@ jobs:
         with:
           version: "0.1.0"
           server-url: https://dovecote.your-subdomain.workers.dev
-        env:
-          DOVECOTE_TOKEN: ${{ secrets.DOVECOTE_TOKEN }}
+          token: ${{ secrets.DOVECOTE_TOKEN }}
 
-      - run: dovecote notify ops --text "deploy ${{ github.event.workflow_run.conclusion }}"
+      - run: dovecote notify telegram-ops --text "deploy ${{ github.event.workflow_run.conclusion }}"
 ```
 
 Pin to the tag (`@cli-v0.1.0`) rather than a moving ref. Each CLI release ships its own tag; bump the pin when you intend to upgrade.
@@ -33,7 +32,7 @@ Pin to the tag (`@cli-v0.1.0`) rather than a moving ref. Each CLI release ships 
 
 | Secret | Where to set | Purpose |
 |---|---|---|
-| `DOVECOTE_TOKEN` | repo / org secret | Runtime token (`dvct_...`) used by `dovecote notify`, `dovecote ping`, etc. The action reads it from `inputs.token` first, then falls back to the caller's `env.DOVECOTE_TOKEN`. |
+| `DOVECOTE_TOKEN` | repo / org secret | Runtime token (`dvct_...`) used by `dovecote notify`, `dovecote ping`, etc. Pass it as `with: token:`; the action exports it to `$GITHUB_ENV` for later steps. A step-level `env:` on the action step does not reach later steps. |
 | `DOVECOTE_SERVER_URL` | repo / org secret OR action `with.server-url` | Base URL of the deployed worker. Inline `with.server-url` overrides the env var. |
 
 `DOVECOTE_TOKEN` is sensitive — store it as a GitHub Actions secret, never inline it. The action exports it via `$GITHUB_ENV` so it stays scoped to the job.
@@ -126,7 +125,7 @@ Code signing is tracked in [ADR 0004](./decisions/) (planned post-v0.1) — once
 - Fixed in `cli-v0.1.0`. If you see it on an older ref, bump the pin.
 
 ### `dovecote ping` returns 401 but `--version` works
-- The CLI installed but `DOVECOTE_TOKEN` was not exported into the step's env. Verify the secret is set on the repo / org AND that the `with: token:` input OR step-level `env: DOVECOTE_TOKEN:` was passed. Setting it only in `env:` at workflow root may not propagate into composite-action steps depending on the runner version.
+- The CLI installed but `DOVECOTE_TOKEN` was not exported into the step's env. Verify the secret is set on the repo / org AND that it was passed as the `with: token:` input. A step-level `env: DOVECOTE_TOKEN:` on the action step only reaches the action's own steps, not the later `dovecote` steps.
 
 ### `dovecote ping` 401 + token looks correct
 - The token may have expired (90d cap). Inspect with `dovecote tokens list --remote` from a workstation; rotate per the Token provisioning section.
