@@ -97,7 +97,7 @@ If the bootstrap endpoint fails or is unavailable, you may temporarily re-enable
    - Revert the step 1 change
    - Redeploy
 
-**Note:** This fallback increases attack surface. Use only when the bootstrap endpoint is unavailable.
+**Note:** While the window is open, anyone can register a client without authentication, public or confidential. This is the hole that removing `/register` closed. Use only when the bootstrap endpoint is unavailable.
 
 ## Security Considerations
 

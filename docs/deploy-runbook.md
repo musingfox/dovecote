@@ -140,7 +140,7 @@ TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify
 
 Expected results:
 - OAuth metadata endpoint returns valid configuration
-- DCR endpoint is closed (returns 4xx)
+- `/register` does not exist (returns 404)
 - Bootstrap endpoint is gated (returns 404 when disabled)
 
 Note: Full flow tests (C5, C6) only run in local mode with MockKV.
