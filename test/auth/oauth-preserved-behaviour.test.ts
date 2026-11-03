@@ -166,3 +166,28 @@ test("POST /token refuses a code redeemed without its S256 verifier", async () =
   expect(res.status).toBe(400);
   expect(((await res.json()) as { access_token?: string }).access_token).toBeUndefined();
 });
+
+// The bare origin is what the 0.4 root protected resource metadata advertised.
+for (const resource of [BASE, "https://other.example/mcp"]) {
+  test(`GET /authorize with resource=${resource} redirects invalid_target to the client`, async () => {
+    const doFetch = fetcher(makeEnv());
+    const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+    const clientId = await bootstrapClient(doFetch, [redirectUri]);
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      state: "s",
+      code_challenge: await generateCodeChallenge(generateCodeVerifier()),
+      code_challenge_method: "S256",
+      resource,
+    });
+    const res = await doFetch(new Request(`${BASE}/authorize?${params}`));
+    expect(res.status).toBe(302);
+    const location = new URL(res.headers.get("Location")!);
+    expect(`${location.origin}${location.pathname}`).toBe(redirectUri);
+    expect(location.searchParams.get("error")).toBe("invalid_target");
+    expect(location.searchParams.get("state")).toBe("s");
+    expect(location.searchParams.get("code")).toBeNull();
+  });
+}

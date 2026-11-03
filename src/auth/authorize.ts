@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
+import { AuthorizationError } from "@cloudflare/workers-oauth-provider";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
@@ -172,7 +173,12 @@ function registerAuthorizeFormRoutes(
       if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
         return c.json({ error: "invalid_redirect_uri" }, 400);
       }
-      return c.text("Internal Server Error", 500); // non-redirect parse errors (e.g. resource param)
+      if (err instanceof AuthorizationError) {
+        // redirectTo is set only once the redirect_uri has been validated.
+        if (err.redirectTo) return c.redirect(err.redirectTo);
+        return c.json({ error: err.code }, 400);
+      }
+      return c.text("Internal Server Error", 500);
     }
 
     const params = collectOAuthParams(new URL(c.req.url).searchParams.entries());
