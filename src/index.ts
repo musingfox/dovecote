@@ -16,9 +16,9 @@ import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 
 // The resource is the URL MCP clients connect to, and 1.x binds every token to
-// it. It is derived per origin because the production Worker answers on two
-// hostnames, dovecote.musingfox.me and dovecote.nick12703990.workers.dev.
-// Staging is a separate Worker (dovecote-staging) with its own KV.
+// it. It is derived per origin so one build serves both Workers: production
+// on dovecote.musingfox.me (its workers.dev route is disabled in wrangler.toml)
+// and staging, a separate Worker (dovecote-staging) on its workers.dev URL.
 function oauthOptionsFor(origin: string): OAuthProviderOptions<Env> {
   return {
     apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
