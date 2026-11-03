@@ -112,7 +112,7 @@ Both tools require the `dovecote:notify` scope.
 | `POST /v1/auth/exchange` | OAuth bearer | Trade an OAuth access token for a `dvct_*` token |
 | `POST /v1/auth/github-oidc` | GitHub OIDC `id_token` | Trade a GitHub Actions identity for a short-lived `dvct_*` token |
 
-[`openapi.json`](./openapi.json) holds the schema for every endpoint above except `/v1/auth/github-oidc`, and is regenerated with `bun run openapi:gen`. The GitHub OIDC endpoint returns 503 until the worker has `GITHUB_OIDC_EXPECTED_AUD` and `GITHUB_OIDC_ALLOWED_OWNER` set.
+[`openapi.json`](./openapi.json) holds the schema for every endpoint above and is regenerated with `bun run openapi:gen`. The GitHub OIDC endpoint returns 503 until the worker has `GITHUB_OIDC_EXPECTED_AUD` and `GITHUB_OIDC_ALLOWED_OWNER` set.
 
 ## CLI
 

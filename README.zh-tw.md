@@ -112,7 +112,7 @@ dovecote notify telegram-ops --text "hello from dovecote"
 | `POST /v1/auth/exchange` | OAuth bearer | 用 OAuth access token 換 `dvct_*` token |
 | `POST /v1/auth/github-oidc` | GitHub OIDC `id_token` | 用 GitHub Actions 身分換短效的 `dvct_*` token |
 
-[`openapi.json`](./openapi.json) 收錄上表除了 `/v1/auth/github-oidc` 以外所有端點的 schema，用 `bun run openapi:gen` 重新產生。worker 設好 `GITHUB_OIDC_EXPECTED_AUD` 與 `GITHUB_OIDC_ALLOWED_OWNER` 之前，GitHub OIDC 端點會回 503。
+[`openapi.json`](./openapi.json) 收錄上表所有端點的 schema，用 `bun run openapi:gen` 重新產生。worker 設好 `GITHUB_OIDC_EXPECTED_AUD` 與 `GITHUB_OIDC_ALLOWED_OWNER` 之前，GitHub OIDC 端點會回 503。
 
 ## CLI
 
