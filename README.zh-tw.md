@@ -78,7 +78,7 @@ bun run setup -- --env production
 
 精靈會產生並推送 `HMAC_PEPPER` 與 `ADMIN_REVOKE_TOKEN` 兩個 secret、提示你新增 Telegram 或 Discord 頻道、部署 worker、建立第一個使用者、把 CLI token 寫入 `~/.config/dovecote/config.json`，最後執行 `bun run verify`。不帶 `--env` 時目標是 staging。產生的 secret 也會寫到 `~/.dovecote/secrets-<env>.txt`（mode 0600），請移到密碼管理器後刪除該檔案。
 
-要接上 Claude.ai，先照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 為它配置一個 OAuth client，精靈不會建立 client。接著新增 custom connector，填入該 client id 與 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.<sub>.workers.dev/mcp`。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。
+要接上 Claude.ai，先照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 為它配置一個 OAuth client，精靈不會建立 client。接著新增 custom connector，填入該 client id 與 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.example.com/mcp`。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。
 
 要從 shell 發送，先安裝 CLI（見 [CLI](#cli)），再執行：
 
@@ -124,7 +124,7 @@ CLI 以 linux-x64、linux-arm64、darwin-x64、darwin-arm64、windows-x64 的獨
 
 ```bash
 export DOVECOTE_CLIENT_ID=<id from POST /admin/bootstrap-client>
-dovecote auth login --server-url https://dovecote.your-subdomain.workers.dev
+dovecote auth login --server-url https://dovecote.example.com
 dovecote ping
 dovecote notify telegram-ops --text "hello from cli"
 ```
@@ -137,7 +137,7 @@ dovecote notify telegram-ops --text "hello from cli"
 - uses: musingfox/dovecote/.github/actions/setup-dovecote@cli-v0.1.0
   with:
     version: "0.1.0"
-    server-url: https://dovecote.your-subdomain.workers.dev
+    server-url: https://dovecote.example.com
     token: ${{ secrets.DOVECOTE_TOKEN }}
 
 - run: dovecote notify telegram-ops --text "deploy complete"
@@ -162,8 +162,8 @@ cp -R .claude/skills/dovecote-notify ~/.claude/skills/
 
 1. **登入**：執行 `bunx wrangler login`，並照[快速開始](#快速開始)建立 KV namespace。
 2. **設定 secret**：執行 `bun run deploy:secrets`。script 會提示輸入 `HMAC_PEPPER`，環境裡有 `ADMIN_REVOKE_TOKEN` 時一併設定，並以 `.dev.vars` 的值作為預設。staging 環境請執行 `WRANGLER_ENV=staging bun run deploy:secrets`。頻道不是 secret，每個頻道是 `OAUTH_KV` 裡的一筆 `channel:<service>-<id>` 記錄。用 `bun run channel:add -- --env production` 新增，或用 `bun run channel:migrate -- --env production --file backup.json` 匯入以 `telegram` 與 `discord` 為 key 的 JSON 物件。
-3. **部署 worker**：執行 `bun run deploy`，Wrangler 會印出 worker URL。
-4. **驗證**：執行 `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`。smoke tests 會檢查 OAuth metadata、`/register` 是否不存在，以及端點可用性。
+3. **部署 worker**：執行 `bun run deploy`。production 沒有 `workers.dev` 網址，因為 `wrangler.toml` 設了 `workers_dev = false`：OAuth token 綁定簽發時的網域，只留一個網域，每個 client 就只需要登入一次。請在 Cloudflare dashboard 替 `dovecote` Worker 綁定自訂網域；若想改用 `workers.dev` 網址，就把它設成 `workers_dev = true`。staging 仍保留 `workers.dev` 網址。
+4. **驗證**：執行 `TEST_BASE_URL=https://dovecote.example.com bun run deploy:verify`。smoke tests 會檢查 OAuth metadata、`/register` 是否不存在，以及端點可用性。
 
 若是升級既有部署、頻道還放在 worker secret 裡，請照 [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records) 的順序做：先部署再 migrate，或先刪舊 secret，都會讓所有頻道消失。客戶端配置與維運細節見 [docs/deploy-runbook.md](./docs/deploy-runbook.md) 與 [docs/client-bootstrap.md](./docs/client-bootstrap.md)。
 
@@ -185,7 +185,7 @@ bun run typecheck
 bun run test:e2e
 (cd cli && bun test)
 bun run test:integration:build && bun run test:integration
-TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run test:e2e:remote
+TEST_BASE_URL=https://dovecote.example.com bun run test:e2e:remote
 ```
 
 沒有設定 `TEST_BASE_URL` 時，E2E 測試透過 `app.fetch()` 在 process 內執行。設定之後會發出真正的 HTTP 請求，並跳過需要客製 in-process 環境的案例。若要一併斷言部署暴露哪些頻道，加上 `TEST_EXPECTED_CHANNELS='telegram-default,discord-ops'`。

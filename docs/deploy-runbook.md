@@ -100,7 +100,7 @@ For the initial OAuth client setup, use this flip-switch deployment sequence (DP
 
 3. **Provision the OAuth client** (set `$ADMIN_TOKEN` to the `ADMIN_REVOKE_TOKEN` value first):
    ```bash
-   curl -X POST https://dovecote.your-subdomain.workers.dev/admin/bootstrap-client \
+   curl -X POST https://dovecote.example.com/admin/bootstrap-client \
      -H "Authorization: Bearer $ADMIN_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{
@@ -128,14 +128,14 @@ For the initial OAuth client setup, use this flip-switch deployment sequence (DP
 After any deployment, verify basic functionality:
 
 ```bash
-TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev \
+TEST_BASE_URL=https://dovecote.example.com \
 bun test test/e2e/smoke.test.ts
 ```
 
 Or use the script shorthand (requires `TEST_BASE_URL`):
 
 ```bash
-TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify
+TEST_BASE_URL=https://dovecote.example.com bun run deploy:verify
 ```
 
 Expected results:

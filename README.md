@@ -78,7 +78,7 @@ bun run setup -- --env production
 
 The wizard generates and pushes the `HMAC_PEPPER` and `ADMIN_REVOKE_TOKEN` secrets, prompts you to add a Telegram or Discord channel, deploys the worker, seeds your first user, mints a CLI token into `~/.config/dovecote/config.json`, and runs `bun run verify`. Without `--env` it targets staging. Generated secrets are also written to `~/.dovecote/secrets-<env>.txt` (mode 0600); move them to a password manager and delete the file.
 
-To connect Claude.ai, first provision an OAuth client for it by following [docs/client-bootstrap.md](./docs/client-bootstrap.md); the wizard does not create one. Then add a custom connector with that client id and the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.<sub>.workers.dev/mcp`. The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token.
+To connect Claude.ai, first provision an OAuth client for it by following [docs/client-bootstrap.md](./docs/client-bootstrap.md); the wizard does not create one. Then add a custom connector with that client id and the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.example.com/mcp`. The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token.
 
 To send from a shell, install the CLI (see [CLI](#cli)) and run:
 
@@ -124,7 +124,7 @@ Download the archive for your platform, verify it against `SHA256SUMS`, extract 
 
 ```bash
 export DOVECOTE_CLIENT_ID=<id from POST /admin/bootstrap-client>
-dovecote auth login --server-url https://dovecote.your-subdomain.workers.dev
+dovecote auth login --server-url https://dovecote.example.com
 dovecote ping
 dovecote notify telegram-ops --text "hello from cli"
 ```
@@ -137,7 +137,7 @@ The browser flow ends at `/v1/auth/exchange`, which requires the `dovecote:admin
 - uses: musingfox/dovecote/.github/actions/setup-dovecote@cli-v0.1.0
   with:
     version: "0.1.0"
-    server-url: https://dovecote.your-subdomain.workers.dev
+    server-url: https://dovecote.example.com
     token: ${{ secrets.DOVECOTE_TOKEN }}
 
 - run: dovecote notify telegram-ops --text "deploy complete"
@@ -162,8 +162,8 @@ The wizard covers a first deployment. To run the steps yourself:
 
 1. **Log in** with `bunx wrangler login`, and create the KV namespace as in [Quick start](#quick-start).
 2. **Set secrets** with `bun run deploy:secrets`. It prompts for `HMAC_PEPPER`, sets `ADMIN_REVOKE_TOKEN` if it is in your environment, and reads defaults from `.dev.vars`. For staging, run `WRANGLER_ENV=staging bun run deploy:secrets`. Channels are not secrets: each one is a `channel:<service>-<id>` record in `OAUTH_KV`. Add one with `bun run channel:add -- --env production`, or import a saved JSON object keyed by `telegram` and `discord` with `bun run channel:migrate -- --env production --file backup.json`.
-3. **Deploy the worker** with `bun run deploy`. Wrangler prints the worker URL.
-4. **Verify** with `TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run deploy:verify`. The smoke tests check OAuth metadata, that `/register` does not exist, and endpoint availability.
+3. **Deploy the worker** with `bun run deploy`. Production has no `workers.dev` URL: `wrangler.toml` sets `workers_dev = false` because OAuth tokens are bound to the hostname they were issued on, and one hostname keeps one sign-in per client. Attach a custom domain to the `dovecote` Worker in the Cloudflare dashboard, or set `workers_dev = true` if you want the `workers.dev` URL instead. Staging keeps its `workers.dev` URL.
+4. **Verify** with `TEST_BASE_URL=https://dovecote.example.com bun run deploy:verify`. The smoke tests check OAuth metadata, that `/register` does not exist, and endpoint availability.
 
 Upgrading a deployment whose channels still live in worker secrets? Follow [Channel Cutover](./docs/deploy-runbook.md#channel-cutover-worker-secrets-to-kv-records) in order: migrating after you deploy, or deleting the old secrets first, drops every channel. Client provisioning and operations are covered in [docs/deploy-runbook.md](./docs/deploy-runbook.md) and [docs/client-bootstrap.md](./docs/client-bootstrap.md).
 
@@ -185,7 +185,7 @@ Channels are not read from `.dev.vars`; the worker resolves them from `channel:<
 bun run test:e2e
 (cd cli && bun test)
 bun run test:integration:build && bun run test:integration
-TEST_BASE_URL=https://dovecote.your-subdomain.workers.dev bun run test:e2e:remote
+TEST_BASE_URL=https://dovecote.example.com bun run test:e2e:remote
 ```
 
 Without `TEST_BASE_URL`, the E2E tests run in-process through `app.fetch()`. With it, they send real HTTP requests and skip the cases that need a custom in-process environment. To also assert which channels a deployment exposes, add `TEST_EXPECTED_CHANNELS='telegram-default,discord-ops'`.
