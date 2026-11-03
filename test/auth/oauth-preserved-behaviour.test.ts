@@ -168,6 +168,38 @@ test("POST /token refuses a code redeemed without its S256 verifier", async () =
   expect(((await res.json()) as { access_token?: string }).access_token).toBeUndefined();
 });
 
+// The provider refuses to be built for a non-loopback http origin.
+test("plain http on a public host redirects GET and HEAD to https and refuses other methods", async () => {
+  const doFetch = fetcher(makeEnv());
+  for (const method of ["GET", "HEAD"]) {
+    const res = await doFetch(new Request("http://dovecote.example/authorize?client_id=c&state=s", { method }));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("Location")).toBe("https://dovecote.example/authorize?client_id=c&state=s");
+  }
+  const metadata = await doFetch(new Request("http://dovecote.example/.well-known/oauth-protected-resource/mcp"));
+  expect(metadata.status).toBe(308);
+
+  const token = await doFetch(new Request("http://dovecote.example/token", { method: "POST", body: "" }));
+  expect(token.status).toBe(400);
+  const exchange = await doFetch(
+    new Request("http://dovecote.example/v1/auth/exchange", {
+      method: "POST",
+      headers: { Authorization: "Bearer not-a-real-token", "Content-Type": "application/json" },
+      body: "{}",
+    }),
+  );
+  expect(exchange.status).toBe(400);
+});
+
+test("plain http on a loopback host still serves OAuth", async () => {
+  const doFetch = fetcher(makeEnv());
+  for (const origin of ["http://localhost:8787", "http://127.0.0.1:8787", "http://[::1]:8787"]) {
+    const res = await doFetch(new Request(`${origin}/.well-known/oauth-authorization-server`));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { issuer: string }).issuer).toBe(origin);
+  }
+});
+
 // The provider exempts confidential clients from PKCE; the app must not.
 test("a confidential client_secret_post client cannot authorize without a code_challenge", async () => {
   const env = makeEnv();

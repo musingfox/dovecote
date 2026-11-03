@@ -16,8 +16,9 @@ import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 
 // The resource is the URL MCP clients connect to, and 1.x binds every token to
-// it. It is derived per origin because production and staging serve this
-// Worker on different hostnames.
+// it. It is derived per origin because the production Worker answers on two
+// hostnames, dovecote.musingfox.me and dovecote.nick12703990.workers.dev.
+// Staging is a separate Worker (dovecote-staging) with its own KV.
 function oauthOptionsFor(origin: string): OAuthProviderOptions<Env> {
   return {
     apiHandler: { fetch: apiApp.fetch.bind(apiApp) },
@@ -45,7 +46,41 @@ function oauthProviderFor(origin: string): OAuthProvider<Env> {
   return provider;
 }
 
+// Same loopback set as the provider's isLoopbackHostname.
+function isLoopbackHostname(hostname: string): boolean {
+  if (hostname === "localhost" || hostname === "[::1]") return true;
+  const ipv4 = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  return ipv4 !== null && ipv4.slice(1).every((octet) => Number(octet) <= 255);
+}
+
 const app = new Hono<{ Bindings: Env }>();
+
+const oauthPaths = [
+  "/mcp",
+  "/authorize",
+  "/token",
+  "/.well-known/oauth-authorization-server",
+  "/.well-known/oauth-protected-resource/mcp",
+  "/admin/revoke",
+  "/admin/bootstrap-client",
+];
+
+// The provider throws when built for an http origin that is not loopback (a
+// 500 on OAuth paths, a misleading 401 on /v1/auth/exchange), so such
+// requests are turned away before oauthProviderFor or getOAuthApi runs.
+// Other methods get a 400 rather than a redirect: their body (a client
+// secret, a pasted dvct token, a bearer) has already crossed in cleartext.
+for (const path of [...oauthPaths, "/v1/auth/exchange"]) {
+  app.use(path, async (c, next) => {
+    const url = new URL(c.req.url);
+    if (url.protocol !== "http:" || isLoopbackHostname(url.hostname)) return next();
+    if (c.req.method === "GET" || c.req.method === "HEAD") {
+      url.protocol = "https:";
+      return c.redirect(url.toString(), 308);
+    }
+    return c.json({ error: "invalid_request", error_description: "HTTPS is required" }, 400);
+  });
+}
 
 app.get("/health", (c) => c.json(getHealthResponse()));
 
@@ -72,16 +107,6 @@ app.use("/v1/*", bearerMiddleware);
 
 import v1App from "./api-v1.js";
 app.route("/v1", v1App);
-
-const oauthPaths = [
-  "/mcp",
-  "/authorize",
-  "/token",
-  "/.well-known/oauth-authorization-server",
-  "/.well-known/oauth-protected-resource/mcp",
-  "/admin/revoke",
-  "/admin/bootstrap-client",
-];
 
 for (const path of oauthPaths) {
   app.all(path, (c) =>
