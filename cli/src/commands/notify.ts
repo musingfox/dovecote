@@ -158,6 +158,11 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
         await doSleep(wait);
         continue;
       }
+      const upstream = res.status === 502 ? parseUpstreamError(res.body) : null;
+      if (upstream !== null) {
+        ctx.stderr(`Provider refused the message for ${channel}: ${upstream}\n`);
+        return ExitCode.UPSTREAM;
+      }
     } catch (e) {
       if (e instanceof CliError && e.code === ExitCode.TOKEN_EXPIRED) {
         ctx.stderr(`${e.message}\n`);
@@ -173,6 +178,16 @@ export async function runNotify(ctx: CmdCtx, deps: NotifyDeps = {}): Promise<num
   }
   ctx.stderr(`Notify failed after ${retry} attempts: status=${lastStatus} body=${lastBody}\n`);
   return ExitCode.UPSTREAM;
+}
+
+// A 502 from the edge rather than the worker has no upstream_error envelope.
+function parseUpstreamError(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { error?: string; error_description?: string };
+    return parsed.error === "upstream_error" ? parsed.error_description ?? "" : null;
+  } catch {
+    return null;
+  }
 }
 
 function guessContentType(path: string): string {

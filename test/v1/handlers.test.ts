@@ -215,6 +215,32 @@ test("C2.4.a - POST /v1/notify 404 not_found (SendResult.success=false)", async 
   expect(body.error_description).toBe("Unknown channel");
 });
 
+test("C2.4.a - POST /v1/notify 502 upstream_error (SendResult.success=false, provider refused)", async () => {
+  const { app } = buildApp(
+    NOTIFY_AUTH,
+    makeServices({
+      sendNotification: async (_env: any, _auth: any, _ctx: any, args: any) => ({
+        success: false,
+        channel: args.channel,
+        error: "Telegram API error: Forbidden: bot was kicked from the group chat",
+      }),
+    })
+  );
+  const env = buildTestEnv();
+
+  const req = new Request("http://localhost/v1/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: "telegram-ops", content: { text: "hi" } }),
+  });
+  const res = await app.fetch(req, env, createMockExecutionContext());
+  expect(res.status).toBe(502);
+
+  const body = (await res.json()) as any;
+  expect(body.error).toBe("upstream_error");
+  expect(body.error_description).toContain("bot was kicked");
+});
+
 test("C2.4.a - POST /v1/notify 502 upstream_error (UpstreamError)", async () => {
   const { app } = buildApp(
     NOTIFY_AUTH,

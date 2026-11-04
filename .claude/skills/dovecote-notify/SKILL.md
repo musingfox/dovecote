@@ -101,7 +101,8 @@ Successful exit prints `Sent: messageId=<id> channel=<channel-id>` and exits 0.
 
 | Symptom (stderr / output) | Cause | Recovery |
 |---|---|---|
-| `Channel not found: <channel-id>` (exit 4) | Channel id wrong, **or** the provider refused the message (the server answers 404 for both) | Re-run `channels list`. If the id is not listed, pick a valid one. If it is listed, the provider refused: tell the user to check the Telegram bot is still in the chat, or that the Discord webhook still exists (regenerate it and re-run `bun run channel:add -- --env <env> --force`) |
+| `Channel not found: <channel-id>` (exit 4) | Channel id wrong | Re-run `channels list` and pick a listed id |
+| `Provider refused the message for <channel-id>: <reason>` (exit 7) | Telegram or Discord refused or failed the send (the server answers 502 `upstream_error`) | Tell the user to check the Telegram bot is still in the chat, or that the Discord webhook still exists (regenerate it and re-run `bun run channel:add -- --env <env> --force`) |
 | `status=429` / `rate_limited` | Hit the per-IP notify rate limit (default 60/min) | Without `--retry N` the CLI does not retry. Wait ~60s then retry **once** (or pass `--retry 2`, which honors `Retry-After`), no more |
 | `status=401` / `invalid_token`, or an expired-token message (exit 9) | Token revoked or expired (90d cap), or HMAC_PEPPER rotated | Tell user to run `bun run setup -- --env <env> --resume` in the dovecote repo |
 | Connection refused / DNS error | Worker down or URL wrong | Tell user to run `dovecote ping` and check `bunx wrangler tail --env <env>` in the dovecote repo |

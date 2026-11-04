@@ -3,7 +3,11 @@ import type { Env } from "./types.js";
 import type { AuthCtx } from "./auth/ctx.js";
 import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { MessageContent } from "./channels/types.js";
-import { sendNotification as _sendNotification, recordNotifySend } from "./services/notifications.js";
+import {
+  sendNotification as _sendNotification,
+  recordNotifySend,
+  classifySendFailure,
+} from "./services/notifications.js";
 import { listChannels as _listChannels } from "./services/channels.js";
 import { ScopeError, NotFoundError, UpstreamError } from "./services/errors.js";
 import { messageContentSchema } from "./contracts/notifications.js";
@@ -158,9 +162,17 @@ export function createV1App(services: V1Services) {
       });
 
       if (!sendResult.success) {
-        const errorDescription = sendResult.error || "Unknown channel";
+        if (classifySendFailure(sendResult) === "upstream_error") {
+          return c.json(
+            {
+              error: "upstream_error",
+              error_description: sendResult.error || "Channel provider failed",
+            },
+            502
+          );
+        }
         return c.json(
-          { error: "not_found", error_description: errorDescription },
+          { error: "not_found", error_description: sendResult.error || "Unknown channel" },
           404
         );
       }

@@ -118,7 +118,9 @@ registry.registerPath({
     200: jsonOk(sendResultSchema, "Notification dispatched"),
     ...writeValidationErrors,
     ...commonAuthErrors,
+    404: errorResponse("Unknown channel (`not_found`)"),
     ...notifyRateLimitErrors,
+    502: errorResponse("Channel provider refused or failed the send (`upstream_error`)"),
   },
 });
 

@@ -32,6 +32,10 @@ export function recordNotifySend(
   });
 }
 
+export function classifySendFailure(result: SendResult): "unknown_channel" | "upstream_error" {
+  return result.error === UNKNOWN_CHANNEL_ERROR ? "unknown_channel" : "upstream_error";
+}
+
 export async function sendNotification(
   env: Env,
   auth: AuthCtx,
@@ -54,8 +58,7 @@ export async function sendNotification(
   if (result.success) {
     recordNotifySend(env, ctx, auth, { ok: true, channel });
   } else {
-    const reason = result.error === UNKNOWN_CHANNEL_ERROR ? "unknown_channel" : "upstream_error";
-    recordNotifySend(env, ctx, auth, { ok: false, reason, channel });
+    recordNotifySend(env, ctx, auth, { ok: false, reason: classifySendFailure(result), channel });
   }
   return result;
 }

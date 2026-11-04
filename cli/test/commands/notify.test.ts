@@ -126,6 +126,27 @@ test("notify exit 4 on 404 channel-not-found", async () => {
   expect(code).toBe(ExitCode.NOT_FOUND);
 });
 
+test("notify exit 7 with a provider message on 502 upstream_error", async () => {
+  const err: string[] = [];
+  const code = await runMain({
+    argv: ["notify", "telegram-ops", "--text", "x"],
+    env: { HOME: "/no" },
+    stdout: () => {},
+    stderr: (s) => err.push(s),
+    configPath: cfgPath,
+    fetchImpl: makeFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: "upstream_error", error_description: "Telegram API error: Forbidden" }),
+          { status: 502 }
+        )
+    ),
+  });
+  expect(code).toBe(ExitCode.UPSTREAM);
+  expect(err.join("")).toContain("Provider refused the message for telegram-ops: Telegram API error: Forbidden");
+  expect(err.join("")).not.toContain("Channel not found");
+});
+
 test("notify exit 6 on 403", async () => {
   const code = await runMain({
     argv: ["notify", "ops", "--text", "x"],

@@ -519,6 +519,16 @@
               }
             }
           },
+          "404": {
+            "description": "Unknown channel (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Rate limit exceeded — Retry-After header indicates retry window",
             "content": {
@@ -531,6 +541,16 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Channel provider refused or failed the send (`upstream_error`)",
             "content": {
               "application/json": {
                 "schema": {
