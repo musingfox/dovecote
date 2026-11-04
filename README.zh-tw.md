@@ -78,7 +78,7 @@ bun run setup -- --env production
 
 精靈會產生並推送 `HMAC_PEPPER` 與 `ADMIN_REVOKE_TOKEN` 兩個 secret、提示你新增 Telegram 或 Discord 頻道、部署 worker、建立第一個使用者、把 CLI token 寫入 `~/.config/dovecote/config.json`，最後執行 `bun run verify`。不帶 `--env` 時目標是 staging。產生的 secret 也會寫到 `~/.dovecote/secrets-<env>.txt`（mode 0600），請移到密碼管理器後刪除該檔案。
 
-要接上 Claude.ai，新增 custom connector 時只要填 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.example.com/mcp`，OAuth client ID 留空即可：Claude.ai 會用它公開的 client metadata document 表明身分（2026-11-04 已在 staging 驗證）。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。如果 connector 這樣無法登入，再照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 配置一個 OAuth client 並填入它的 client ID，精靈不會建立 client。Claude Code 的 client metadata document 也在接受之列，但 Claude Code 用它登入的流程還沒有驗證過。
+要接上 Claude.ai，新增 custom connector 時只要填 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.example.com/mcp`，OAuth client ID 留空即可：Claude.ai 會用它公開的 client metadata document 表明身分（2026-11-04 已在 staging 驗證）。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。connector 會一直綁定這把 token：token 一旦撤銷或過期，`/mcp` 大約一分鐘內（Workers KV 的傳播時間）就會拒絕這個 connector，它的 refresh 也會回 `invalid_grant`，Claude 便會要求你重新登入。如果 connector 這樣無法登入，再照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 配置一個 OAuth client 並填入它的 client ID，精靈不會建立 client。Claude Code 的 client metadata document 也在接受之列，但 Claude Code 用它登入的流程還沒有驗證過。
 
 無法走 OAuth 的 MCP client，例如用固定 header 的 Claude Code、會注入 header 的雲端環境或腳本，可以直接把 `dvct_*` token 當成 bearer 送出：
 
@@ -86,7 +86,7 @@ bun run setup -- --env production
 claude mcp add --transport http dovecote https://dovecote.example.com/mcp --header "Authorization: Bearer dvct_…"
 ```
 
-這個 token 需要 `dovecote:notify` scope。token 一旦撤銷或過期，client 的下一個請求就會被拒絕。
+這個 token 需要 `dovecote:notify` scope。token 一旦撤銷或過期，client 大約一分鐘內（Workers KV 的傳播時間）就會被拒絕。
 
 要從 shell 發送，先安裝 CLI（見 [CLI](#cli)），再執行：
 
@@ -101,7 +101,7 @@ dovecote notify telegram-ops --text "hello from dovecote"
 
 | Tool | 說明 |
 |------|------|
-| `send_notification` | 發送訊息（`text`、`embed` 或兩者）到指定頻道 |
+| `send_notification` | 發送訊息（`text`、`embed`、`attachment` 或其組合）到指定頻道 |
 | `list_channels` | 列出已設定的通知頻道 |
 
 兩個 tool 都需要 `dovecote:notify` scope。
@@ -205,9 +205,9 @@ TEST_BASE_URL=https://dovecote.example.com bun run test:e2e:remote
 - **貼 token 授權**：`/authorize` 只接受 POST 的 `dvct_*` token。因為不存在 cookie 這類環境憑證，token 本身就是防偽 secret，提交次數也依 IP 限制。
 - **雜湊儲存的 API token**：`dvct_*` token 以 `HMAC_PEPPER` 為金鑰做 HMAC-SHA256 雜湊後儲存，效期上限 90 天。
 - **速率限制**：admin 端點每個 IP 每 60 秒限 5 次。token、notify、OIDC 與 authorize 端點各有自己的每 IP 限制。
-- **稽核軌跡**：授權與特權操作記錄到 KV，保留 90 天。
+- **稽核軌跡**：授權、特權操作與每一次發送都會記錄到 KV，保留 90 天，同時輸出成 console log，可在 Workers Logs（每個環境都已啟用）查詢。每次發送都會寫一筆 `notify.send` 記錄，載明 `dvct_*` token 的 id 與 label。
 - **防點擊劫持標頭**：`/authorize` 回傳 `Content-Security-Policy: frame-ancestors 'none'` 與 `X-Frame-Options: DENY`。
-- **Scope**：`dovecote:notify` 用來發送通知。簽發 token、管理其他使用者的 token，以及在 `/v1/auth/exchange` 交換 OAuth token，都需要 `dovecote:admin`。
+- **Scope**：`dovecote:notify` 用來發送通知。簽發或撤銷 token、列出或續期其他使用者的 token，以及在 `/v1/auth/exchange` 交換 OAuth token，都需要 `dovecote:admin`。
 
 ### 漏洞通報
 

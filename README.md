@@ -78,7 +78,7 @@ bun run setup -- --env production
 
 The wizard generates and pushes the `HMAC_PEPPER` and `ADMIN_REVOKE_TOKEN` secrets, prompts you to add a Telegram or Discord channel, deploys the worker, seeds your first user, mints a CLI token into `~/.config/dovecote/config.json`, and runs `bun run verify`. Without `--env` it targets staging. Generated secrets are also written to `~/.dovecote/secrets-<env>.txt` (mode 0600); move them to a password manager and delete the file.
 
-To connect Claude.ai, add a custom connector with only the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.example.com/mcp`, and leave the OAuth client ID empty: Claude.ai identifies itself with its published client metadata document (verified on staging on 2026-11-04). The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token. If the connector cannot sign in that way, provision an OAuth client by following [docs/client-bootstrap.md](./docs/client-bootstrap.md) and enter its client ID; the wizard does not create one. Claude Code's metadata document is also accepted, but Claude Code signing in with it has not been verified yet.
+To connect Claude.ai, add a custom connector with only the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.example.com/mcp`, and leave the OAuth client ID empty: Claude.ai identifies itself with its published client metadata document (verified on staging on 2026-11-04). The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token. The connector stays bound to that token: once it is revoked or expires, `/mcp` refuses the connector within about a minute (Workers KV propagation), and its refresh fails with `invalid_grant`, so Claude asks you to sign in again. If the connector cannot sign in that way, provision an OAuth client by following [docs/client-bootstrap.md](./docs/client-bootstrap.md) and enter its client ID; the wizard does not create one. Claude Code's metadata document is also accepted, but Claude Code signing in with it has not been verified yet.
 
 An MCP client that cannot run OAuth, such as Claude Code with a fixed header, a cloud environment that injects headers, or a script, sends the `dvct_*` token itself as the bearer:
 
@@ -86,7 +86,7 @@ An MCP client that cannot run OAuth, such as Claude Code with a fixed header, a 
 claude mcp add --transport http dovecote https://dovecote.example.com/mcp --header "Authorization: Bearer dvct_…"
 ```
 
-The token needs the `dovecote:notify` scope. Revoking or letting it expire cuts the client off on its next request.
+The token needs the `dovecote:notify` scope. Revoking or letting it expire cuts the client off within about a minute (Workers KV propagation).
 
 To send from a shell, install the CLI (see [CLI](#cli)) and run:
 
@@ -101,7 +101,7 @@ Channel ids have the form `<service>-<id>`. The wizard's default instance id is 
 
 | Tool | Description |
 |------|-------------|
-| `send_notification` | Send a message (`text`, `embed`, or both) to a channel |
+| `send_notification` | Send a message (`text`, `embed`, `attachment`, or a combination) to a channel |
 | `list_channels` | List the configured notification channels |
 
 Both tools require the `dovecote:notify` scope.
@@ -205,9 +205,9 @@ Without `TEST_BASE_URL`, the E2E tests run in-process through `app.fetch()`. Wit
 - **Token-paste authorization:** `/authorize` accepts only a POSTed `dvct_*` token. The token itself is the anti-forgery secret, since no ambient cookie credential exists, and submissions are rate-limited per IP.
 - **Hashed API tokens:** `dvct_*` tokens are stored as HMAC-SHA256 hashes keyed by `HMAC_PEPPER`, with a maximum TTL of 90 days.
 - **Rate limiting:** admin endpoints allow 5 requests per 60 seconds per IP. The token, notify, OIDC and authorize endpoints have their own per-IP limits.
-- **Audit trail:** authorization and privileged operations are logged to KV with a 90-day TTL.
+- **Audit trail:** authorization, privileged operations and every send are logged to KV with a 90-day TTL, and as console lines that Workers Logs (enabled in every environment) can query. Each send writes a `notify.send` record naming the `dvct_*` token's id and label.
 - **Anti-clickjacking headers:** `/authorize` sends `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`.
-- **Scopes:** `dovecote:notify` sends notifications. `dovecote:admin` is required to mint tokens, to manage other users' tokens, and to exchange an OAuth token at `/v1/auth/exchange`.
+- **Scopes:** `dovecote:notify` sends notifications. `dovecote:admin` is required to mint or revoke tokens, to list or renew other users' tokens, and to exchange an OAuth token at `/v1/auth/exchange`.
 
 ### Vulnerability reporting
 
