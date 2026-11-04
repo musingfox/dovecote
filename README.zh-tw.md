@@ -80,6 +80,14 @@ bun run setup -- --env production
 
 要接上 Claude.ai，先照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 為它配置一個 OAuth client，精靈不會建立 client。接著新增 custom connector，填入該 client id 與 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.example.com/mcp`。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。
 
+無法走 OAuth 的 MCP client，例如用固定 header 的 Claude Code、會注入 header 的雲端環境或腳本，可以直接把 `dvct_*` token 當成 bearer 送出：
+
+```bash
+claude mcp add --transport http dovecote https://dovecote.example.com/mcp --header "Authorization: Bearer dvct_…"
+```
+
+這個 token 需要 `dovecote:notify` scope。token 一旦撤銷或過期，client 的下一個請求就會被拒絕。
+
 要從 shell 發送，先安裝 CLI（見 [CLI](#cli)），再執行：
 
 ```bash

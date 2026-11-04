@@ -80,6 +80,14 @@ The wizard generates and pushes the `HMAC_PEPPER` and `ADMIN_REVOKE_TOKEN` secre
 
 To connect Claude.ai, first provision an OAuth client for it by following [docs/client-bootstrap.md](./docs/client-bootstrap.md); the wizard does not create one. Then add a custom connector with that client id and the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.example.com/mcp`. The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token.
 
+An MCP client that cannot run OAuth, such as Claude Code with a fixed header, a cloud environment that injects headers, or a script, sends the `dvct_*` token itself as the bearer:
+
+```bash
+claude mcp add --transport http dovecote https://dovecote.example.com/mcp --header "Authorization: Bearer dvct_…"
+```
+
+The token needs the `dovecote:notify` scope. Revoking or letting it expire cuts the client off on its next request.
+
 To send from a shell, install the CLI (see [CLI](#cli)) and run:
 
 ```bash
