@@ -7,6 +7,11 @@ preview_urls = false
 # which has no custom domain.
 workers_dev = false
 
+# Workers Logs makes the audit console lines queryable; environments do not
+# inherit it, so each one repeats the block.
+[observability]
+enabled = true
+
 [[kv_namespaces]]
 binding = "OAUTH_KV"
 id = "371678f8ea88456eb1bf37b13fe265a7"
@@ -15,6 +20,9 @@ id = "371678f8ea88456eb1bf37b13fe265a7"
 name = "dovecote-staging"
 preview_urls = false
 workers_dev = true
+
+[env.staging.observability]
+enabled = true
 
 [[env.staging.kv_namespaces]]
 binding = "OAUTH_KV"
@@ -28,6 +36,9 @@ id = "869f4dd5df204c97842095366bf169e1"
 name = "dovecote"
 preview_urls = false
 workers_dev = false
+
+[env.production.observability]
+enabled = true
 
 [[env.production.kv_namespaces]]
 binding = "OAUTH_KV"
