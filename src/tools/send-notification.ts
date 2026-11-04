@@ -15,10 +15,10 @@ export function registerSendNotificationTool(
 ): void {
   server.tool(
     "send_notification",
-    "Send a notification message (text, embed, or both) to a channel",
+    "Send a notification (text, embed, attachment, or any combination) to a channel",
     {
       channel: z.string().describe("Channel ID"),
-      content: messageContentSchema.describe("Message content: supply text, embed, or both. Channels that support embed (e.g. Telegram) will render it as formatted HTML."),
+      content: messageContentSchema.describe("Message content: supply at least one of text, embed, or attachment. Channels that support embed (e.g. Telegram) will render it as formatted HTML."),
     },
     async ({ channel, content }) => {
       try {
