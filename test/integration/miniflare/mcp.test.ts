@@ -245,6 +245,32 @@ test("C9: tools/call send_notification resolves the KV-seeded channel (not Unkno
   expect(text).not.toContain("Unknown channel");
 });
 
+test("C9: a dvct bearer reaches /mcp tools/list and gets 401 invalid_token after revoke", async () => {
+  const mf = getMiniflare();
+  const { token, tokenId } = await seedDvctToken({ userId: USER_ID, scopes: ["dovecote:notify"] });
+  const listTools = () =>
+    mf.dispatchFetch("https://example.com/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/list" }),
+    });
+
+  const res = await listTools();
+  expect(res.status).toBe(200);
+  const tools: Array<{ name: string }> = parseMcpBody(await res.text())?.result?.tools ?? [];
+  expect(tools.map((t) => t.name)).toContain("send_notification");
+
+  const kv = await mf.getKVNamespace("OAUTH_KV");
+  await kv.delete(`apitoken:${tokenId}`);
+  const revoked = await listTools();
+  expect(revoked.status).toBe(401);
+  expect(revoked.headers.get("WWW-Authenticate") ?? "").toContain('error="invalid_token"');
+});
+
 // Runs last: it revokes the dvct token every other test's grant is bound to.
 test("C9: POST /mcp after the bound dvct token is revoked returns 401 invalid_token and refresh fails", async () => {
   const mf = getMiniflare();

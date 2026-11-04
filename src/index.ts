@@ -12,7 +12,7 @@ import {
   makeDefaultOAuthUnwrapper,
 } from "./auth-exchange.js";
 import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
-import { issueToken } from "./auth/api-token.js";
+import { issueToken, TOKEN_PREFIX, verifyToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 import { refuseRefreshOfUnboundGrant } from "./auth/refresh-binding.js";
 
@@ -34,6 +34,20 @@ function oauthOptionsFor(origin: string): OAuthProviderOptions<Env> {
     accessTokenTTL: 3600,
     refreshTokenTTL: 2592000,
     tokenExchangeCallback: refuseRefreshOfUnboundGrant,
+    // Headless MCP clients send the dvct token itself. Its props match the
+    // ones /authorize binds into a grant, so src/api.ts re-checks it the same
+    // way. The provider requires an audience; a dvct token is valid for this
+    // resource by policy.
+    resolveExternalToken: async ({ token, env }) => {
+      if (!token.startsWith(TOKEN_PREFIX)) return null;
+      const outcome = await verifyToken(token, env);
+      if (outcome.kind !== "valid") return null;
+      const { userId, scopes, tokenId } = outcome.auth;
+      return {
+        props: { userId, scopes, authMethod: "api_token", tokenId },
+        audience: `${origin}/mcp`,
+      };
+    },
   };
 }
 
