@@ -221,44 +221,6 @@ No structured metric exists. Inspect token-related errors with
 `bunx wrangler tail` or Workers Logs. A refresh refused because the grant's
 `dvct_*` token was revoked or expired returns `invalid_grant`.
 
-## Backfilling apitoken_user: index
-
-Phase 4.3 added a per-user token index (`apitoken_user:<userId>:<tokenId>`)
-enabling fast self-listing via `GET /v1/tokens`. Tokens issued before this
-phase exist only at `apitoken:<tokenId>` and need a one-shot backfill so
-they show up in the self-list path. (Admin-all listing always scans
-`apitoken:` directly and therefore works without backfill.)
-
-> The script calls `wrangler kv key list/get/put` without `--remote` or
-> `--env`, so on wrangler 4.x it reads and writes only the local cache and
-> never reaches a deployed namespace. Do not rely on it until it passes
-> `--remote`.
-
-```bash
-# 1. Preview which index keys would be written (default, non-mutating):
-bun scripts/backfill-apitoken-user-index.mjs --dry-run
-
-# 2. Apply the writes:
-bun scripts/backfill-apitoken-user-index.mjs --apply
-```
-
-Final stdout is a JSON line of the form:
-`{"scanned":N,"wouldWrite":W,"written":X,"skipped":S,"errored":E,"mode":"apply"}`
-
-The script is idempotent — re-running `--apply` is safe and will not double
-any state. Exit code 2 indicates wrangler was not on PATH.
-
-### Post-rollout verification (real-KV smoke)
-
-After deploying 4.1 to staging, run a real-KV smoke test:
-
-- Issue 1 token, then `GET /v1/tokens` with that bearer.
-- If the deployment has >900 tokens for a single user, confirm
-  `truncated:true` behavior matches expectation.
-- MockKV emits `list_complete: false` at `keys.length === limit`; real CF
-  KV may differ at the exact boundary. Cross-check the truncated flag
-  against `bunx wrangler kv key list --binding OAUTH_KV --remote --prefix apitoken_user:<user>:`.
-
 ## Channel Cutover: worker secrets to KV records
 
 Channels used to be configured through two worker secrets, one per service,
