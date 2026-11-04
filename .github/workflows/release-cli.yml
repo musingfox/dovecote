@@ -30,7 +30,9 @@ jobs:
             archive: tar.gz
             binary: dovecote
           - target: bun-darwin-arm64
-            runner: macos-latest
+            # macos-latest never picked this job up (queued 15 min, cancelled, twice);
+            # bun cross-compiles an ad-hoc-signed Mach-O that runs on Apple Silicon.
+            runner: ubuntu-latest
             archive: tar.gz
             binary: dovecote
           - target: bun-windows-x64
