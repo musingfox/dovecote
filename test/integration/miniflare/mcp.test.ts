@@ -23,6 +23,9 @@ const USER_ID = "test-user-c9";
 const REDIRECT_URI = "https://claude.ai/api/mcp/auth_callback";
 
 let accessToken: string;
+let boundTokenId: string;
+let boundClientId: string;
+let refreshToken: string;
 
 beforeAll(async () => {
   await initMiniflare();
@@ -68,7 +71,7 @@ async function obtainAccessToken(): Promise<string> {
   };
 
   // Seed root credential + PKCE
-  const { token: dvctToken } = await seedDvctToken({
+  const { token: dvctToken, tokenId } = await seedDvctToken({
     userId: USER_ID,
     scopes: ["dovecote:notify"],
   });
@@ -120,7 +123,13 @@ async function obtainAccessToken(): Promise<string> {
     body: tokenParams.toString(),
   });
 
-  const { access_token } = (await tokenRes.json()) as { access_token: string };
+  const { access_token, refresh_token } = (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token: string;
+  };
+  boundTokenId = tokenId;
+  boundClientId = clientId;
+  refreshToken = refresh_token;
   return access_token;
 }
 
@@ -234,4 +243,38 @@ test("C9: tools/call send_notification resolves the KV-seeded channel (not Unkno
   // The outbound Telegram call fails in Miniflare; what matters is that the
   // channel itself resolved from KV.
   expect(text).not.toContain("Unknown channel");
+});
+
+// Runs last: it revokes the dvct token every other test's grant is bound to.
+test("C9: POST /mcp after the bound dvct token is revoked returns 401 invalid_token and refresh fails", async () => {
+  const mf = getMiniflare();
+  const kv = await mf.getKVNamespace("OAUTH_KV");
+  await kv.delete(`apitoken:${boundTokenId}`);
+
+  const res = await mf.dispatchFetch("https://example.com/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/list" }),
+  });
+
+  expect(res.status).toBe(401);
+  expect(res.headers.get("Cache-Control")).toBe("no-store");
+  expect(res.headers.get("WWW-Authenticate") ?? "").toContain('error="invalid_token"');
+
+  // The client's refresh after that 401 must fail too, or it never re-authorizes.
+  const refreshRes = await mf.dispatchFetch("https://example.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: boundClientId,
+    }).toString(),
+  });
+  expect(refreshRes.status).toBe(400);
+  expect(((await refreshRes.json()) as { error: string }).error).toBe("invalid_grant");
 });
