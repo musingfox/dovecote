@@ -1,7 +1,11 @@
 name = "dovecote"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
-compatibility_flags = ["nodejs_compat"]
+# workers-oauth-provider resolves client metadata documents only with
+# global_fetch_strictly_public set, so the fetch cannot reach a private origin,
+# and it fetches them with `cache: "no-store"`, which throws without
+# cache_option_enabled before compatibility_date 2024-11-11.
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public", "cache_option_enabled"]
 preview_urls = false
 # workers_dev is inheritable: off here and in production, back on for staging,
 # which has no custom domain.

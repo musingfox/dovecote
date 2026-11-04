@@ -43,7 +43,7 @@ export async function initMiniflare(
     scriptPath: DIST_BUNDLE,
     modules: true,
     compatibilityDate: "2024-01-01",
-    compatibilityFlags: ["nodejs_compat"],
+    compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public", "cache_option_enabled"],
     kvNamespaces: ["OAUTH_KV"],
     bindings: {
       ADMIN_REVOKE_TOKEN: "admin-token-123",
