@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { Env } from "../types.js";
-import { AuthorizationError } from "@cloudflare/workers-oauth-provider";
+import { AuthorizationError, CimdFetchError } from "@cloudflare/workers-oauth-provider";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { writeAudit } from "./audit.js";
 import { checkRateLimit } from "./rate-limit.js";
@@ -106,6 +106,13 @@ function hasS256Pkce(params: URLSearchParams): boolean {
   return !!params.get("code_challenge") && params.get("code_challenge_method") === "S256";
 }
 
+function cimdUnresolvable(c: Context<{ Bindings: AuthEnv }>) {
+  return c.json(
+    { error: "invalid_client", error_description: "Client metadata document could not be resolved" },
+    400,
+  );
+}
+
 function renderAuthorizeForm(opts: {
   params: Array<[string, string]>;
   inlineError?: string;
@@ -169,6 +176,7 @@ function registerAuthorizeFormRoutes(
         return c.json({ error: "invalid_redirect_uri" }, 400);
       }
     } catch (err) {
+      if (err instanceof CimdFetchError) return cimdUnresolvable(c);
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Invalid redirect URI") || msg.includes("Invalid client")) {
         return c.json({ error: "invalid_redirect_uri" }, 400);
@@ -236,7 +244,8 @@ function registerAuthorizeFormRoutes(
       if (!authReq.clientId) {
         return c.json({ error: "invalid_redirect_uri" }, 400);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof CimdFetchError) return cimdUnresolvable(c);
       return c.json({ error: "invalid_redirect_uri" }, 400);
     }
 
@@ -319,7 +328,8 @@ function registerAuthorizeFormRoutes(
         scope: auth.scopes.join(" "),
       });
       return c.redirect(result.redirectTo);
-    } catch {
+    } catch (err) {
+      if (err instanceof CimdFetchError) return cimdUnresolvable(c);
       return c.json({ error: "internal_error" }, 500);
     }
   });

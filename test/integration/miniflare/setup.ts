@@ -31,6 +31,7 @@ export const TEST_HMAC_PEPPER = "miniflare-test-pepper-32-chars!!";
 
 export async function initMiniflare(
   extraBindings?: Record<string, string>,
+  outboundService?: (request: Request) => Response | Promise<Response>,
 ): Promise<Miniflare> {
   if (!fs.existsSync(DIST_BUNDLE)) {
     throw new Error(
@@ -45,6 +46,7 @@ export async function initMiniflare(
     compatibilityDate: "2024-01-01",
     compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public", "cache_option_enabled"],
     kvNamespaces: ["OAUTH_KV"],
+    ...(outboundService ? { outboundService: outboundService as any } : {}),
     bindings: {
       ADMIN_REVOKE_TOKEN: "admin-token-123",
       ENABLE_CLIENT_BOOTSTRAP: "1",

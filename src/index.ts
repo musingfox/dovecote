@@ -15,6 +15,7 @@ import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
 import { issueToken, TOKEN_PREFIX, verifyToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
 import { refuseRefreshOfUnboundGrant } from "./auth/refresh-binding.js";
+import { guardAuthorizeClientId, guardTokenClientId } from "./auth/cimd.js";
 
 // The resource is the URL MCP clients connect to, and 1.x binds every token to
 // it. It is derived per origin so one build serves both Workers: production
@@ -34,6 +35,9 @@ function oauthOptionsFor(origin: string): OAuthProviderOptions<Env> {
     accessTokenTTL: 3600,
     refreshTokenTTL: 2592000,
     tokenExchangeCallback: refuseRefreshOfUnboundGrant,
+    // URL client_ids resolve through their metadata document, limited to
+    // src/auth/cimd.ts's allowlist by the guards below.
+    clientIdMetadataDocumentEnabled: true,
     // Headless MCP clients send the dvct token itself. Its props match the
     // ones /authorize binds into a grant, so src/api.ts re-checks it the same
     // way. The provider requires an audience; a dvct token is valid for this
@@ -97,6 +101,10 @@ for (const path of [...oauthPaths, "/v1/auth/exchange"]) {
     return c.json({ error: "invalid_request", error_description: "HTTPS is required" }, 400);
   });
 }
+
+// Before the provider, which would fetch any URL client_id it is handed.
+app.use("/authorize", guardAuthorizeClientId);
+app.use("/token", guardTokenClientId);
 
 app.get("/health", (c) => c.json(getHealthResponse()));
 
