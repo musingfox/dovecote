@@ -32,11 +32,11 @@ command -v dovecote   # must print a path
 # 2. Local config exists (mode 0600, contains serverUrl + token)
 test -f ~/.config/dovecote/config.json   # must succeed
 
-# 3. (optional but fast) The server is reachable + token valid
+# 3. (optional but fast) The server is reachable (unauthenticated /health probe)
 dovecote ping         # exits 0 with "OK: <url> (server v<n>, client v<n>)"
 ```
 
-If `dovecote ping` returns 401 / `invalid_token`, the token expired — tell the user to re-mint via `bun run setup -- --resume`.
+`dovecote ping` does not send the token, so it cannot tell you whether the token is valid. `dovecote channels list` in Step 1 does: if it fails with 401 / `invalid_token` or `expired_token`, the token is dead — tell the user to re-mint via `bun run setup -- --env <env> --resume` (without `--env` the wizard targets staging).
 
 ## Step 1 — Discover channels
 
@@ -46,14 +46,14 @@ Channel ids follow the pattern `<service>-<instance>`, e.g. `telegram-ops`, `dis
 dovecote channels list
 ```
 
-Output format (two-column, space-separated):
+Output format (three columns: id, display name, service):
 
 ```
-Telegram (ops) | telegram-ops
-Discord (alerts) | discord-alerts
+discord-alerts | Discord (alerts) | discord
+telegram-ops | Telegram (ops) | telegram
 ```
 
-Pick the right channel id from the right column:
+Pick the right channel id from the left column:
 
 - User named one explicitly (e.g. "ops", "telegram-ops") → use it.
 - User said "Telegram" or "Discord" with no instance → use the first matching `telegram-*` / `discord-*`. If multiple, ask the user which.
@@ -77,15 +77,22 @@ your-command | dovecote notify <channel-id> --stdin
 
 ### Embed (rich formatting)
 
+`--embed-json` takes a **file path**, not inline JSON. The file holds the whole message content, so the embed sits under an `embed` key (a `text` key may sit beside it). `color` is an integer (`0x36a64f` = `3581519`), not a hex string.
+
 ```bash
-dovecote notify <channel-id> --embed-json '{
-  "title": "Deploy complete",
-  "color": "#36a64f",
-  "fields": [
-    { "name": "Version", "value": "cli-v0.1.0" },
-    { "name": "Targets", "value": "5/5 green" }
-  ]
-}'
+cat > /tmp/dovecote-embed.json <<'EOF'
+{
+  "embed": {
+    "title": "Deploy complete",
+    "color": 3581519,
+    "fields": [
+      { "name": "Version", "value": "cli-v0.1.0" },
+      { "name": "Targets", "value": "5/5 green" }
+    ]
+  }
+}
+EOF
+dovecote notify <channel-id> --embed-json /tmp/dovecote-embed.json
 ```
 
 Successful exit prints `Sent: messageId=<id> channel=<channel-id>` and exits 0.
@@ -94,11 +101,9 @@ Successful exit prints `Sent: messageId=<id> channel=<channel-id>` and exits 0.
 
 | Symptom (stderr / output) | Cause | Recovery |
 |---|---|---|
-| `unknown_channel` | Channel id wrong | Re-run `channels list`, pick a valid id |
-| HTTP 429 / `rate_limited` | Hit the per-IP rate limit (default 60/min) | The CLI honors `Retry-After` automatically; if you still see this, the channel was hit > 60×/min — wait ~60s then retry **once**, no more |
-| 401 / `invalid_token` | Token expired (90d cap) or HMAC_PEPPER rotated | Tell user to run `bun run setup -- --resume` in the dovecote repo |
-| `provider_error: chat not found` (Telegram) | Bot kicked from chat, chatId wrong | Tell user to verify Telegram bot is still in the chat |
-| `provider_error: Unknown Webhook` (Discord) | Webhook deleted on Discord side | Tell user to regenerate the webhook + re-run setup channel step |
+| `Channel not found: <channel-id>` (exit 4) | Channel id wrong, **or** the provider refused the message (the server answers 404 for both) | Re-run `channels list`. If the id is not listed, pick a valid one. If it is listed, the provider refused: tell the user to check the Telegram bot is still in the chat, or that the Discord webhook still exists (regenerate it and re-run `bun run channel:add -- --env <env> --force`) |
+| `status=429` / `rate_limited` | Hit the per-IP notify rate limit (default 60/min) | Without `--retry N` the CLI does not retry. Wait ~60s then retry **once** (or pass `--retry 2`, which honors `Retry-After`), no more |
+| `status=401` / `invalid_token`, or an expired-token message (exit 9) | Token revoked or expired (90d cap), or HMAC_PEPPER rotated | Tell user to run `bun run setup -- --env <env> --resume` in the dovecote repo |
 | Connection refused / DNS error | Worker down or URL wrong | Tell user to run `dovecote ping` and check `wrangler tail --env <env>` |
 
 Do not loop-retry indefinitely. One retry for clearly-transient failures (rate_limited only) is the max.
@@ -129,15 +134,20 @@ EOF
 Use embed for visual urgency:
 
 ```bash
-dovecote notify telegram-ops --embed-json '{
-  "title": "⚠️  Prod incident",
-  "color": "#d73a4a",
-  "fields": [
-    {"name": "Service", "value": "api-v1"},
-    {"name": "Started",  "value": "15:23 UTC"},
-    {"name": "Owner",    "value": "musingfox"}
-  ]
-}'
+cat > /tmp/dovecote-incident.json <<'EOF'
+{
+  "embed": {
+    "title": "⚠️  Prod incident",
+    "color": 14105162,
+    "fields": [
+      {"name": "Service", "value": "api-v1"},
+      {"name": "Started",  "value": "15:23 UTC"},
+      {"name": "Owner",    "value": "musingfox"}
+    ]
+  }
+}
+EOF
+dovecote notify telegram-ops --embed-json /tmp/dovecote-incident.json
 ```
 
 ### "Background task is done."
