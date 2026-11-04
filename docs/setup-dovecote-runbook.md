@@ -20,7 +20,7 @@ jobs:
       - uses: musingfox/dovecote/.github/actions/setup-dovecote@cli-v0.1.0
         with:
           version: "0.1.0"
-          server-url: https://dovecote.your-subdomain.workers.dev
+          server-url: https://dovecote.example.com
           token: ${{ secrets.DOVECOTE_TOKEN }}
 
       - run: dovecote notify telegram-ops --text "deploy ${{ github.event.workflow_run.conclusion }}"
@@ -32,14 +32,16 @@ Pin to the tag (`@cli-v0.1.0`) rather than a moving ref. Each CLI release ships 
 
 | Secret | Where to set | Purpose |
 |---|---|---|
-| `DOVECOTE_TOKEN` | repo / org secret | Runtime token (`dvct_...`) used by `dovecote notify`, `dovecote ping`, etc. Pass it as `with: token:`; the action exports it to `$GITHUB_ENV` for later steps. A step-level `env:` on the action step does not reach later steps. |
+| `DOVECOTE_TOKEN` | repo / org secret (not needed in OIDC mode, see below) | Runtime token (`dvct_...`) used by `dovecote notify`, `dovecote ping`, etc. Pass it as `with: token:`; the action exports it to `$GITHUB_ENV` for later steps. A step-level `env:` on the action step does not reach later steps. |
 | `DOVECOTE_SERVER_URL` | repo / org secret OR action `with.server-url` | Base URL of the deployed worker. Inline `with.server-url` overrides the env var. |
 
 `DOVECOTE_TOKEN` is sensitive — store it as a GitHub Actions secret, never inline it. The action exports it via `$GITHUB_ENV` so it stays scoped to the job.
 
 ## Token provisioning
 
-CI tokens are issued by the same OAuth flow as interactive CLI users; you bootstrap a CI-only client once, then use `dovecote auth login --label` to label the resulting token for traceability.
+A stored CI token can be issued by the same OAuth flow as interactive CLI users; you bootstrap a CI-only client once, then use `dovecote auth login --label` to label the resulting token for traceability. The token this flow mints carries `dovecote:admin` as well as `dovecote:notify`, because `/v1/auth/exchange` requires the admin scope.
+
+Alternatively, skip the stored token: set the action's `oidc-audience` input instead of `token` (they are mutually exclusive), give the job `permissions: id-token: write`, and the action exchanges the job's GitHub OIDC `id_token` at `/v1/auth/github-oidc` for a token capped at 15 minutes. This needs `server-url`, and the worker must have `GITHUB_OIDC_EXPECTED_AUD` (equal to the audience you pass) and `GITHUB_OIDC_ALLOWED_OWNER` set; without them the endpoint returns 503.
 
 1. **Bootstrap a CI client** (one-time, against your deployment):
 
@@ -47,10 +49,10 @@ CI tokens are issued by the same OAuth flow as interactive CLI users; you bootst
    curl -X POST https://<your-deployment-url>/admin/bootstrap-client \
      -H "Authorization: Bearer <ADMIN_TOKEN>" \
      -H "Content-Type: application/json" \
-     -d '{"clientName":"ci-runner","redirectUris":["http://localhost:9999/cb"]}'
+     -d '{"clientName":"ci-runner","redirectUris":["http://127.0.0.1/"]}'
    ```
 
-   Save the returned `client_id` as `DOVECOTE_CLIENT_ID`. See [client-bootstrap.md](./client-bootstrap.md) for the full flow.
+   The redirect URI must be exactly `http://127.0.0.1/`: the CLI listens on `http://127.0.0.1:<random port>` with no path, and the server ignores the port of a loopback redirect but matches its host and path, so `localhost` or a `/cb` path is refused. Save the returned `client_id` as `DOVECOTE_CLIENT_ID`. See [client-bootstrap.md](./client-bootstrap.md) for the full flow.
 
 2. **Mint a runtime token** from a workstation (interactive OAuth + label):
 
@@ -95,7 +97,7 @@ If `dovecote --version` returns `killed: 9` or "cannot be opened because the dev
   run: xattr -d com.apple.quarantine "$(command -v dovecote)" || true
 ```
 
-Code signing is tracked in [ADR 0004](./decisions/) (planned post-v0.1) — once shipped, the workaround becomes unnecessary.
+Code signing is tracked in [ADR 0004](./decisions/0004-cli-binary-signing-direction.md) (planned post-v0.1) — once shipped, the workaround becomes unnecessary.
 
 ## Troubleshooting
 
@@ -124,10 +126,12 @@ Code signing is tracked in [ADR 0004](./decisions/) (planned post-v0.1) — once
 - Composite-action input defaults cannot reference `${{ env.* }}` — GitHub validates input defaults at template-resolution time before env is populated.
 - Fixed in `cli-v0.1.0`. If you see it on an older ref, bump the pin.
 
-### `dovecote ping` returns 401 but `--version` works
+`dovecote ping` probes the unauthenticated `/health` endpoint, so it succeeds even without a token. Use `dovecote channels list` to check the token.
+
+### `dovecote channels list` (or `notify`) returns 401 but `dovecote ping` works
 - The CLI installed but `DOVECOTE_TOKEN` was not exported into the step's env. Verify the secret is set on the repo / org AND that it was passed as the `with: token:` input. A step-level `env: DOVECOTE_TOKEN:` on the action step only reaches the action's own steps, not the later `dovecote` steps.
 
-### `dovecote ping` 401 + token looks correct
+### `dovecote channels list` 401 + token looks correct
 - The token may have expired (90d cap). Inspect with `dovecote tokens list --remote` from a workstation; rotate per the Token provisioning section.
 
 ## See also
