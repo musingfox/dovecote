@@ -23,6 +23,8 @@ export interface FormFlowOpts {
   userId?: string;
   /** Scopes minted onto the dvct token (drives the final grant scopes). */
   tokenScopes?: string[];
+  /** Label minted onto the dvct token. */
+  label?: string;
   baseUrl?: string;
 }
 
@@ -30,6 +32,7 @@ export interface FormFlowResult {
   accessToken: string;
   refreshToken?: string;
   dvctToken: string;
+  tokenId: string;
 }
 
 export async function runFormOAuthFlow(opts: FormFlowOpts): Promise<FormFlowResult> {
@@ -42,11 +45,12 @@ export async function runFormOAuthFlow(opts: FormFlowOpts): Promise<FormFlowResu
     state,
     userId = "e2e-user",
     tokenScopes = ["dovecote:notify"],
+    label,
     baseUrl = "http://localhost",
   } = opts;
 
   // 1. Mint the root credential locally (same KV/pepper as the app).
-  const minted = await issueToken({ userId, scopes: tokenScopes }, env);
+  const minted = await issueToken({ userId, scopes: tokenScopes, label }, env);
 
   // 2. PKCE
   const codeVerifier = generateCodeVerifier();
@@ -120,5 +124,6 @@ export async function runFormOAuthFlow(opts: FormFlowOpts): Promise<FormFlowResu
     accessToken: tokenData.access_token,
     refreshToken: tokenData.refresh_token,
     dvctToken: minted.token,
+    tokenId: minted.tokenId,
   };
 }

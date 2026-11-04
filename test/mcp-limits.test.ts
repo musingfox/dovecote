@@ -5,6 +5,7 @@ import { MCP_MAX_TOOL_INPUT_ELEMENTS } from "../src/server.js";
 import type { Env } from "../src/types.js";
 import { createMockExecutionCtx } from "./helpers/mock-execution-ctx";
 import { MockKV } from "./helpers/mock-kv.js";
+import { issueToken } from "../src/auth/api-token.js";
 
 // Request-size guards on /mcp for GHSA-f897-62hf-6gxq and GHSA-46jr-4wx8-v453,
 // exercised through the real Hono route and SDK transport.
@@ -40,7 +41,9 @@ async function postMcp(env: Env, body: string): Promise<Response> {
     },
     body,
   });
-  const ctx = createMockExecutionCtx({ userId: "operator", scopes: ["dovecote:notify"] });
+  // /mcp re-checks the dvct token the grant is bound to.
+  const { tokenId } = await issueToken({ userId: "operator", scopes: ["dovecote:notify"] }, env);
+  const ctx = createMockExecutionCtx({ userId: "operator", scopes: ["dovecote:notify"], tokenId });
   return apiApp.fetch(req, env, ctx as any);
 }
 

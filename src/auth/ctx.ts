@@ -27,6 +27,8 @@ export type AuthCtx = {
   authMethod: AuthMethod;
   ip: string;
   tokenId?: string;
+  /** The dvct token's label, read from its KV record on each request; never stored in grant props. */
+  label?: string;
 };
 
 /**

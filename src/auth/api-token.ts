@@ -342,6 +342,7 @@ export async function verifyToken(
       tokenId: metadata.tokenId,
       authMethod: "api_token" as AuthMethod,
       ip: "unknown", // Per C2.2.b spec; middleware enriches in PR-C
+      ...(metadata.label !== undefined ? { label: metadata.label } : {}),
     },
   };
 }
@@ -358,6 +359,23 @@ export async function getTokenMetadataByTokenId(
   const raw = await env.OAUTH_KV.get(kvKey, "json");
   if (!raw) return null;
   return raw as TokenMetadata;
+}
+
+/**
+ * The record of the dvct token an OAuth grant is bound to, or null when the
+ * grant no longer counts: no tokenId in its props (grants made before the
+ * binding), the record is gone (revoked), expired, or owned by another user.
+ * /mcp, token refresh and /v1/auth/exchange all apply this one rule.
+ */
+export async function getLiveBoundToken(
+  tokenId: unknown,
+  userId: string,
+  env: Env
+): Promise<TokenMetadata | null> {
+  if (typeof tokenId !== "string") return null;
+  const record = await getTokenMetadataByTokenId(tokenId, env);
+  if (!record || record.expiresAt <= Date.now() || record.userId !== userId) return null;
+  return record;
 }
 
 /**

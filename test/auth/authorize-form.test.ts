@@ -85,6 +85,7 @@ const VALID_OUTCOME: VerifyOutcome = {
     tokenId: "t1",
     authMethod: "api_token",
     ip: "unknown",
+    label: "laptop",
   },
 };
 
@@ -191,7 +192,10 @@ test("AuthorizeTokenGrant T1: valid dvct token POST completes with 302 + code; c
     userId: "user1",
     scopes: ["dovecote:notify"],
     authMethod: "api_token",
+    tokenId: "t1",
   });
+  // metadata is plaintext in listUserGrants: which dvct token authorized this grant
+  expect(call.metadata).toEqual({ tokenId: "t1", label: "laptop" });
   // request = the AuthRequest re-validated by parseAuthRequest (PKCE intact)
   expect(call.request.clientId).toBe("test-client");
   expect(call.request.codeChallenge).toBe("cc-abc");
@@ -202,6 +206,7 @@ test("AuthorizeTokenGrant T1: valid dvct token POST completes with 302 + code; c
   expect(audits[0].event).toBe("auth.authorize");
   expect(audits[0].ok).toBe(true);
   expect(audits[0].userId).toBe("user1");
+  expect(audits[0].tokenId).toBe("t1");
   expect(audits[0].authMethod).toBe("api_token");
 });
 
@@ -295,6 +300,7 @@ test("AuthorizeTokenReject T2: expired token -> 401 'Token expired'; audit reaso
   const audits = await readAuditEntries(env);
   expect(audits[0].event).toBe("auth.authorize");
   expect(audits[0].reason).toBe("expired_token");
+  expect(audits[0].tokenId).toBe("t1");
 });
 
 test("AuthorizeTokenReject T3: missing token field -> 400 'Token required'; audit reason=missing_token", async () => {

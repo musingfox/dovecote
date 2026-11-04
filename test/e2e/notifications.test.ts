@@ -1,10 +1,11 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
 import app from "../../src/index";
 import apiApp from "../../src/api";
 import type { Env } from "../../src/types";
 import type { ExecutionContext } from "@cloudflare/workers-types";
 import { config } from "./config";
 import { runFormOAuthFlow } from "../helpers/form-oauth";
+import { issueToken } from "../../src/auth/api-token";
 
 const SUBJECT = "notif-test-user";
 
@@ -542,10 +543,16 @@ describe("E2E: scope guard", () => {
   });
 
   const noScopeCtx = {
-    props: { userId: "e2e-no-scope", scopes: [] },
+    props: { userId: "e2e-no-scope", scopes: [] } as Record<string, unknown>,
     waitUntil: () => {},
     passThroughOnException: () => {},
   } as ExecutionContext;
+
+  // /mcp re-checks the dvct token the grant is bound to.
+  beforeAll(async () => {
+    const { tokenId } = await issueToken({ userId: "e2e-no-scope", scopes: [] }, config.env);
+    (noScopeCtx.props as Record<string, unknown>).tokenId = tokenId;
+  });
 
   // C5: send_notification with no scope → forbidden
   it("C5: send_notification with no scope returns isError and Forbidden text", async () => {

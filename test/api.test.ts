@@ -2,6 +2,8 @@ import { test, expect } from "bun:test";
 import apiApp from "../src/api.js";
 import type { Env } from "../src/types.js";
 import { createMockExecutionCtx } from "./helpers/mock-execution-ctx";
+import { MockKV } from "./helpers/mock-kv.js";
+import { issueToken } from "../src/auth/api-token.js";
 
 const mockEnv: Env = {
   OAUTH_KV: {} as any,
@@ -48,8 +50,11 @@ test("POST /mcp with MCP initialize returns 200", async () => {
     body: JSON.stringify(initializeRequest),
   });
 
-  const ctx = createMockExecutionCtx({ userId: "operator", scopes: ["dovecote:notify"] });
-  const res = await apiApp.fetch(req, mockEnv, ctx as any);
+  // /mcp re-checks the dvct token the grant is bound to.
+  const env: Env = { ...mockEnv, OAUTH_KV: new MockKV() as any };
+  const { tokenId } = await issueToken({ userId: "operator", scopes: ["dovecote:notify"] }, env);
+  const ctx = createMockExecutionCtx({ userId: "operator", scopes: ["dovecote:notify"], tokenId });
+  const res = await apiApp.fetch(req, env, ctx as any);
   expect(res.status).toBe(200);
 
   const text = await res.text();

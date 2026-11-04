@@ -278,6 +278,7 @@ function registerAuthorizeFormRoutes(
         ip,
         authMethod: "none",
         scope: "",
+        ...(outcome.kind === "expired" ? { tokenId: outcome.tokenId } : {}),
       });
       return c.html(
         renderAuthorizeForm({
@@ -291,7 +292,9 @@ function registerAuthorizeFormRoutes(
 
     // 4. Complete the grant. request = the re-validated AuthRequest (PKCE
     //    carried through); scope = the token's stored scopes (M5); props
-    //    carry the identity downstream (/v1/auth/exchange, /mcp).
+    //    carry the identity downstream (/v1/auth/exchange, /mcp); tokenId
+    //    binds the grant to this dvct token so /mcp can re-check it. Metadata
+    //    is plaintext in listUserGrants, so it names the token there too.
     const auth = outcome.auth;
     try {
       const result = await provider.completeAuthorization({
@@ -302,13 +305,15 @@ function registerAuthorizeFormRoutes(
           userId: auth.userId,
           scopes: auth.scopes,
           authMethod: "api_token",
+          tokenId: auth.tokenId,
         },
-        metadata: {},
+        metadata: { tokenId: auth.tokenId, label: auth.label },
       });
       writeAudit(c.env, ctx, {
         event: "auth.authorize",
         ok: true,
         userId: auth.userId,
+        tokenId: auth.tokenId,
         authMethod: "api_token",
         ip,
         scope: auth.scopes.join(" "),

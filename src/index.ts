@@ -14,6 +14,7 @@ import {
 import { createAuthGithubOidcApp } from "./auth-github-oidc.js";
 import { issueToken } from "./auth/api-token.js";
 import { checkRateLimit } from "./auth/rate-limit.js";
+import { refuseRefreshOfUnboundGrant } from "./auth/refresh-binding.js";
 
 // The resource is the URL MCP clients connect to, and 1.x binds every token to
 // it. It is derived per origin so one build serves both Workers: production
@@ -32,6 +33,7 @@ function oauthOptionsFor(origin: string): OAuthProviderOptions<Env> {
     resourceMetadata: { resource: `${origin}/mcp` },
     accessTokenTTL: 3600,
     refreshTokenTTL: 2592000,
+    tokenExchangeCallback: refuseRefreshOfUnboundGrant,
   };
 }
 

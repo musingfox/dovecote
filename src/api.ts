@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./types.js";
 import { extractAuth, enrichAuthFromRequest } from "./auth/ctx.js";
+import { getLiveBoundToken } from "./auth/api-token.js";
 import { createMCPServer } from "./server.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { ATTACHMENT_DATA_MAX } from "./contracts/notifications.js";
@@ -25,11 +26,41 @@ app.use(
 );
 
 // MCP transport endpoint - stateless mode
+// The provider has already accepted the OAuth access token; this refuses a
+// grant whose dvct token was revoked or has expired. The client's refresh then
+// fails with invalid_grant (src/auth/refresh-binding.ts), so it re-authorizes.
+function invalidToken(requestUrl: string, description: string): Response {
+  const metadataUrl = `${new URL(requestUrl).origin}/.well-known/oauth-protected-resource/mcp`;
+  return Response.json(
+    { error: "invalid_token", error_description: description },
+    {
+      status: 401,
+      headers: {
+        "Cache-Control": "no-store",
+        "WWW-Authenticate": `Bearer realm="OAuth", resource_metadata="${metadataUrl}", error="invalid_token", error_description="${description}"`,
+      },
+    },
+  );
+}
+
 app.post("/mcp", async (c) => {
   // Extract auth from ExecutionContext (fail-closed)
   const auth = extractAuth(c.executionCtx);
+  // Grants authorized before tokenId was bound into props are refused too:
+  // one re-authorization gives them a bound grant.
+  if (!auth.tokenId) {
+    return invalidToken(c.req.url, "Grant is not bound to an API token");
+  }
+  const token = await getLiveBoundToken(auth.tokenId, auth.userId, c.env);
+  if (!token) {
+    return invalidToken(c.req.url, "API token revoked or expired");
+  }
   // Enrich with current request's edge metadata
-  const enrichedAuth = enrichAuthFromRequest(auth, c.req.raw, auth.authMethod);
+  const enrichedAuth = enrichAuthFromRequest(
+    token.label !== undefined ? { ...auth, label: token.label } : auth,
+    c.req.raw,
+    auth.authMethod,
+  );
 
   // Create new transport and server for each request (stateless mode)
   const transport = new WebStandardStreamableHTTPServerTransport({
