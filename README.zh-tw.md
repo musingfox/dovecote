@@ -78,7 +78,7 @@ bun run setup -- --env production
 
 精靈會產生並推送 `HMAC_PEPPER` 與 `ADMIN_REVOKE_TOKEN` 兩個 secret、提示你新增 Telegram 或 Discord 頻道、部署 worker、建立第一個使用者、把 CLI token 寫入 `~/.config/dovecote/config.json`，最後執行 `bun run verify`。不帶 `--env` 時目標是 staging。產生的 secret 也會寫到 `~/.dovecote/secrets-<env>.txt`（mode 0600），請移到密碼管理器後刪除該檔案。
 
-要接上 Claude.ai，先照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 為它配置一個 OAuth client，精靈不會建立 client。接著新增 custom connector，填入該 client id 與 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.example.com/mcp`。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。
+要接上 Claude.ai，新增 custom connector 時只要填 MCP 端點 URL，**務必包含 `/mcp` 後綴**，例如 `https://dovecote.example.com/mcp`，OAuth client ID 留空即可：Claude.ai 會用它公開的 client metadata document 表明身分（2026-11-04 已在 staging 驗證）。只填 base URL 會讓 OAuth discovery 失敗，畫面顯示「Authorization with the MCP server failed.」。之後 Claude 會跳轉到 `/authorize`，在那裡貼上 `dvct_*` token。如果 connector 這樣無法登入，再照 [docs/client-bootstrap.md](./docs/client-bootstrap.md) 配置一個 OAuth client 並填入它的 client ID，精靈不會建立 client。Claude Code 的 client metadata document 也在接受之列，但 Claude Code 用它登入的流程還沒有驗證過。
 
 無法走 OAuth 的 MCP client，例如用固定 header 的 Claude Code、會注入 header 的雲端環境或腳本，可以直接把 `dvct_*` token 當成 bearer 送出：
 
@@ -201,7 +201,7 @@ TEST_BASE_URL=https://dovecote.example.com bun run test:e2e:remote
 ## 安全性
 
 - **OAuth 2.1 + PKCE**：`/authorize` 對沒有 S256 `code_challenge` 的請求一律回 `400 invalid_request`，所以沒有 PKCE 就拿不到 authorization code；plain 會被拒絕。
-- **不開放動態客戶端註冊**：沒有 `/register` 端點，授權伺服器 metadata 也不宣稱有。operator 透過 `/admin/bootstrap-client` 配置客戶端，這個端點在 `ENABLE_CLIENT_BOOTSTRAP=1` 之前保持關閉。
+- **不開放動態客戶端註冊**：沒有 `/register` 端點，授權伺服器 metadata 也不宣稱有。URL 形式的 client ID 只接受 Claude.ai 與 Claude Code 這兩份 Claude 的 client metadata document，其他 URL 形式的 client ID 在被抓取之前就會被拒絕。其餘客戶端由 operator 透過 `/admin/bootstrap-client` 配置，這個端點在 `ENABLE_CLIENT_BOOTSTRAP=1` 之前保持關閉。
 - **貼 token 授權**：`/authorize` 只接受 POST 的 `dvct_*` token。因為不存在 cookie 這類環境憑證，token 本身就是防偽 secret，提交次數也依 IP 限制。
 - **雜湊儲存的 API token**：`dvct_*` token 以 `HMAC_PEPPER` 為金鑰做 HMAC-SHA256 雜湊後儲存，效期上限 90 天。
 - **速率限制**：admin 端點每個 IP 每 60 秒限 5 次。token、notify、OIDC 與 authorize 端點各有自己的每 IP 限制。

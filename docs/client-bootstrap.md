@@ -68,7 +68,7 @@ curl -i https://<your-deployment-url>/admin/bootstrap-client \
 
 ### Step 5: Configure Client
 
-Paste the `client_id` into the Claude.ai MCP connector configuration:
+Claude.ai normally needs no bootstrapped client: a connector with only the `/mcp` URL and an empty OAuth client ID reaches dovecote's authorization page through Claude.ai's client metadata document (see the README). Use a bootstrapped client as the fallback when that fails, by pasting the `client_id` into the Claude.ai MCP connector configuration:
 
 1. Open Claude.ai
 2. Navigate to MCP Settings

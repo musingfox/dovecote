@@ -78,7 +78,7 @@ bun run setup -- --env production
 
 The wizard generates and pushes the `HMAC_PEPPER` and `ADMIN_REVOKE_TOKEN` secrets, prompts you to add a Telegram or Discord channel, deploys the worker, seeds your first user, mints a CLI token into `~/.config/dovecote/config.json`, and runs `bun run verify`. Without `--env` it targets staging. Generated secrets are also written to `~/.dovecote/secrets-<env>.txt` (mode 0600); move them to a password manager and delete the file.
 
-To connect Claude.ai, first provision an OAuth client for it by following [docs/client-bootstrap.md](./docs/client-bootstrap.md); the wizard does not create one. Then add a custom connector with that client id and the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.example.com/mcp`. The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token.
+To connect Claude.ai, add a custom connector with only the MCP endpoint URL **including the `/mcp` suffix**, for example `https://dovecote.example.com/mcp`, and leave the OAuth client ID empty: Claude.ai identifies itself with its published client metadata document (verified on staging on 2026-11-04). The bare base URL fails OAuth discovery with "Authorization with the MCP server failed." Claude then redirects to `/authorize`, where you paste a `dvct_*` token. If the connector cannot sign in that way, provision an OAuth client by following [docs/client-bootstrap.md](./docs/client-bootstrap.md) and enter its client ID; the wizard does not create one. Claude Code's metadata document is also accepted, but Claude Code signing in with it has not been verified yet.
 
 An MCP client that cannot run OAuth, such as Claude Code with a fixed header, a cloud environment that injects headers, or a script, sends the `dvct_*` token itself as the bearer:
 
@@ -201,7 +201,7 @@ Without `TEST_BASE_URL`, the E2E tests run in-process through `app.fetch()`. Wit
 ## Security
 
 - **OAuth 2.1 + PKCE:** `/authorize` rejects any request without an S256 `code_challenge` with `400 invalid_request`, so no authorization code is issued without PKCE; plain challenges are rejected.
-- **No dynamic client registration:** there is no `/register` endpoint, and the authorization server metadata advertises none. The operator provisions clients through `/admin/bootstrap-client`, which stays off unless `ENABLE_CLIENT_BOOTSTRAP=1`.
+- **No dynamic client registration:** there is no `/register` endpoint, and the authorization server metadata advertises none. A URL client ID is accepted only for the two Claude client metadata documents, Claude.ai's and Claude Code's, and any other URL client ID is refused before it is fetched. The operator provisions other clients through `/admin/bootstrap-client`, which stays off unless `ENABLE_CLIENT_BOOTSTRAP=1`.
 - **Token-paste authorization:** `/authorize` accepts only a POSTed `dvct_*` token. The token itself is the anti-forgery secret, since no ambient cookie credential exists, and submissions are rate-limited per IP.
 - **Hashed API tokens:** `dvct_*` tokens are stored as HMAC-SHA256 hashes keyed by `HMAC_PEPPER`, with a maximum TTL of 90 days.
 - **Rate limiting:** admin endpoints allow 5 requests per 60 seconds per IP. The token, notify, OIDC and authorize endpoints have their own per-IP limits.
