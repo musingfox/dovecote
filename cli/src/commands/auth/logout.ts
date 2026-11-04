@@ -50,6 +50,14 @@ export async function runAuthLogout(ctx: CmdCtx): Promise<number> {
     ctx.stderr("Token already expired on server. Config cleared.\n");
     return ExitCode.TOKEN_EXPIRED;
   }
+  if (res && res.status === 403) {
+    ctx.stderr(
+      `Config cleared locally, but the token was not revoked: revoking needs dovecote:admin. ` +
+        `Token ${tok.tokenId} stays valid on the server until an admin runs ` +
+        `\`dovecote tokens revoke ${tok.tokenId}\` or it expires.\n`
+    );
+    return ExitCode.FORBIDDEN;
+  }
   ctx.stdout("Logged out.\n");
   return ExitCode.OK;
 }

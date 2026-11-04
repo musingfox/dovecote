@@ -395,6 +395,38 @@ test("auth logout: server 5xx still clears config locally, exit 7", async () => 
   expect(await readConfig(cfgPath)).toBeNull();
 });
 
+test("auth logout: notify-only token refused 403 → clears config, says token is still live, exit 6", async () => {
+  await writeConfig(
+    {
+      serverUrl: "https://srv",
+      tokens: [
+        { tokenId: "tid_a", token: "dvct_a", userId: "operator", scopes: ["dovecote:notify"], expiresAt: Date.now() + 90 * 86400 * 1000 },
+      ],
+    },
+    cfgPath
+  );
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await runMain({
+    argv: ["auth", "logout"],
+    env: { HOME: "/no" },
+    stdout: (s) => out.push(s),
+    stderr: (s) => err.push(s),
+    configPath: cfgPath,
+    fetchImpl: makeFetch(() =>
+      new Response(
+        JSON.stringify({ error: "forbidden", error_description: "Missing scope: dovecote:admin" }),
+        { status: 403 }
+      )
+    ),
+  });
+  expect(code).toBe(ExitCode.FORBIDDEN);
+  expect(await readConfig(cfgPath)).toBeNull();
+  expect(out.join("")).not.toContain("Logged out.");
+  expect(err.join("")).toContain("not revoked");
+  expect(err.join("")).toContain("stays valid on the server");
+});
+
 test("auth whoami: prints config + health info, exit 0", async () => {
   await writeConfig(
     {

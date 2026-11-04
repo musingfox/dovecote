@@ -32,7 +32,7 @@ Usage: dovecote <command> [options]
 
 Commands:
   auth login          Begin OAuth + exchange to acquire a runtime token
-  auth logout         Revoke the local token and clear config
+  auth logout         Clear config; revoke the token if it has dovecote:admin
   auth whoami         Show current identity and server reachability
   notify <channel>    Send a notification (--text|--stdin|--embed-json)
   channels list       List configured channels
