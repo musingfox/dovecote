@@ -395,7 +395,7 @@ test("auth logout: server 5xx still clears config locally, exit 7", async () => 
   expect(await readConfig(cfgPath)).toBeNull();
 });
 
-test("auth logout: notify-only token refused 403 → clears config, says token is still live, exit 6", async () => {
+test("auth logout: notify-only token refused 403 → clears config, says token is still live, exit 0", async () => {
   await writeConfig(
     {
       serverUrl: "https://srv",
@@ -420,7 +420,7 @@ test("auth logout: notify-only token refused 403 → clears config, says token i
       )
     ),
   });
-  expect(code).toBe(ExitCode.FORBIDDEN);
+  expect(code).toBe(ExitCode.OK);
   expect(await readConfig(cfgPath)).toBeNull();
   expect(out.join("")).not.toContain("Logged out.");
   expect(err.join("")).toContain("not revoked");

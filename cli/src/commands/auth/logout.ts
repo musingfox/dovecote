@@ -56,7 +56,7 @@ export async function runAuthLogout(ctx: CmdCtx): Promise<number> {
         `Token ${tok.tokenId} stays valid on the server until an admin runs ` +
         `\`dovecote tokens revoke ${tok.tokenId}\` or it expires.\n`
     );
-    return ExitCode.FORBIDDEN;
+    return ExitCode.OK;
   }
   ctx.stdout("Logged out.\n");
   return ExitCode.OK;
