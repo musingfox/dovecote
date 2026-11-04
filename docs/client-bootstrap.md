@@ -5,7 +5,7 @@ This document describes the Standard Operating Procedure for creating OAuth clie
 ## Prerequisites
 
 - Admin token (`ADMIN_REVOKE_TOKEN`) must be set in the environment
-- Access to Cloudflare Workers secrets management (via `wrangler`)
+- Access to Cloudflare Workers secrets management (via `bunx wrangler`)
 - Production deployment URL
 
 ## Procedure
@@ -15,7 +15,7 @@ This document describes the Standard Operating Procedure for creating OAuth clie
 Set the feature flag to enable the bootstrap endpoint:
 
 ```bash
-wrangler secret put ENABLE_CLIENT_BOOTSTRAP
+bunx wrangler secret put ENABLE_CLIENT_BOOTSTRAP
 ```
 
 When prompted, enter: `1`
@@ -44,12 +44,14 @@ curl -X POST https://<your-deployment-url>/admin/bootstrap-client \
 
 **Save the `client_id`** — you will need it for the next steps.
 
+For the CLI's browser login (`dovecote auth login`) instead of Claude.ai, register `"redirectUris": ["http://127.0.0.1/"]`: the CLI listens on `http://127.0.0.1:<random port>` with no path, and a loopback redirect is matched on host and path but not port.
+
 ### Step 3: Disable Bootstrap Endpoint
 
 Immediately delete the feature flag to disable the endpoint:
 
 ```bash
-wrangler secret delete ENABLE_CLIENT_BOOTSTRAP
+bunx wrangler secret delete ENABLE_CLIENT_BOOTSTRAP
 ```
 
 ### Step 4: Verify Security
@@ -81,7 +83,7 @@ Claude.ai normally needs no bootstrapped client: a connector with only the `/mcp
 If the bootstrap endpoint fails or is unavailable, you may temporarily re-enable DCR:
 
 1. **Re-open the registration endpoint** (code change required):
-   - In `src/index.ts`, temporarily add `clientRegistrationEndpoint: "/register"` and `disallowPublicClientRegistration: false` to `oauthOptions`, and add `"/register"` to `oauthPaths`
+   - In `src/index.ts`, temporarily add `clientRegistrationEndpoint: "/register"` and `disallowPublicClientRegistration: false` to the options `oauthOptionsFor` returns, and add `"/register"` to `oauthPaths`
    - Deploy the change
 2. **Use DCR** within a 5-minute window:
    ```bash
@@ -115,5 +117,5 @@ This procedure addresses:
 
 ## Related Documentation
 
-- [OAuth 2.1 Authorization](../README.md#oauth-21-authorization)
-- [Admin Revoke Endpoint](./admin-revoke.md) (if exists)
+- [README: Security](../README.md#security)
+- [Deployment Runbook](./deploy-runbook.md)

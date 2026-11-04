@@ -10,16 +10,16 @@ Before deploying to production:
    ```bash
    bun test
    ```
-   Ensure all tests pass (current baseline: 461 pass / 0 fail).
+   Ensure all tests pass.
 
 2. **Verify Wrangler authentication**:
    ```bash
-   wrangler whoami
+   bunx wrangler whoami
    ```
    Confirm you're authenticated with the correct Cloudflare account.
 
 3. **Review secrets configuration**:
-   Ensure all required secrets are set via `wrangler secret put`:
+   Ensure all required secrets are set via `bunx wrangler secret put`:
    - `HMAC_PEPPER`
    - `ADMIN_REVOKE_TOKEN`
 
@@ -57,7 +57,9 @@ Username charset: lowercase letters, digits, `_`, `-`, 1–64 chars.
 ### 3. Available scopes
 
 - `dovecote:notify` – send notifications
-- `dovecote:admin` – admin actions (revoke, bootstrap, token listing)
+- `dovecote:admin` – mint or revoke tokens, list or renew other users' tokens,
+  and exchange an OAuth token at `/v1/auth/exchange`. `/admin/revoke` and
+  `/admin/bootstrap-client` are gated by `ADMIN_REVOKE_TOKEN`, not by a scope.
 
 ### 4. Required envs for the auth path
 
@@ -71,8 +73,8 @@ Username charset: lowercase letters, digits, `_`, `-`, 1–64 chars.
 ### 5. Retired secrets (safe to delete)
 
 Secrets belonging to auth mechanisms removed in M1 are no longer read by
-the worker. List them with `wrangler secret list` and delete any that are
-not in the required set above (`wrangler secret delete <name>`).
+the worker. List them with `bunx wrangler secret list` and delete any that are
+not in the required set above (`bunx wrangler secret delete <name>`).
 
 One exception this blanket rule would otherwise sweep up:
 
@@ -85,17 +87,19 @@ One exception this blanket rule would otherwise sweep up:
 
 ## First-Time Client Provisioning
 
-For the initial OAuth client setup, use this flip-switch deployment sequence (DP3):
+Claude.ai normally needs no provisioned client: it signs in with its client
+metadata document (see the README). Provision a client when that fails, or for
+the CLI's browser login, with this flip-switch deployment sequence:
 
 1. **Enable bootstrap endpoint**:
    ```bash
-   wrangler secret put ENABLE_CLIENT_BOOTSTRAP
+   bunx wrangler secret put ENABLE_CLIENT_BOOTSTRAP
    # Enter value: 1
    ```
 
 2. **Deploy with bootstrap enabled**:
    ```bash
-   wrangler deploy
+   bunx wrangler deploy
    ```
 
 3. **Provision the OAuth client** (set `$ADMIN_TOKEN` to the `ADMIN_REVOKE_TOKEN` value first):
@@ -109,19 +113,20 @@ For the initial OAuth client setup, use this flip-switch deployment sequence (DP
      }'
    ```
 
-   Save the returned `client_id` and `client_secret` (if applicable) securely.
+   Save the returned `client_id`. Bootstrapped clients are public, so no
+   `client_secret` is returned.
 
 4. **Disable bootstrap endpoint**:
    ```bash
-   wrangler secret delete ENABLE_CLIENT_BOOTSTRAP
+   bunx wrangler secret delete ENABLE_CLIENT_BOOTSTRAP
    ```
 
 5. **Deploy with bootstrap disabled**:
    ```bash
-   wrangler deploy
+   bunx wrangler deploy
    ```
 
-6. **Run smoke tests** (see Section 3 below).
+6. **Run smoke tests** (see [Smoke Test Verification](#smoke-test-verification) below).
 
 ## Smoke Test Verification
 
@@ -143,22 +148,27 @@ Expected results:
 - `/register` does not exist (returns 404)
 - Bootstrap endpoint is gated (returns 404 when disabled)
 
-Note: Full flow tests (C5, C6) only run in local mode with MockKV.
+Note: the full-flow tests (C5, C6) only run in local mode with MockKV.
 
 ## Observability
 
 ### Real-Time Logs
 
+Workers Logs is enabled in every environment (`[observability]` in
+`wrangler.toml`), so the audit lines the worker prints can be queried in the
+Cloudflare dashboard after the fact. Every send writes a `notify.send` audit
+record with the sending token's `tokenId` and `label`.
+
 Stream live Worker logs during traffic:
 
 ```bash
-wrangler tail
+bunx wrangler tail
 ```
 
 For structured JSON output:
 
 ```bash
-wrangler tail --format=json
+bunx wrangler tail --format=json
 ```
 
 ### Audit Trail Inspection
@@ -166,13 +176,13 @@ wrangler tail --format=json
 List all audit events in KV:
 
 ```bash
-wrangler kv key list --binding OAUTH_KV --prefix "audit:"
+bunx wrangler kv key list --binding OAUTH_KV --prefix "audit:" --remote
 ```
 
 Retrieve a specific audit entry:
 
 ```bash
-wrangler kv key get --binding OAUTH_KV "audit:1714320000:abc-def-123"
+bunx wrangler kv key get --binding OAUTH_KV --remote "audit:1714320000:abc-def-123"
 ```
 
 ## 30-Day Rolling Baseline Metrics (DP5)
@@ -185,7 +195,7 @@ Measure daily audit event creation rate:
 
 ```bash
 # Count total audit entries
-wrangler kv key list --binding OAUTH_KV --prefix "audit:" | jq '. | length'
+bunx wrangler kv key list --binding OAUTH_KV --prefix "audit:" --remote | jq '. | length'
 
 # Divide by days since deployment to get avg daily rate
 ```
@@ -194,23 +204,22 @@ Typical baseline for single-user setup: 5-20 events/day (varies by MCP tool usag
 
 ### 2. Rate Limit Triggers
 
-Identify rate-limited requests via `wrangler tail`:
+Identify rate-limited requests via `bunx wrangler tail`:
 
 ```bash
-wrangler tail --format=json | jq 'select(.logs[] | contains("rate_limited"))'
+bunx wrangler tail --format=json | jq 'select(tostring | contains("rate_limited"))'
 ```
 
-Or inspect audit trail for `reason: "rate_limited"` in `admin.revoke` or `admin.bootstrap` events.
+Or inspect the audit trail for `reason: "rate_limited"` in `notify.send`,
+`token.*`, `auth.authorize`, `admin.revoke` or `admin.bootstrap` events.
 
 Expected baseline: 0 triggers under normal operation.
 
 ### 3. Token Refresh Rotation Failures
 
-**Status**: Deferred to Phase 2 (`env-audit-structured-logger`, DP4=C).
-
-Current observability: Manual inspection via `wrangler tail` for token-related errors. No structured metric available yet.
-
-Future: Will add explicit failure tracking for refresh token rotation flows.
+No structured metric exists. Inspect token-related errors with
+`bunx wrangler tail` or Workers Logs. A refresh refused because the grant's
+`dvct_*` token was revoked or expired returns `invalid_grant`.
 
 ## Backfilling apitoken_user: index
 
@@ -219,6 +228,11 @@ enabling fast self-listing via `GET /v1/tokens`. Tokens issued before this
 phase exist only at `apitoken:<tokenId>` and need a one-shot backfill so
 they show up in the self-list path. (Admin-all listing always scans
 `apitoken:` directly and therefore works without backfill.)
+
+> The script calls `wrangler kv key list/get/put` without `--remote` or
+> `--env`, so on wrangler 4.x it reads and writes only the local cache and
+> never reaches a deployed namespace. Do not rely on it until it passes
+> `--remote`.
 
 ```bash
 # 1. Preview which index keys would be written (default, non-mutating):
@@ -243,7 +257,7 @@ After deploying 4.1 to staging, run a real-KV smoke test:
   `truncated:true` behavior matches expectation.
 - MockKV emits `list_complete: false` at `keys.length === limit`; real CF
   KV may differ at the exact boundary. Cross-check the truncated flag
-  against `wrangler kv key list --binding OAUTH_KV --prefix apitoken_user:<user>:`.
+  against `bunx wrangler kv key list --binding OAUTH_KV --remote --prefix apitoken_user:<user>:`.
 
 ## Channel Cutover: worker secrets to KV records
 
@@ -257,7 +271,7 @@ cutover, run once per environment.
 > out. `test/removal/channel-env-surface.test.ts` scans every tracked file for
 > them and fails the build, so no document can re-teach an operator to write a
 > dead variable back into production. Get the exact names from
-> `wrangler secret list`.
+> `bunx wrangler secret list`.
 
 ### Order of operations (do not reorder)
 
@@ -303,7 +317,7 @@ window in which the worker has no channels at all and every notification fails.
 4. **Read the records back before touching the deployment.**
 
    ```bash
-   wrangler kv key list --binding OAUTH_KV --prefix channel: --remote --env staging
+   bunx wrangler kv key list --binding OAUTH_KV --prefix channel: --remote --env staging
    ```
 
    `--remote` is mandatory on wrangler 4.x. Without it you are inspecting a
@@ -314,7 +328,7 @@ window in which the worker has no channels at all and every notification fails.
 5. **Deploy the worker that reads KV.**
 
    ```bash
-   wrangler deploy --env staging
+   bunx wrangler deploy --env staging
    ```
 
 6. **Verify through the live read path.** Only this step proves the deployed
@@ -328,7 +342,7 @@ window in which the worker has no channels at all and every notification fails.
    with its own key is skipped rather than failing the call, so a channel
    *missing* here means a bad record, not an empty namespace. The reason is
    logged by the worker instead of being returned to the CLI — run
-   `wrangler tail --env staging` while repeating the call to see which record
+   `bunx wrangler tail --env staging` while repeating the call to see which record
    was rejected and why (`invalid JSON`, a parse error, or
    `record id '<id>' does not match its key`). Send one probe before moving on:
 
@@ -339,8 +353,8 @@ window in which the worker has no channels at all and every notification fails.
 7. **Only now, delete the legacy secrets.**
 
    ```bash
-   wrangler secret list --env staging            # the two names ending in _INSTANCES
-   wrangler secret delete <NAME> --env staging   # once per name
+   bunx wrangler secret list --env staging            # the two names ending in _INSTANCES
+   bunx wrangler secret delete <NAME> --env staging   # once per name
    ```
 
 8. **Repeat 1-7 for `production`.** `channel:migrate` has no default
@@ -389,7 +403,7 @@ not an oversight. Anyone holding a Cloudflare API token that can read the
 `OAUTH_KV` namespace can retrieve a live bot token:
 
 ```bash
-wrangler kv key get --binding OAUTH_KV --remote --env production "channel:telegram-<id>"
+bunx wrangler kv key get --binding OAUTH_KV --remote --env production "channel:telegram-<id>"
 ```
 
 Operate accordingly:
