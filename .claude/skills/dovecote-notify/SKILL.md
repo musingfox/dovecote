@@ -36,7 +36,7 @@ test -f ~/.config/dovecote/config.json   # must succeed
 dovecote ping         # exits 0 with "OK: <url> (server v<n>, client v<n>)"
 ```
 
-`dovecote ping` does not send the token, so it cannot tell you whether the token is valid. `dovecote tokens list --remote` does: it exits 9 with "Session expired" on any 401. Do not rely on `channels list` for this — with a revoked token it prints `No channels configured.` and exits 0. If the token is dead, tell the user to re-mint via `bun run setup -- --env <env> --resume` (without `--env` the wizard targets staging).
+`dovecote ping` does not send the token, so it cannot tell you whether the token is valid. `dovecote tokens list --remote` and `dovecote channels list` do: each exits 9 with "Session expired" on any 401. If the token is dead, tell the user to re-mint via `bun run setup -- --env <env> --resume` (without `--env` the wizard targets staging).
 
 ## Step 1 — Discover channels
 

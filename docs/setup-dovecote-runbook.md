@@ -127,7 +127,7 @@ Code signing is tracked in [ADR 0004](./decisions/0004-cli-binary-signing-direct
 - Fixed in `cli-v0.1.0`. If you see it on an older ref, bump the pin.
 
 ### `dovecote notify` fails with `status=401` but `dovecote ping` works
-- `dovecote ping` probes the unauthenticated `/health` endpoint, so it succeeds even without a token. `dovecote tokens list --remote` checks the token: it exits 9 (`Session expired`) on any 401. `dovecote channels list` is not a check, because it prints `No channels configured.` on a 401.
+- `dovecote ping` probes the unauthenticated `/health` endpoint, so it succeeds even without a token. `dovecote tokens list --remote` and `dovecote channels list` check the token: each exits 9 (`Session expired`) on any 401.
 - The CLI installed but `DOVECOTE_TOKEN` was not exported into the step's env. Verify the secret is set on the repo / org AND that it was passed as the `with: token:` input. A step-level `env: DOVECOTE_TOKEN:` on the action step only reaches the action's own steps, not the later `dovecote` steps.
 
 ### `dovecote notify` 401 + token looks correct

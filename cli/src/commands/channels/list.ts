@@ -29,6 +29,10 @@ export async function runChannelsList(ctx: CmdCtx): Promise<number> {
     ctx.stderr(`channels list failed: ${(e as Error).message}\n`);
     return ExitCode.UPSTREAM;
   }
+  if (res.status === 401) {
+    ctx.stderr("Session expired; run `dovecote auth login`\n");
+    return ExitCode.TOKEN_EXPIRED;
+  }
   if (res.status === 403) {
     ctx.stderr("Forbidden\n");
     return ExitCode.FORBIDDEN;

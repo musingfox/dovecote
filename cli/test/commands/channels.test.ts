@@ -89,6 +89,24 @@ test("channels list exit 6 on 403", async () => {
   expect(code).toBe(ExitCode.FORBIDDEN);
 });
 
+test("channels list exit 9 on a non-expired_token 401 (revoked token)", async () => {
+  const out: string[] = [];
+  const err: string[] = [];
+  const code = await runMain({
+    argv: ["channels", "list"],
+    env: { HOME: "/no" },
+    stdout: (s) => out.push(s),
+    stderr: (s) => err.push(s),
+    configPath: cfgPath,
+    fetchImpl: makeFetch(
+      () => new Response(JSON.stringify({ error: "invalid_token" }), { status: 401 })
+    ),
+  });
+  expect(code).toBe(ExitCode.TOKEN_EXPIRED);
+  expect(err.join("")).toContain("Session expired");
+  expect(out.join("")).not.toContain("No channels");
+});
+
 test("channels test sends probe", async () => {
   const out: string[] = [];
   const code = await runMain({
