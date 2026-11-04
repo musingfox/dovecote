@@ -8,6 +8,7 @@ import {
 } from "./contracts/tokens.js";
 import {
   issueToken as _issueToken,
+  getLiveBoundToken,
   type IssueResult,
 } from "./auth/api-token.js";
 import {
@@ -62,10 +63,15 @@ export function makeDefaultOAuthUnwrapper(
       scopes?: string[];
       authMethod?: string;
       ip?: string;
+      tokenId?: string;
     }>(token);
     if (!summary) return null;
     const props = summary.grant?.props ?? ({} as any);
     const userId = props.userId ?? summary.userId;
+    // Same rule as /mcp: a grant counts only while the dvct token that
+    // authorized it is alive, so revoking that token also stops this path
+    // from minting fresh dvct tokens.
+    if (!(await getLiveBoundToken(props.tokenId, userId, env))) return null;
     const scopes =
       Array.isArray(props.scopes) && props.scopes.length > 0
         ? props.scopes

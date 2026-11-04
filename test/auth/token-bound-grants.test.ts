@@ -28,7 +28,7 @@ function fetcher(env: Env) {
   return (req: Request) => Promise.resolve(app.fetch(req, env, createMockExecutionCtx() as any));
 }
 
-async function authorize(env: Env, label?: string) {
+async function authorize(env: Env, label?: string, scopes: string[] = ["dovecote:notify"]) {
   const doFetch = fetcher(env);
   const res = await doFetch(
     new Request(`${BASE}/admin/bootstrap-client`, {
@@ -43,7 +43,8 @@ async function authorize(env: Env, label?: string) {
     env,
     clientId,
     redirectUri: REDIRECT_URI,
-    scope: "dovecote:notify",
+    scope: scopes.join(" "),
+    tokenScopes: scopes,
     state: "s",
     userId: "alice",
     label,
@@ -183,4 +184,44 @@ test("/mcp answers 401 invalid_token for a grant whose props carry no tokenId", 
   await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
   const ctx = createMockExecutionCtx({ userId: "alice", scopes: ["dovecote:notify"], authMethod: "api_token" });
   expectInvalidToken(await apiApp.fetch(toolsList("unused"), env, ctx as any));
+});
+
+// /v1/auth/exchange trades an OAuth access token for a new dvct token, so it
+// must honour the same binding or a revoked credential could mint a fresh one.
+const ADMIN = ["dovecote:admin", "dovecote:notify"];
+
+function exchange(accessToken: string): Request {
+  return new Request(`${BASE}/v1/auth/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ label: "cli" }),
+  });
+}
+
+test("/v1/auth/exchange still trades a grant whose dvct token is live", async () => {
+  const env = makeEnv();
+  const { accessToken, doFetch } = await authorize(env, undefined, ADMIN);
+  expect((await doFetch(exchange(accessToken))).status).toBe(201);
+});
+
+test("/v1/auth/exchange refuses a grant whose bound dvct token was revoked", async () => {
+  const env = makeEnv();
+  const { accessToken, tokenId, doFetch } = await authorize(env, undefined, ADMIN);
+  expect((await revokeToken({ tokenId, env }, env)).revoked).toBe(true);
+  const res = await doFetch(exchange(accessToken));
+  expect(res.status).toBe(401);
+});
+
+test("/v1/auth/exchange refuses a grant whose bound dvct token has expired", async () => {
+  const env = makeEnv();
+  const { accessToken, tokenId, doFetch } = await authorize(env, undefined, ADMIN);
+  await rewriteBoundToken(env, tokenId, { expiresAt: Date.now() - 1 });
+  expect((await doFetch(exchange(accessToken))).status).toBe(401);
+});
+
+test("/v1/auth/exchange refuses a grant whose bound dvct token belongs to another user", async () => {
+  const env = makeEnv();
+  const { accessToken, tokenId, doFetch } = await authorize(env, undefined, ADMIN);
+  await rewriteBoundToken(env, tokenId, { userId: "bob" });
+  expect((await doFetch(exchange(accessToken))).status).toBe(401);
 });
