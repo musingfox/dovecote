@@ -3,7 +3,7 @@
  * dovecote setup wizard
  *
  * Interactive walkthrough for first-time deployment + user seeding +
- * OAuth-client bootstrap. Targets the staging or production env defined
+ * minting a personal dvct_* CLI token. Targets the staging or production env defined
  * in wrangler.toml. Each step prints what it's about to do and lets you
  * skip / re-run.
  *
