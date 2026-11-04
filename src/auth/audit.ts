@@ -23,7 +23,9 @@ export type AuditEvent =
   | (AuditCommon & { event: "admin.bootstrap"; clientName: string; tokenId?: string })
   // Send notification. userId/channel are optional for failure paths that
   // can occur before request body parsing (e.g. notify rate limiting).
-  | (AuditCommon & { event: "notify.send"; userId?: string; channel?: string })
+  // `label` snapshots the dvct token's label at send time: the token record
+  // is deleted on revoke, the audit entry is kept 90 days.
+  | (AuditCommon & { event: "notify.send"; userId?: string; channel?: string; label?: string })
   // Issue a new API token (NEW) — userId/tokenId/scopes optional on failure paths
   // (e.g., 403 before reading body, 429 before issuing) per PR-E
   | (AuditCommon & { event: "token.issue"; userId?: string; tokenId?: string; scopes?: string[] })
@@ -72,6 +74,7 @@ const FREE_TEXT_FIELDS = [
   "clientName",
   "route",
   "issuer",
+  "label",
 ] as const;
 
 /**

@@ -245,6 +245,27 @@ test("writeAudit sanitizes channel field with newline", async () => {
   consoleLogSpy.mockRestore();
 });
 
+test("writeAudit sanitizes the operator-chosen label on notify.send", () => {
+  const env: Env = { OAUTH_KV: new MockKV() as any, HMAC_PEPPER: "test-pepper" };
+  const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as any;
+  const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+
+  writeAudit(env, ctx, {
+    event: "notify.send",
+    userId: "operator",
+    label: 'ci\n"x"\u0001',
+    ok: true,
+    authMethod: "api_token",
+    ip: "1.2.3.4",
+    scope: "dovecote:notify",
+  });
+
+  const raw = consoleLogSpy.mock.calls[0]![0] as string;
+  consoleLogSpy.mockRestore();
+  expect(raw.includes("\n")).toBe(false);
+  expect(JSON.parse(raw).label).toBe('ci\\n\\"x\\"\\u0001');
+});
+
 test("writeAudit does not sanitize userId (structured field, not free-text)", async () => {
   const mockKV = new MockKV();
   const promises: Promise<any>[] = [];

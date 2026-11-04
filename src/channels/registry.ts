@@ -125,6 +125,8 @@ export async function getChannelConfigs(env: Env): Promise<ChannelConfig[]> {
   return configs;
 }
 
+export const UNKNOWN_CHANNEL_ERROR = "Unknown channel";
+
 export async function sendToChannel(
   channelId: string,
   content: MessageContent,
@@ -136,7 +138,7 @@ export async function sendToChannel(
     return {
       success: false,
       channel: channelId,
-      error: "Unknown channel",
+      error: UNKNOWN_CHANNEL_ERROR,
     };
   }
 
@@ -145,7 +147,7 @@ export async function sendToChannel(
     return {
       success: false,
       channel: channelId,
-      error: "Unknown channel",
+      error: UNKNOWN_CHANNEL_ERROR,
     };
   }
 

@@ -187,10 +187,10 @@ test("C7: send_notification forbidden with >256 char channel → audit channel c
 });
 
 // ============================================================
-// C2: scope-pass behavior unchanged — no notify.send audit
+// C2: scope-pass sends record their outcome in notify.send
 // ============================================================
 
-test("C2: send_notification scope-pass, unknown channel → isError but no notify.send audit", async () => {
+test("C2: send_notification scope-pass, unknown channel → isError and notify.send ok:false unknown_channel", async () => {
   // Env with no channel configuration so any channel is unknown
   const kv = new MockKV();
   const env: Env = {
@@ -219,17 +219,16 @@ test("C2: send_notification scope-pass, unknown channel → isError but no notif
   // Must NOT be the scope-guard message
   expect(text).not.toBe("Forbidden: missing scope dovecote:notify");
 
-  // Must NOT have any notify.send audit
   const logCalls = consoleLogSpy.mock.calls
     .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
     .map((call) => JSON.parse(call[0]));
   const auditLog = logCalls.find((log: any) => log.event === "notify.send");
-  expect(auditLog).toBeUndefined();
+  expect(auditLog).toMatchObject({ ok: false, reason: "unknown_channel", userId: "user-pass", channel: "discord-x" });
 
   consoleLogSpy.mockRestore();
 });
 
-test("C2: send_notification scope-pass with stub channel → success, no notify.send audit", async () => {
+test("C2: send_notification scope-pass with stub channel → success and notify.send ok:true", async () => {
   // Use a real Discord channel in env and mock globalThis.fetch to return success
   const webhookUrl = "https://discord.com/api/webhooks/999/stubtoken";
   const kv = new MockKV();
@@ -272,12 +271,12 @@ test("C2: send_notification scope-pass with stub channel → success, no notify.
   expect(parsed.channel).toBe("discord-stub");
   expect(parsed.messageId).toBeDefined();
 
-  // Must NOT have any notify.send audit
   const logCalls = consoleLogSpy.mock.calls
     .filter((call) => { try { JSON.parse(call[0]); return true; } catch { return false; } })
     .map((call) => JSON.parse(call[0]));
   const auditLog = logCalls.find((log: any) => log.event === "notify.send");
-  expect(auditLog).toBeUndefined();
+  expect(auditLog).toMatchObject({ ok: true, userId: "user-stub", channel: "discord-stub" });
+  expect(auditLog.reason).toBeUndefined();
 
   consoleLogSpy.mockRestore();
 });

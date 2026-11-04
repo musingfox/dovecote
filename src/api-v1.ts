@@ -3,7 +3,7 @@ import type { Env } from "./types.js";
 import type { AuthCtx } from "./auth/ctx.js";
 import type { ExecutionContext, KVNamespace } from "@cloudflare/workers-types";
 import type { MessageContent } from "./channels/types.js";
-import { sendNotification as _sendNotification } from "./services/notifications.js";
+import { sendNotification as _sendNotification, recordNotifySend } from "./services/notifications.js";
 import { listChannels as _listChannels } from "./services/channels.js";
 import { ScopeError, NotFoundError, UpstreamError } from "./services/errors.js";
 import { messageContentSchema } from "./contracts/notifications.js";
@@ -100,7 +100,6 @@ export function createV1App(services: V1Services) {
     const env = c.env;
     const ctx = c.executionCtx as ExecutionContext;
     const ip = auth.ip;
-    const scope = auth.scopes.join(" ");
 
     const rl = await services.checkRateLimit(
       env.OAUTH_KV,
@@ -109,15 +108,7 @@ export function createV1App(services: V1Services) {
       parseNotifyLimit(env.NOTIFY_RATE_LIMIT_PER_MINUTE)
     );
     if (!rl.allowed) {
-      writeAudit(env, ctx, {
-        event: "notify.send",
-        ok: false,
-        reason: "rate_limited",
-        userId: auth.userId,
-        authMethod: auth.authMethod,
-        ip,
-        scope,
-      });
+      recordNotifySend(env, ctx, auth, { ok: false, reason: "rate_limited" });
       return c.json(
         { error: "rate_limited", error_description: "Too many requests" },
         429,
@@ -129,11 +120,14 @@ export function createV1App(services: V1Services) {
     try {
       body = await c.req.json();
     } catch {
+      recordNotifySend(env, ctx, auth, { ok: false, reason: "invalid_json" });
       return c.json({ error: "invalid_request", error_description: "Invalid JSON" }, 400);
     }
 
+    const channel = typeof body.channel === "string" ? body.channel : undefined;
     const result = messageContentSchema.safeParse(body.content);
     if (!result.success) {
+      recordNotifySend(env, ctx, auth, { ok: false, reason: "invalid_request", channel });
       const errorMessage = result.error.issues[0]?.message || "Invalid request";
       return c.json(
         { error: "invalid_request", error_description: errorMessage },
@@ -141,7 +135,8 @@ export function createV1App(services: V1Services) {
       );
     }
 
-    if (typeof body.channel !== "string") {
+    if (channel === undefined) {
+      recordNotifySend(env, ctx, auth, { ok: false, reason: "invalid_request" });
       return c.json(
         { error: "invalid_request", error_description: "channel must be a string" },
         400
@@ -150,7 +145,7 @@ export function createV1App(services: V1Services) {
 
     try {
       const sendResult: SendResult = await services.sendNotification(env, auth, ctx!, {
-        channel: body.channel,
+        channel,
         content: body.content,
       });
 
