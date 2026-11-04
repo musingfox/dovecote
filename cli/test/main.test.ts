@@ -10,7 +10,7 @@ test("runMain: --version prints version", async () => {
     stderr: () => {},
   });
   expect(code).toBe(ExitCode.OK);
-  expect(out.join("")).toContain("0.1.0");
+  expect(out.join("")).toContain("0.2.0");
 });
 
 test("runMain: 'help' command prints help text", async () => {

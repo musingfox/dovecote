@@ -1,7 +1,7 @@
 /**
  * CLI version. Kept in sync with cli/package.json by release tooling.
  */
-export const CLI_VERSION = "0.1.0";
+export const CLI_VERSION = "0.2.0";
 
 /**
  * Compare two semver-like strings (major.minor.patch). Returns:
