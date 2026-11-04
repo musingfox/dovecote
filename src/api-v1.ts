@@ -124,6 +124,14 @@ export function createV1App(services: V1Services) {
       return c.json({ error: "invalid_request", error_description: "Invalid JSON" }, 400);
     }
 
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      recordNotifySend(env, ctx, auth, { ok: false, reason: "invalid_request" });
+      return c.json(
+        { error: "invalid_request", error_description: "Body must be a JSON object" },
+        400
+      );
+    }
+
     const channel = typeof body.channel === "string" ? body.channel : undefined;
     const result = messageContentSchema.safeParse(body.content);
     if (!result.success) {

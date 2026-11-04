@@ -158,6 +158,29 @@ test("REST /v1/notify: a channel that is not a string writes notify.send ok:fals
   expect(audits[0].channel).toBeUndefined();
 });
 
+for (const body of ["null", "[]", '"x"', "3"]) {
+  test(`REST /v1/notify: a JSON ${body} body answers 400 invalid_request and writes notify.send`, async () => {
+    const env = await makeEnv();
+    const { token, tokenId } = await issueToken({ userId: "alice", scopes: ["dovecote:notify"], label: LABEL }, env);
+    const ctx = createMockExecutionCtx();
+    const res = await app.fetch(
+      new Request(`${BASE}/v1/notify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body,
+      }),
+      env,
+      ctx as any,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("invalid_request");
+    await Promise.all(ctx._promises);
+    const audits = await notifySends(env);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ ok: false, reason: "invalid_request", tokenId, label: LABEL });
+  });
+}
+
 // The channel adapters turn delivery failures into success:false, so the
 // internal_error path is reached by the channel lookup itself throwing.
 test("MCP send_notification: a send that throws writes one notify.send ok:false internal_error", async () => {
