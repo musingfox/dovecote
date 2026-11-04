@@ -32,7 +32,7 @@ Pin to the tag (`@cli-v0.1.0`) rather than a moving ref. Each CLI release ships 
 
 | Secret | Where to set | Purpose |
 |---|---|---|
-| `DOVECOTE_TOKEN` | repo / org secret (not needed in OIDC mode, see below) | Runtime token (`dvct_...`) used by `dovecote notify`, `dovecote ping`, etc. Pass it as `with: token:`; the action exports it to `$GITHUB_ENV` for later steps. A step-level `env:` on the action step does not reach later steps. |
+| `DOVECOTE_TOKEN` | repo / org secret (not needed in OIDC mode, see below) | Runtime token (`dvct_...`) used by `dovecote notify`, `dovecote channels list`, etc. Pass it as `with: token:`; the action exports it to `$GITHUB_ENV` for later steps. A step-level `env:` on the action step does not reach later steps. |
 | `DOVECOTE_SERVER_URL` | repo / org secret OR action `with.server-url` | Base URL of the deployed worker. Inline `with.server-url` overrides the env var. |
 
 `DOVECOTE_TOKEN` is sensitive — store it as a GitHub Actions secret, never inline it. The action exports it via `$GITHUB_ENV` so it stays scoped to the job.
@@ -126,13 +126,12 @@ Code signing is tracked in [ADR 0004](./decisions/0004-cli-binary-signing-direct
 - Composite-action input defaults cannot reference `${{ env.* }}` — GitHub validates input defaults at template-resolution time before env is populated.
 - Fixed in `cli-v0.1.0`. If you see it on an older ref, bump the pin.
 
-`dovecote ping` probes the unauthenticated `/health` endpoint, so it succeeds even without a token. Use `dovecote channels list` to check the token.
-
-### `dovecote channels list` (or `notify`) returns 401 but `dovecote ping` works
+### `dovecote notify` fails with `status=401` but `dovecote ping` works
+- `dovecote ping` probes the unauthenticated `/health` endpoint, so it succeeds even without a token. `dovecote tokens list --remote` checks the token: it exits 9 (`Session expired`) on any 401. `dovecote channels list` is not a check, because it prints `No channels configured.` on a 401.
 - The CLI installed but `DOVECOTE_TOKEN` was not exported into the step's env. Verify the secret is set on the repo / org AND that it was passed as the `with: token:` input. A step-level `env: DOVECOTE_TOKEN:` on the action step only reaches the action's own steps, not the later `dovecote` steps.
 
-### `dovecote channels list` 401 + token looks correct
-- The token may have expired (90d cap). Inspect with `dovecote tokens list --remote` from a workstation; rotate per the Token provisioning section.
+### `dovecote notify` 401 + token looks correct
+- The token may have been revoked or expired (90d cap). Inspect with `dovecote tokens list --remote` from a workstation; rotate per the Token provisioning section.
 
 ## See also
 

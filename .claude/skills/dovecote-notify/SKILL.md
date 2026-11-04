@@ -36,7 +36,7 @@ test -f ~/.config/dovecote/config.json   # must succeed
 dovecote ping         # exits 0 with "OK: <url> (server v<n>, client v<n>)"
 ```
 
-`dovecote ping` does not send the token, so it cannot tell you whether the token is valid. `dovecote channels list` in Step 1 does: if it fails with 401 / `invalid_token` or `expired_token`, the token is dead — tell the user to re-mint via `bun run setup -- --env <env> --resume` (without `--env` the wizard targets staging).
+`dovecote ping` does not send the token, so it cannot tell you whether the token is valid. `dovecote tokens list --remote` does: it exits 9 with "Session expired" on any 401. Do not rely on `channels list` for this — with a revoked token it prints `No channels configured.` and exits 0. If the token is dead, tell the user to re-mint via `bun run setup -- --env <env> --resume` (without `--env` the wizard targets staging).
 
 ## Step 1 — Discover channels
 
@@ -104,7 +104,7 @@ Successful exit prints `Sent: messageId=<id> channel=<channel-id>` and exits 0.
 | `Channel not found: <channel-id>` (exit 4) | Channel id wrong, **or** the provider refused the message (the server answers 404 for both) | Re-run `channels list`. If the id is not listed, pick a valid one. If it is listed, the provider refused: tell the user to check the Telegram bot is still in the chat, or that the Discord webhook still exists (regenerate it and re-run `bun run channel:add -- --env <env> --force`) |
 | `status=429` / `rate_limited` | Hit the per-IP notify rate limit (default 60/min) | Without `--retry N` the CLI does not retry. Wait ~60s then retry **once** (or pass `--retry 2`, which honors `Retry-After`), no more |
 | `status=401` / `invalid_token`, or an expired-token message (exit 9) | Token revoked or expired (90d cap), or HMAC_PEPPER rotated | Tell user to run `bun run setup -- --env <env> --resume` in the dovecote repo |
-| Connection refused / DNS error | Worker down or URL wrong | Tell user to run `dovecote ping` and check `wrangler tail --env <env>` |
+| Connection refused / DNS error | Worker down or URL wrong | Tell user to run `dovecote ping` and check `bunx wrangler tail --env <env>` in the dovecote repo |
 
 Do not loop-retry indefinitely. One retry for clearly-transient failures (rate_limited only) is the max.
 
