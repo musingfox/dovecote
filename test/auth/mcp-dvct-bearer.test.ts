@@ -1,6 +1,6 @@
 import { test, expect, mock, afterEach } from "bun:test";
 import app from "../../src/index.js";
-import { DEFAULT_TTL_SECONDS, issueToken, revokeToken } from "../../src/auth/api-token.js";
+import { DEFAULT_TTL_SECONDS, KV_HASH_NAMESPACE, issueToken, revokeToken } from "../../src/auth/api-token.js";
 import type { Env } from "../../src/types.js";
 import { MockKV } from "../helpers/mock-kv.js";
 import { createMockExecutionCtx } from "../helpers/mock-execution-ctx.js";
@@ -40,6 +40,14 @@ async function run(env: Env, req: Request): Promise<{ res: Response; body: strin
   return { res, body };
 }
 
+// Unlike run(), leaves the body unread for the caller to parse.
+async function rawRun(env: Env, req: Request): Promise<Response> {
+  const ctx = createMockExecutionCtx();
+  const res = await app.fetch(req, env, ctx as any);
+  await Promise.all(ctx._promises);
+  return res;
+}
+
 function mcp(bearer: string, payload: object): Request {
   return new Request(`${BASE}/mcp`, {
     method: "POST",
@@ -69,6 +77,16 @@ async function notifySends(env: Env): Promise<any[]> {
   const listed = await kv.list({ prefix: "audit:" });
   const entries = await Promise.all(listed.keys.map(({ name }) => kv.get(name, "json")));
   return entries.filter((e: any) => e.event === "notify.send");
+}
+
+// The resolver in src/index.ts refuses a dvct bearer before src/api.ts sees
+// it; the provider then answers "Invalid access token". src/api.ts refuses
+// with its own descriptions, so the description names the layer that refused.
+const RESOLVER_REFUSAL = "Invalid access token";
+
+async function expectRefusedByResolver(res: Response) {
+  expectInvalidToken(res);
+  expect(((await res.json()) as { error_description: string }).error_description).toBe(RESOLVER_REFUSAL);
 }
 
 function expectInvalidToken(res: Response) {
@@ -113,24 +131,49 @@ test("/mcp answers 401 invalid_token to a revoked dvct bearer", async () => {
   const env = await makeEnv();
   const { token, tokenId } = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
   expect((await revokeToken({ tokenId, env }, env)).revoked).toBe(true);
-  expectInvalidToken((await run(env, toolsList(token))).res);
+  await expectRefusedByResolver(await rawRun(env, toolsList(token)));
 });
 
 test("/mcp answers 401 invalid_token to an expired dvct bearer", async () => {
   const env = await makeEnv();
   const issuedLongAgo = Date.now() - DEFAULT_TTL_SECONDS * 1000 - 1;
   const { token } = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env, issuedLongAgo);
-  expectInvalidToken((await run(env, toolsList(token))).res);
+  await expectRefusedByResolver(await rawRun(env, toolsList(token)));
 });
 
 test("/mcp answers 401 invalid_token to a well-formed dvct bearer that was never issued", async () => {
   const env = await makeEnv();
-  expectInvalidToken((await run(env, toolsList("dvct_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))).res);
+  await expectRefusedByResolver(await rawRun(env, toolsList("dvct_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")));
 });
 
 test("/mcp answers 401 invalid_token to a bearer that is not a dvct token", async () => {
   const env = await makeEnv();
-  expectInvalidToken((await run(env, toolsList("not-a-token"))).res);
+  await expectRefusedByResolver(await rawRun(env, toolsList("not-a-token")));
+});
+
+test("/mcp answers 401 invalid_token when the tokenId record is kept but the hash record is gone", async () => {
+  const env = await makeEnv();
+  const { token, tokenId } = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  const kv = env.OAUTH_KV as unknown as MockKV;
+  const hashKeys = (await kv.list({ prefix: KV_HASH_NAMESPACE })).keys;
+  expect(hashKeys).toHaveLength(1);
+  await kv.delete(hashKeys[0]!.name);
+  expect(await kv.get(`apitoken:${tokenId}`)).not.toBeNull();
+  await expectRefusedByResolver(await rawRun(env, toolsList(token)));
+});
+
+test("/mcp answers 500 without echoing the bearer when the resolver's KV read fails", async () => {
+  const env = await makeEnv();
+  const { token } = await issueToken({ userId: "alice", scopes: ["dovecote:notify"] }, env);
+  const kv = env.OAUTH_KV as unknown as MockKV;
+  const realGet = kv.get.bind(kv);
+  kv.get = (async (key: string, options?: any) => {
+    if (key.startsWith(KV_HASH_NAMESPACE)) throw new Error("KV unavailable");
+    return realGet(key, options);
+  }) as MockKV["get"];
+  const res = await rawRun(env, toolsList(token));
+  expect(res.status).toBe(500);
+  expect(await res.text()).not.toContain(token);
 });
 
 test("send_notification refuses a dvct bearer without dovecote:notify exactly as it refuses such an OAuth grant", async () => {
