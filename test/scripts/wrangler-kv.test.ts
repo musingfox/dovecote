@@ -64,6 +64,9 @@ test("WizardLocalTokenMint T2: issueToken over the adapter mints dvct_* via exac
   expect(keys[0]!.startsWith("apitoken:")).toBe(true);
   expect(keys[1]!.startsWith("apitoken_hash:")).toBe(true);
   expect(keys[2]!.startsWith("apitoken_user:u1:")).toBe(true);
+  // the user-index value is "" — wrangler 4.81 refuses it positionally
+  expect(calls[2]![7]).toBe("--path");
+  expect(calls[0]![7]).not.toBe("--path");
   // every write carries the TTL and targets the right env
   for (const argv of calls) {
     expect(argv).toContain("--remote");
@@ -88,6 +91,52 @@ test("makeWranglerKv: onWrite progress hook fires per key", async () => {
   const kv = makeWranglerKv("production", runner, (key) => seen.push(key));
   await kv.put("apitoken:z", "{}", { expirationTtl: 60 });
   expect(seen).toEqual(["apitoken:z"]);
+});
+
+test("WizardLocalTokenMint: an empty value is written via --path to an empty temp file, removed afterwards", async () => {
+  let fileSeen: { path: string; exists: boolean; size: number } | undefined;
+  const calls: string[][] = [];
+  const runner: WranglerRunner = async (args) => {
+    calls.push(args);
+    const path = args[args.indexOf("--path") + 1]!;
+    const f = Bun.file(path);
+    fileSeen = { path, exists: await f.exists(), size: f.size };
+    return { code: 0 };
+  };
+  const kv = makeWranglerKv("staging", runner);
+  await kv.put("apitoken_user:u1:t1", "", { expirationTtl: 60 });
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toEqual([
+    "kv",
+    "key",
+    "put",
+    "--remote",
+    "--binding",
+    "OAUTH_KV",
+    "apitoken_user:u1:t1",
+    "--path",
+    fileSeen!.path,
+    "--ttl",
+    "60",
+    "--env",
+    "staging",
+  ]);
+  expect(fileSeen!.exists).toBe(true);
+  expect(fileSeen!.size).toBe(0);
+  expect(await Bun.file(fileSeen!.path).exists()).toBe(false);
+});
+
+test("WizardLocalTokenMint: the empty-value temp file is removed even when wrangler fails", async () => {
+  let path = "";
+  const runner: WranglerRunner = (args) => {
+    path = args[args.indexOf("--path") + 1]!;
+    return { code: 1, stderr: "boom" };
+  };
+  const kv = makeWranglerKv("staging", runner);
+  await expect(kv.put("k", "")).rejects.toThrow(/k/);
+  expect(path).not.toBe("");
+  expect(await Bun.file(path).exists()).toBe(false);
 });
 
 // ---------- WranglerKvGetRecord ----------

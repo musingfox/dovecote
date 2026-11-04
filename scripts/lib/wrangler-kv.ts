@@ -11,6 +11,10 @@
  * The TTL flag is `--ttl <seconds>` — wrangler 4.x has no `--expiration-ttl`.
  */
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 export interface WranglerRunResult {
   code: number;
   stdout?: string;
@@ -77,21 +81,29 @@ export function makeWranglerKv(
   return {
     async put(key, value, options) {
       onWrite?.(key);
-      const args = [
-        "kv",
-        "key",
-        "put",
-        "--remote",
-        "--binding",
-        "OAUTH_KV",
-        key,
-        value,
-      ];
+      // wrangler 4.81 rejects an empty positional value ("Exactly one of the
+      // arguments value and path is required"), so "" goes through --path.
+      const emptyDir = value === "" ? await mkdtemp(join(tmpdir(), "dvct-kv-")) : undefined;
+      const args = ["kv", "key", "put", "--remote", "--binding", "OAUTH_KV", key];
+      if (emptyDir === undefined) {
+        args.push(value);
+      } else {
+        const emptyFile = join(emptyDir, "empty");
+        await writeFile(emptyFile, "");
+        args.push("--path", emptyFile);
+      }
       if (options?.expirationTtl !== undefined) {
         args.push("--ttl", String(options.expirationTtl));
       }
       args.push("--env", envName);
-      const res = await runner(args);
+      let res: WranglerRunResult;
+      try {
+        res = await runner(args);
+      } finally {
+        if (emptyDir !== undefined) {
+          await rm(emptyDir, { recursive: true, force: true });
+        }
+      }
       if (res.code !== 0) {
         throw new Error(
           `wrangler kv key put failed for ${key} (exit ${res.code})${res.stderr ? `: ${res.stderr.trim()}` : ""}`,
