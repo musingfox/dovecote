@@ -25,13 +25,14 @@ jobs:
             runner: ubuntu-latest
             archive: tar.gz
             binary: dovecote
+          # No macOS runners: hosted macOS arm64 capacity left jobs unacquired for
+          # 15 min until GitHub cancelled them (three times for 0.2.0), and bun
+          # cross-compiles both darwin targets from Linux.
           - target: bun-darwin-x64
-            runner: macos-latest
+            runner: ubuntu-latest
             archive: tar.gz
             binary: dovecote
           - target: bun-darwin-arm64
-            # macos-latest never picked this job up (queued 15 min, cancelled, twice);
-            # bun cross-compiles an ad-hoc-signed Mach-O that runs on Apple Silicon.
             runner: ubuntu-latest
             archive: tar.gz
             binary: dovecote
